@@ -52,3 +52,11 @@ export function startCheckout() {
 export function loginWith(provider, idToken) {
   return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken }) });
 }
+
+export function fetchTrips() {
+  return api("/v1/trips");
+}
+
+export function putTrips(trips) {
+  return api("/v1/trips", { method: "PUT", body: JSON.stringify({ trips }) });
+}

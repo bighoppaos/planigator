@@ -24,13 +24,12 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, geocodeAddress, truckRoute, startCheckout, loginWith } from "./api.js";
+import { creditsMe, geocodeAddress, truckRoute, startCheckout, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
-let hosBoxOpen = true;
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
 
 function pad(n) {
@@ -232,7 +231,19 @@ function dateChip({ id = "", field = "", ms }) {
 }
 
 function timeChip(id, minutes) {
-  return `<span class="date-chip"><span class="date-chip-text">${escapeAttr(formatClockMinutes(minutes))}</span><input id="${id}" type="time" value="${minutesToTime(minutes)}"></span>`;
+  return `<button type="button" class="wheel-chip time-open" data-time="${id}" data-minutes="${minutes}">${escapeAttr(formatClockMinutes(minutes))}</button>`;
+}
+
+function calculateCreditCount() {
+  const geocodes = state.stops.filter((stop) => !stop.useCurrentLocation).length;
+  const legs = Math.max(0, state.stops.length - 1);
+  return geocodes + legs;
+}
+
+function calculateButtonLabel() {
+  if (state.estimating) return "Asking HERE…";
+  const count = calculateCreditCount();
+  return `Calculate · ${count} credit${count === 1 ? "" : "s"}`;
 }
 
 const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
@@ -349,7 +360,16 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   state.error = "";
   if (!silent) {
     saveTrip();
-    state.notice = `HERE truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
+    if (state.signedIn) {
+      try {
+        await putTrips(state.trips);
+        state.notice = `HERE truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
+      } catch (error) {
+        state.notice = error.message || "Saved on this device. The account copy did not update.";
+      }
+    } else {
+      state.notice = `HERE truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
+    }
   }
   if (!skipHash) writeShareHash();
   render();
@@ -396,11 +416,37 @@ function loadTrip(id) {
   calculate({ silent: true });
 }
 
-function deleteTrip(id) {
+async function deleteTrip(id) {
   state.trips = state.trips.filter((trip) => trip.id !== id);
   if (state.activeTripId === id) state.activeTripId = null;
   persist();
+  if (state.signedIn) {
+    try {
+      await putTrips(state.trips);
+    } catch (error) {
+      state.error = error.message || "Removed here. The account copy did not update.";
+    }
+  }
   render();
+}
+
+async function pullAccountTrips() {
+  if (!state.signedIn) return;
+  try {
+    const data = await fetchTrips();
+    const remote = Array.isArray(data.trips) ? data.trips : [];
+    const byId = new Map();
+    for (const trip of [...remote, ...state.trips]) {
+      if (!trip?.id) continue;
+      const prev = byId.get(trip.id);
+      if (!prev || (trip.savedAt || 0) >= (prev.savedAt || 0)) byId.set(trip.id, trip);
+    }
+    state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
+    persist();
+    await putTrips(state.trips);
+  } catch {
+    // Keep the trips already on this device.
+  }
 }
 
 function addStop(afterId) {
@@ -658,6 +704,7 @@ function mountAuth() {
         callback: async ({ credential }) => {
           try {
             applyAccount(await loginWith("google", credential));
+            await pullAccountTrips();
             state.notice = "Signed in with Google.";
             render();
           } catch (error) {
@@ -690,6 +737,7 @@ function mountAuth() {
       const idToken = result?.authorization?.id_token;
       if (!idToken) throw new Error("Apple did not return a sign-in token.");
       applyAccount(await loginWith("apple", idToken));
+      await pullAccountTrips();
       state.notice = "Signed in with Apple.";
       render();
     } catch (error) {
@@ -871,7 +919,7 @@ function authBlock() {
     return `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}.</p>`;
   }
   if (!state.googleClientId && !state.appleClientId) {
-    return `<p class="fine">Sign in with Apple or Google for 12 free credits. A new browser or VPN does not get a free pile.</p>`;
+    return `<p class="fine">Sign in with Apple or Google for 12 free credits.</p>`;
   }
   return `
     <div class="auth-row">
@@ -888,14 +936,15 @@ export function initPlanner(el) {
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   applyShareFromLocation();
   render();
-  refreshCredits().then(() => render());
+  refreshCredits().then(async () => {
+    await pullAccountTrips();
+    render();
+  });
 }
 
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
-  const openBox = root.querySelector(".hos details");
-  if (openBox) hosBoxOpen = openBox.open;
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
   const destCards = state.stops
@@ -905,14 +954,11 @@ function render() {
   const maps = directionsUrl();
   root.innerHTML = `
     <section class="hero card">
-      <p class="eyebrow">Truck trip clock</p>
-      <h1>Planigator</h1>
-      <p>Type pickup and drop. Get a HERE truck-legal route, leave-by, 30s, 10-hour rests, and leeway. It stays in this browser. Share the link with anyone — iPhone or Android.</p>
+      <p>Get a HERE truck-legal route, leave-by, 30s, 10-hour rests, and leeway. It stays in this browser. Share the link with anyone — iPhone or Android.</p>
     </section>
 
     <section class="card hos">
-      <details class="hos-box"${hosBoxOpen ? " open" : ""}>
-        <summary>HOS <span class="muted">${escapeAttr(hosSummary())}</span></summary>
+      <h2>Trip Settings</h2>
         <div class="setting">
           <label for="governed">Governed</label>
           <span class="setting-control">
@@ -950,12 +996,10 @@ function render() {
           <span>Kilometers</span>
           <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
         </label>
-      </details>
     </section>
 
     <section class="card origin">
-      <h2>Start</h2>
-      <p class="muted">Pickup → drop unless you start from here.</p>
+      <h2>Start Location</h2>
       <p>${origin && state.origin
         ? `Routing from ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}`
         : origin
@@ -963,7 +1007,7 @@ function render() {
           : "Type the first city, or use your location."}</p>
       <div class="stack">
         <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
-        ${origin ? `<button type="button" class="secondary" id="fromAddress">Start from an address</button>` : ""}
+        <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
       ${state.locationError ? `<p class="error">${escapeAttr(state.locationError)}</p>` : ""}
@@ -981,12 +1025,10 @@ function render() {
       </label>
       ${authBlock()}
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating ? "disabled" : ""}>${state.estimating ? "Asking HERE…" : "Calculate"}</button>
-        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : `Buy 124 credits — $${(state.packPriceCents / 100).toFixed(2)}`}</button>
+        <button type="button" class="primary" id="calculate" ${state.estimating ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
       </div>
-      <p class="fine">${state.signedIn
-        ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left.`
-        : "No free credits until you sign in."} Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. One credit is priced at 3× a HERE call. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.signedIn ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
@@ -1012,8 +1054,8 @@ function render() {
     ` : ""}
 
     <section class="card trips">
-      <h2>Trips on this device</h2>
-      ${state.trips.length === 0 ? `<p class="muted">Calculate saves the trip here. Clearing site data deletes them. Nothing is uploaded. A share link puts the trip in the URL so the other person does not need your browser.</p>` : ""}
+      <h2>${state.signedIn ? "Trips on this account" : "Trips on this device"}</h2>
+      ${state.trips.length === 0 ? `<p class="muted">${state.signedIn ? "Calculate saves the trip on the account you signed in with." : "Calculate saves the trip in this browser. Sign in and the next save stays on that account."}</p>` : ""}
       <ul>
         ${state.trips.map((trip) => `
           <li class="${trip.id === state.activeTripId ? "active" : ""}">
@@ -1038,8 +1080,6 @@ function bindSettings() {
     ["hoursBeforeThirty", (el) => { state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(el.value) || 8)); }],
     ["leaveNow", (el) => { state.settings.leaveNow = el.checked; }],
     ["leaveAt", (el) => { state.settings.leaveAt = fromDateTimeLocal(el.value); }],
-    ["startTime", (el) => { state.settings.startMinutes = timeToMinutes(el.value); }],
-    ["endTime", (el) => { state.settings.endMinutes = timeToMinutes(el.value); }],
     ["endAnytime", (el) => { state.settings.endAnytime = el.checked; }],
     ["military", (el) => { state.settings.military = el.checked; }],
     ["kilometers", (el) => { state.settings.kilometers = el.checked; }],
@@ -1064,12 +1104,119 @@ function bindSettings() {
   });
 }
 
-function bind() {
-  const hosBox = $(".hos-box");
-  hosBox?.addEventListener("toggle", () => {
-    hosBoxOpen = hosBox.open;
+function closeTimeSheet() {
+  document.querySelector(".time-sheet")?.remove();
+}
+
+function fillTimeColumn(col, values, current, label) {
+  values.forEach((value) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "time-opt";
+    button.dataset.value = String(value);
+    button.textContent = label(value);
+    if (String(value) === String(current)) button.classList.add("on");
+    button.addEventListener("click", () => {
+      col.querySelectorAll(".time-opt").forEach((item) => item.classList.toggle("on", item === button));
+      const top = button.offsetTop - col.clientHeight / 2 + button.offsetHeight / 2;
+      col.scrollTo({ top, behavior: "smooth" });
+    });
+    col.appendChild(button);
   });
+}
+
+function markCenteredTime(col) {
+  const mid = col.scrollTop + col.clientHeight / 2;
+  let best = null;
+  let bestDist = Infinity;
+  col.querySelectorAll(".time-opt").forEach((opt) => {
+    const center = opt.offsetTop + opt.offsetHeight / 2;
+    const dist = Math.abs(center - mid);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = opt;
+    }
+  });
+  if (!best) return;
+  col.querySelectorAll(".time-opt").forEach((opt) => opt.classList.toggle("on", opt === best));
+}
+
+function centerTimeColumn(col) {
+  const on = col.querySelector(".on");
+  if (!on) return;
+  col.scrollTop = on.offsetTop - col.clientHeight / 2 + on.offsetHeight / 2;
+}
+
+function openTimeSheet(id, minutes) {
+  closeTimeSheet();
+  const military = state.settings.military;
+  const hour24 = Math.trunc(Math.max(0, minutes) / 60) % 24;
+  const minute = Math.max(0, minutes) % 60;
+  const sheet = document.createElement("div");
+  sheet.className = "time-sheet";
+  sheet.innerHTML = `
+    <div class="time-sheet-card" role="dialog" aria-label="Pick a time">
+      <div class="time-wheels">
+        <div class="time-col" data-part="hour"></div>
+        <div class="time-col" data-part="minute"></div>
+        ${military ? "" : `<div class="time-col" data-part="ampm"></div>`}
+      </div>
+      <button type="button" class="primary" data-done>Done</button>
+    </div>
+  `;
+  const hourCol = sheet.querySelector("[data-part=hour]");
+  const minuteCol = sheet.querySelector("[data-part=minute]");
+  const hours = military
+    ? Array.from({ length: 24 }, (_, i) => i)
+    : Array.from({ length: 12 }, (_, i) => i + 1);
+  const shownHour = military ? hour24 : (hour24 % 12 || 12);
+  fillTimeColumn(hourCol, hours, shownHour, (value) => (military ? pad(value) : String(value)));
+  fillTimeColumn(minuteCol, Array.from({ length: 60 }, (_, i) => i), minute, (value) => pad(value));
+  const ampmCol = sheet.querySelector("[data-part=ampm]");
+  if (ampmCol) fillTimeColumn(ampmCol, ["AM", "PM"], hour24 >= 12 ? "PM" : "AM", (value) => value);
+  let settling = true;
+  sheet.querySelectorAll(".time-col").forEach((col) => {
+    col.addEventListener("scroll", () => {
+      if (settling) return;
+      markCenteredTime(col);
+    });
+  });
+  sheet.querySelector("[data-done]").addEventListener("click", () => {
+    const pickedHour = Number(hourCol.querySelector(".on")?.dataset.value);
+    const pickedMinute = Number(minuteCol.querySelector(".on")?.dataset.value);
+    let total = 0;
+    if (military) {
+      total = pickedHour * 60 + pickedMinute;
+    } else {
+      const ap = ampmCol?.querySelector(".on")?.dataset.value || "AM";
+      let hour = pickedHour % 12;
+      if (ap === "PM") hour += 12;
+      total = hour * 60 + pickedMinute;
+    }
+    if (id === "startTime") state.settings.startMinutes = total;
+    if (id === "endTime") state.settings.endMinutes = total;
+    persist();
+    closeTimeSheet();
+    if (state.plan) calculate({ silent: true });
+    else render();
+  });
+  sheet.addEventListener("click", (event) => {
+    if (event.target === sheet) closeTimeSheet();
+  });
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => {
+    sheet.querySelectorAll(".time-col").forEach(centerTimeColumn);
+    requestAnimationFrame(() => { settling = false; });
+  });
+}
+
+function bind() {
   bindSettings();
+  document.querySelectorAll("[data-time]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openTimeSheet(button.getAttribute("data-time"), Number(button.getAttribute("data-minutes")) || 0);
+    });
+  });
   mountAuth();
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#buyPack")?.addEventListener("click", () => buyPack());
