@@ -30,6 +30,7 @@ const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
+let locateWatchId = null;
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
 
 function pad(n) {
@@ -639,24 +640,11 @@ function applyLocatedOrigin(lat, lon, notice) {
   render();
 }
 
-function onLocateSuccess(pos) {
-  applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
-}
-
 function showLocateError(error) {
   state.locating = false;
   state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-  const code = error?.code;
-  if (code === 1) {
-    state.locationError = "This page was not allowed to use location (error 1).";
-  } else if (code === 2) {
-    state.locationError = "This browser could not get a Wi-Fi location (error 2).";
-  } else if (code === 3) {
-    state.locationError = "Location timed out (error 3).";
-  } else {
-    state.locationError = `Could not get a location (error ${code ?? "?"}).`;
-  }
+  state.locationError = `error ${error?.code ?? "?"}`;
   render();
 }
 
@@ -1276,11 +1264,21 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => {
-    navigator.geolocation.getCurrentPosition(
-      onLocateSuccess,
-      showLocateError,
-      { enableHighAccuracy: false, timeout: 60000, maximumAge: 0 }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        navigator.geolocation.clearWatch(id);
+        if (locateWatchId === id) locateWatchId = null;
+        applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
+      },
+      (error) => {
+        navigator.geolocation.clearWatch(id);
+        if (locateWatchId === id) locateWatchId = null;
+        showLocateError(error);
+      },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     );
+    if (locateWatchId != null) navigator.geolocation.clearWatch(locateWatchId);
+    locateWatchId = id;
     state.locating = true;
     state.locationError = "";
     state.locationNotice = "";
