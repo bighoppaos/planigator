@@ -106,6 +106,7 @@ function defaultState() {
       leaveAt: leave,
       startMinutes: DEFAULT_START_MINUTES,
       endMinutes: DEFAULT_END_MINUTES,
+      startAnytime: false,
       endAnytime: false,
       hoursOfEleven: LEGAL_MAX_DRIVE_HOURS,
       hoursBeforeThirty: DEFAULT_HOURS_BEFORE_THIRTY,
@@ -1023,9 +1024,13 @@ function hereLeg(stop) {
 function hosSummary() {
   const s = state.settings;
   const speed = s.governed ? `${s.governedMph || DEFAULT_MPH} mph` : "ungoverned 65";
-  const window = s.endAnytime
-    ? `${formatClockMinutes(s.startMinutes)} start`
-    : `${formatClockMinutes(s.startMinutes)}–${formatClockMinutes(s.endMinutes)}`;
+  const window = s.startAnytime && s.endAnytime
+    ? "anytime"
+    : s.startAnytime
+      ? `anytime–${formatClockMinutes(s.endMinutes)}`
+      : s.endAnytime
+        ? `${formatClockMinutes(s.startMinutes)} start`
+        : `${formatClockMinutes(s.startMinutes)}–${formatClockMinutes(s.endMinutes)}`;
   return `${speed} · ${s.hoursOfEleven} of 11 · 30 after ${s.hoursBeforeThirty} hr · ${window}`;
 }
 
@@ -1101,9 +1106,10 @@ function render() {
           <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
         </label>
         ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt })}</label>`}
+        ${s.startAnytime ? "" : `<label class="setting"><span>Start time each day</span>${timeChip("startTime", s.startMinutes)}</label>`}
         <label class="setting">
-          <span>Start time each day</span>
-          ${timeChip("startTime", s.startMinutes)}
+          <span>Start the day anytime</span>
+          <input type="checkbox" id="startAnytime" ${s.startAnytime ? "checked" : ""}>
         </label>
         ${s.endAnytime ? "" : `<label class="setting"><span>End time each day</span>${timeChip("endTime", s.endMinutes)}</label>`}
         <label class="setting">
@@ -1188,6 +1194,7 @@ function bindSettings() {
     ["leaveNow", (el) => { state.settings.leaveNow = el.checked; }],
     ["leaveAt", (el) => { state.settings.leaveAt = fromDateTimeLocal(el.value); }],
     ["endAnytime", (el) => { state.settings.endAnytime = el.checked; }],
+    ["startAnytime", (el) => { state.settings.startAnytime = el.checked; }],
     ["military", (el) => { state.settings.military = el.checked; }],
     ["kilometers", (el) => { state.settings.kilometers = el.checked; }],
     ["tripName", (el) => { state.tripName = el.value; persist(); }],

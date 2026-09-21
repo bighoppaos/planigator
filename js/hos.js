@@ -5,6 +5,7 @@ export const DEFAULT_START_MINUTES = 6 * 60;
 export const DEFAULT_END_MINUTES = 20 * 60;
 export const DEFAULT_HOURS_BEFORE_THIRTY = 8;
 export const ANYTIME_END_MINUTES = -1;
+export const ANYTIME_START_MINUTES = -1;
 export const DEFAULT_MPH = 65;
 export const SLEEP_HOURS = 8;
 export const PERSONAL_PREP_HOURS = 1;
@@ -22,6 +23,10 @@ export function clampedClockMinutes(minutes) {
 }
 
 export function isAnytimeEnd(minutes) {
+  return minutes < 0;
+}
+
+export function isAnytimeStart(minutes) {
   return minutes < 0;
 }
 
@@ -107,11 +112,15 @@ export function nextDailyEnd(minutes, after) {
 
 export function isInsideDriveWindow(dateMs, startMinutes, endMinutes) {
   if (isAnytimeEnd(endMinutes)) return true;
-  const start = clampedClockMinutes(startMinutes);
   const end = clampedClockMinutes(endMinutes);
-  if (start === end) return true;
   const date = new Date(dateMs);
   const mins = date.getHours() * 60 + date.getMinutes();
+  if (isAnytimeStart(startMinutes)) {
+    if (end === 0) return true;
+    return mins < end;
+  }
+  const start = clampedClockMinutes(startMinutes);
+  if (start === end) return true;
   if (start < end) return mins >= start && mins < end;
   return mins >= start || mins < end;
 }
@@ -119,16 +128,22 @@ export function isInsideDriveWindow(dateMs, startMinutes, endMinutes) {
 export function isPastDailyEnd(dateMs, startMinutes, endMinutes) {
   if (isAnytimeEnd(endMinutes)) return false;
   if (isInsideDriveWindow(dateMs, startMinutes, endMinutes)) return false;
-  const start = clampedClockMinutes(startMinutes);
   const end = clampedClockMinutes(endMinutes);
-  if (start === end) return false;
   const date = new Date(dateMs);
   const mins = date.getHours() * 60 + date.getMinutes();
+  if (isAnytimeStart(startMinutes)) return mins >= end;
+  const start = clampedClockMinutes(startMinutes);
+  if (start === end) return false;
   if (start < end) return mins >= end;
   return mins >= end && mins < start;
 }
 
 export function resumeAfterRest(startMinutes, endMinutes, after) {
+  if (isAnytimeStart(startMinutes)) {
+    if (isAnytimeEnd(endMinutes)) return after;
+    if (isInsideDriveWindow(after, startMinutes, endMinutes)) return after;
+    return nextClock(0, after);
+  }
   if (isAnytimeEnd(endMinutes)) {
     const start = clampedClockMinutes(startMinutes);
     const date = new Date(after);
@@ -307,6 +322,7 @@ export class TruckerHOSClock {
     };
 
     const waitForDailyStartIfNeeded = () => {
+      if (isAnytimeStart(this.startMinutes)) return false;
       if (isAnytimeEnd(this.endMinutes)) return false;
       if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
       if (isPastDailyEnd(this.now, this.startMinutes, this.endMinutes)) return false;
@@ -391,7 +407,7 @@ export function planHOS({
   leaveAt,
 }) {
   const cap = clampedMaxHours(hoursOfEleven);
-  const startMins = clampedClockMinutes(startMinutes);
+  const startMins = isAnytimeStart(startMinutes) ? ANYTIME_START_MINUTES : clampedClockMinutes(startMinutes);
   const endMins = isAnytimeEnd(endMinutes) ? ANYTIME_END_MINUTES : clampedClockMinutes(endMinutes);
   const thirtyAfter = clampedHoursBeforeThirty(hoursBeforeThirty);
   const firstStart = leaveAt;

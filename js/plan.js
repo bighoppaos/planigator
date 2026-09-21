@@ -414,7 +414,7 @@ export function buildPlan({
     miles,
     leaveAt,
     now,
-    startMinutes: settings.startMinutes,
+    startMinutes: settings.startAnytime ? -1 : settings.startMinutes,
     endMinutes: settings.endAnytime ? -1 : settings.endMinutes,
     hoursOfEleven: settings.hoursOfEleven,
     hoursBeforeThirty: settings.hoursBeforeThirty,
