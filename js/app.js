@@ -624,8 +624,10 @@ function newTrip() {
 
 let locateGeneration = 0;
 
-/** Options that still show the Mac Allow dialog. */
-const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 };
+/** Fresh fix — still shows the Mac Allow dialog. */
+const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 };
+/** After a timeout only: allow a recent Wi-Fi/cached position. */
+const LOCATE_CACHED_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 };
 
 function dropServiceWorkers() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
@@ -671,7 +673,9 @@ function showLocateTapError(error) {
   const code = error?.code ?? "?";
   state.locationError = code === 1
     ? "Safari refused location for this page (error 1)."
-    : `This page did not get a location (error ${code}). Tap Use my location again.`;
+    : code === 3
+      ? "The Mac did not return a location in time (error 3). Tap Use my location again."
+      : `This page did not get a location (error ${code}). Tap Use my location again.`;
   render();
 }
 
@@ -679,7 +683,7 @@ function markLocateButtonWaiting() {
   const button = document.getElementById("locate");
   if (!button) return;
   button.disabled = true;
-  button.textContent = "Waiting for permission…";
+  button.textContent = "Getting your location…";
 }
 
 function applyAccount(me) {
@@ -1160,7 +1164,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1304,18 +1308,40 @@ function bind() {
   $("#locate")?.addEventListener("click", () => {
     const generation = ++locateGeneration;
     let settled = false;
+    const onSuccess = (pos) => {
+      settled = true;
+      if (generation !== locateGeneration) return;
+      applyLocatedPosition(pos);
+    };
+    const onFinalError = (error) => {
+      settled = true;
+      if (generation !== locateGeneration) return;
+      showLocateTapError(error);
+    };
     // One getCurrentPosition per tap — same turn, before render/innerHTML.
     try {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          settled = true;
-          if (generation !== locateGeneration) return;
-          applyLocatedPosition(pos);
-        },
+        onSuccess,
         (error) => {
-          settled = true;
-          if (generation !== locateGeneration) return;
-          showLocateTapError(error);
+          if (generation !== locateGeneration) {
+            settled = true;
+            return;
+          }
+          // Timeout only: one sequential follow-up that may use a cached fix.
+          // Do not start this alongside the first call (that hid the Mac dialog).
+          if (error?.code === 3) {
+            try {
+              navigator.geolocation.getCurrentPosition(
+                onSuccess,
+                onFinalError,
+                LOCATE_CACHED_OPTIONS,
+              );
+            } catch {
+              onFinalError(error);
+            }
+            return;
+          }
+          onFinalError(error);
         },
         LOCATE_OPTIONS,
       );
@@ -1323,7 +1349,7 @@ function bind() {
       showLocatePreflightError();
       return;
     }
-    // Label only after the call is registered; never a second geo request.
+    // Label only after the call is registered; never a concurrent second geo request.
     queueMicrotask(() => {
       if (settled || generation !== locateGeneration) return;
       state.locating = true;
