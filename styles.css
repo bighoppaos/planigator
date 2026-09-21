@@ -26,12 +26,15 @@
 html, body {
   margin: 0;
   padding: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--ink);
   font: 18px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 header, main, footer {
+  width: 100%;
   max-width: 720px;
   margin: 0 auto;
   padding: 0 20px;
@@ -68,6 +71,9 @@ h2 { font-size: 1.2rem; margin-top: 28px; }
   border-radius: 16px;
   padding: 18px 20px;
   margin: 16px 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 a { color: var(--mint); }
@@ -130,12 +136,22 @@ select {
 input:not([type="checkbox"]) {
   display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 6px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
   color: var(--ink);
+}
+
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 input.plain {
@@ -152,6 +168,7 @@ input.plain {
   gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+  min-width: 0;
 }
 
 .pair > label { flex: 1 1 140px; }
@@ -242,6 +259,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.stops {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stop-head, .chip-top, .icon-row {
@@ -249,9 +274,11 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
 }
 
-.stop-head label { flex: 1; margin: 0; }
+.stop-head label { flex: 1; margin: 0; min-width: 0; overflow: hidden; }
+.icon-row { flex-shrink: 0; }
 
 .chip { font-size: 15px; }
 .chip-arrive { margin-top: 6px; font-weight: 700; }
@@ -293,6 +320,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 640px) {
   html, body { font-size: 16px; }
+  header, main, footer { padding-left: 12px; padding-right: 12px; }
+  .card, .stop-card { padding: 14px; }
   .row button, .row a.secondary { width: 100%; }
 }
 

@@ -119,6 +119,8 @@ function defaultState() {
     plan: null,
     error: "",
     notice: "",
+    locationError: "",
+    locationNotice: "",
     trips: [],
     origin: null,
     locating: false,
@@ -397,6 +399,8 @@ function startFromAddress() {
     });
   }
   state.origin = null;
+  state.locationError = "";
+  state.locationNotice = "";
   state.notice = "First stop is the yard or wherever you roll from. Miles on the next stop are from here.";
   persist();
   if (state.plan) calculate({ silent: true });
@@ -445,33 +449,37 @@ function newTrip() {
 
 function locate() {
   if (!window.isSecureContext) {
-    state.error = "Location needs HTTPS. Type an address, or open the live site.";
+    state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
+    state.locationNotice = "";
     render();
     return;
   }
   if (!navigator.geolocation) {
-    state.error = "This browser cannot share a location. Type an address instead.";
+    state.locationError = "This browser cannot share a location. Type an address instead.";
+    state.locationNotice = "";
     render();
     return;
   }
   state.locating = true;
-  state.error = "";
-  state.notice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
+  state.locationError = "";
+  state.locationNotice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
   render();
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       state.locating = false;
-      state.notice = "Got your location. Tap Estimate truck miles when the stops have addresses.";
+      state.locationError = "";
+      state.locationNotice = "Got your location. Tap Estimate truck miles when the stops have addresses.";
       persist();
       render();
     },
     (error) => {
       state.locating = false;
+      state.locationNotice = "";
       if (error?.code === 1) {
-        state.error = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
+        state.locationError = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
       } else {
-        state.error = "Could not get a location. Type an address instead.";
+        state.locationError = "Could not get a location. Type an address instead.";
       }
       render();
     },
@@ -754,6 +762,8 @@ function render() {
         ${origin ? `<button type="button" class="secondary" id="fromAddress">Start from an address</button>` : ""}
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
+      ${state.locationError ? `<p class="error">${escapeAttr(state.locationError)}</p>` : ""}
+      ${state.locationNotice ? `<p class="ok">${escapeAttr(state.locationNotice)}</p>` : ""}
     </section>
 
     <section class="stops">
