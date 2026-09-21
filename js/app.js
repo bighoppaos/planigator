@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, geocodeAddress, truckRoute } from "./api.js";
+import { creditsMe, geocodeAddress, truckRoute, startCheckout, loginWith } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -125,7 +125,14 @@ function defaultState() {
     origin: null,
     locating: false,
     estimating: false,
+    buying: false,
     credits: null,
+    signedIn: false,
+    email: "",
+    checkoutReady: false,
+    googleClientId: "",
+    appleClientId: "",
+    packPriceCents: 1399,
     copiedText: "",
   };
 }
@@ -198,11 +205,34 @@ function formatMiles(miles) {
 }
 
 function formatTime(ms) {
-  return state.settings.military ? stamp(ms, true) : stamp(ms, false);
+  return stamp(ms, state.settings.military);
 }
 
 function formatShort(ms) {
   return shortStamp(ms, state.settings.military);
+}
+
+function formatClockMinutes(minutes) {
+  const mins = Math.max(0, Number(minutes) || 0);
+  const hour = Math.trunc(mins / 60);
+  const minute = mins % 60;
+  if (state.settings.military) return `${pad(hour)}:${pad(minute)}`;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  return `${hour % 12 || 12}:${pad(minute)} ${suffix}`;
+}
+
+function dateChip({ id = "", field = "", ms }) {
+  const attrs = [
+    id ? `id="${id}"` : "",
+    field ? `data-field="${field}"` : "",
+    `type="datetime-local"`,
+    `value="${toDateTimeLocal(ms)}"`,
+  ].filter(Boolean).join(" ");
+  return `<span class="date-chip"><span class="date-chip-text">${escapeAttr(formatShort(ms))}</span><input ${attrs}></span>`;
+}
+
+function timeChip(id, minutes) {
+  return `<span class="date-chip"><span class="date-chip-text">${escapeAttr(formatClockMinutes(minutes))}</span><input id="${id}" type="time" value="${minutesToTime(minutes)}"></span>`;
 }
 
 function leaveAtNow() {
@@ -265,7 +295,23 @@ function applyShareFromLocation() {
   }
 }
 
-function calculate({ silent = false, skipHash = false } = {}) {
+async function calculate({ silent = false, skipHash = false } = {}) {
+  if (!silent) {
+    state.estimating = true;
+    state.error = "";
+    state.notice = "Asking HERE for a truck-legal route…";
+    render();
+    try {
+      await fillHereLegs();
+    } catch (error) {
+      if (error.credits != null) state.credits = error.credits;
+      state.error = error.message || "Could not get a HERE truck route.";
+      state.estimating = false;
+      render();
+      return;
+    }
+    state.estimating = false;
+  }
   const result = buildPlan({
     stops: state.stops.map(normalizeStop),
     settings: {
@@ -286,7 +332,7 @@ function calculate({ silent = false, skipHash = false } = {}) {
   state.error = "";
   if (!silent) {
     saveTrip();
-    state.notice = "Trip saved in this browser.";
+    state.notice = `HERE truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
   }
   if (!skipHash) writeShareHash();
   render();
@@ -385,6 +431,22 @@ function updateStop(id, patch) {
   Object.assign(stop, patch);
   if (patch.window === false) stop.end = stop.start;
   if (patch.anytime === true) stop.window = false;
+  if ("address" in patch) {
+    stop.miles = "";
+    stop.hours = "";
+    delete stop.lat;
+    delete stop.lon;
+    const index = state.stops.findIndex((item) => item.id === id);
+    const next = state.stops[index + 1];
+    if (next) {
+      next.miles = "";
+      next.hours = "";
+    }
+    state.plan = null;
+    persist();
+    render();
+    return;
+  }
   persist();
   if (state.plan) calculate({ silent: true });
   else render();
@@ -470,7 +532,7 @@ function locate() {
       state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       state.locating = false;
       state.locationError = "";
-      state.locationNotice = "Got your location. Tap Estimate truck miles when the stops have addresses.";
+      state.locationNotice = "Got your location. Tap Calculate when the stops have addresses.";
       persist();
       render();
     },
@@ -488,60 +550,137 @@ function locate() {
   );
 }
 
+function applyAccount(me) {
+  if (!me) return;
+  state.credits = me.credits;
+  state.signedIn = Boolean(me.signedIn);
+  state.email = me.email || "";
+  state.checkoutReady = Boolean(me.checkoutReady);
+  state.googleClientId = me.googleClientId || "";
+  state.appleClientId = me.appleClientId || "";
+  state.packPriceCents = me.packPriceCents || 1399;
+}
+
 async function refreshCredits() {
   try {
-    const me = await creditsMe();
-    state.credits = me.credits;
+    applyAccount(await creditsMe());
   } catch {
     if (state.credits == null) state.credits = null;
   }
 }
 
-async function estimateMiles() {
-  state.estimating = true;
+async function fillHereLegs() {
+  const points = [];
+  for (const stop of state.stops) {
+    if (stop.useCurrentLocation) {
+      if (!state.origin) throw new Error("Allow location first, then Calculate.");
+      points.push(state.origin);
+      continue;
+    }
+    const line = (stop.address || stop.name || "").trim();
+    if (!line) throw new Error(`Add an address for ${cardTitle(state.stops.indexOf(stop), state.stops)}.`);
+    const point = await geocodeAddress(line);
+    stop.lat = point.lat;
+    stop.lon = point.lon;
+    if (!stop.address) stop.address = point.label;
+    if (point.credits != null) state.credits = point.credits;
+    points.push(point);
+  }
+  const departAt = leaveAtNow();
+  const speedCapMph = state.settings.governed ? mph() : null;
+  for (let i = 1; i < state.stops.length; i += 1) {
+    if (!points[i - 1] || !points[i]) continue;
+    const leg = await truckRoute(points[i - 1], points[i], {
+      speedCapMph,
+      departAt,
+    });
+    state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
+    state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
+    if (leg.credits != null) state.credits = leg.credits;
+  }
+  persist();
+}
+
+async function buyPack() {
+  state.buying = true;
   state.error = "";
-  state.notice = "Asking HERE for a truck-legal route…";
+  state.notice = "Opening checkout…";
   render();
   try {
-    const points = [];
-    for (const stop of state.stops) {
-      if (stop.useCurrentLocation) {
-        if (!state.origin) throw new Error("Allow location first, or type miles to the first stop.");
-        points.push(state.origin);
-        continue;
-      }
-      const line = (stop.address || stop.name || "").trim();
-      if (!line) throw new Error(`Add an address for ${cardTitle(state.stops.indexOf(stop), state.stops)}.`);
-      const point = await geocodeAddress(line);
-      stop.lat = point.lat;
-      stop.lon = point.lon;
-      if (!stop.address) stop.address = point.label;
-      if (point.credits != null) state.credits = point.credits;
-      points.push(point);
-    }
-    const departAt = leaveAtNow();
-    const speedCapMph = state.settings.governed ? mph() : null;
-    for (let i = 1; i < state.stops.length; i += 1) {
-      if (!points[i - 1] || !points[i]) continue;
-      const leg = await truckRoute(points[i - 1], points[i], {
-        speedCapMph,
-        departAt,
-      });
-      state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
-      state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
-      if (leg.credits != null) state.credits = leg.credits;
-    }
-    state.notice = `Filled miles from a HERE truck route (${TRUCK_PROFILE.summary}).`;
-    persist();
-    calculate({ silent: true });
+    const { url } = await startCheckout();
+    location.href = url;
   } catch (error) {
-    if (error.credits != null) state.credits = error.credits;
-    state.error = error.message || "Could not estimate truck miles.";
-    render();
-  } finally {
-    state.estimating = false;
+    state.error = error.message || "Checkout is not ready.";
+    state.buying = false;
     render();
   }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if ([...document.scripts].some((script) => script.src === src)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load sign-in."));
+    document.head.appendChild(script);
+  });
+}
+
+function mountAuth() {
+  const googleBox = document.getElementById("googleBtn");
+  if (googleBox && state.googleClientId) {
+    const start = () => {
+      if (!window.google?.accounts?.id) return;
+      window.google.accounts.id.initialize({
+        client_id: state.googleClientId,
+        callback: async ({ credential }) => {
+          try {
+            applyAccount(await loginWith("google", credential));
+            state.notice = "Signed in with Google.";
+            render();
+          } catch (error) {
+            state.error = error.message || "Google sign-in failed.";
+            render();
+          }
+        },
+      });
+      googleBox.innerHTML = "";
+      window.google.accounts.id.renderButton(googleBox, { theme: "outline", size: "large", width: 280 });
+    };
+    if (window.google?.accounts?.id) start();
+    else loadScript("https://accounts.google.com/gsi/client").then(start).catch((error) => {
+      state.error = error.message;
+      render();
+    });
+  }
+  document.getElementById("appleSignIn")?.addEventListener("click", async () => {
+    try {
+      if (!window.AppleID?.auth) {
+        await loadScript("https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js");
+      }
+      window.AppleID.auth.init({
+        clientId: state.appleClientId,
+        scope: "name email",
+        redirectURI: "https://bighoppaos.github.io/planigator/",
+        usePopup: true,
+      });
+      const result = await window.AppleID.auth.signIn();
+      const idToken = result?.authorization?.id_token;
+      if (!idToken) throw new Error("Apple did not return a sign-in token.");
+      applyAccount(await loginWith("apple", idToken));
+      state.notice = "Signed in with Apple.";
+      render();
+    } catch (error) {
+      if (error?.error === "popup_closed_by_user") return;
+      state.error = error.message || "Apple sign-in failed.";
+      render();
+    }
+  });
 }
 
 function currentShareUrl() {
@@ -662,27 +801,21 @@ function stopCard(stop, index) {
       <label>Address
         <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(originStop ? "City, state, or street" : `${title} address`)}">
       </label>
-      ${originStop ? `<p class="fine">This is where you roll from. Miles on the next stop are from here.</p>` : `
-      <label class="setting">
-        <span>Miles from previous</span>
-        <input class="compact" data-field="miles" inputmode="decimal" value="${escapeAttr(stop.miles)}" placeholder="0">
-      </label>
-      <label class="setting">
-        <span>Drive hours</span>
-        <input class="compact" data-field="hours" inputmode="decimal" value="${escapeAttr(stop.hours)}" placeholder="from miles">
-      </label>`}
+      ${originStop ? `<p class="fine">This is where you roll from. HERE fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
         <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>
       ` : originStop ? "" : `
-      <div class="toggles">
-        <label class="check"><input type="checkbox" data-field="anytime" ${stop.anytime ? "checked" : ""}> Anytime</label>
-        ${stop.anytime ? "" : `
-          <label class="check"><input type="checkbox" data-field="window" ${stop.window ? "checked" : ""}> Window</label>
-        `}
-      </div>
+      <label class="setting">
+        <span>Anytime</span>
+        <input type="checkbox" data-field="anytime" ${stop.anytime ? "checked" : ""}>
+      </label>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<label class="setting"><span>Opens</span><span class="field tight"><input type="datetime-local" data-field="start" value="${toDateTimeLocal(stop.start)}"></span></label>` : ""}
-        <label class="setting"><span>Be there by</span><span class="field tight"><input type="datetime-local" data-field="${stop.window ? "end" : "start"}" value="${toDateTimeLocal(stop.window ? stop.end : stop.start)}"></span></label>
+        <label class="setting">
+          <span>Window</span>
+          <input type="checkbox" data-field="window" ${stop.window ? "checked" : ""}>
+        </label>
+        ${stop.window ? `<label class="setting"><span>Opens</span>${dateChip({ field: "start", ms: stop.start })}</label>` : ""}
+        <label class="setting"><span>Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</label>
       `}`}
     </article>
     ${around.after.map(chip).join("")}
@@ -698,17 +831,44 @@ function escapeAttr(value) {
     .replaceAll(">", "&gt;");
 }
 
+function hereLeg(stop) {
+  const miles = Number(stop.miles) || 0;
+  const hours = Number(stop.hours) || 0;
+  if (miles > 0.05 || hours > 0.0001) {
+    return `<p class="here-leg">${escapeAttr(formatMiles(miles))} · ${escapeAttr(hoursLabel(hours))} from HERE</p>`;
+  }
+  return `<p class="fine">Miles and drive time come from HERE when you Calculate.</p>`;
+}
+
 function hosSummary() {
   const s = state.settings;
   const speed = s.governed ? `${s.governedMph || DEFAULT_MPH} mph` : "ungoverned 65";
   const window = s.endAnytime
-    ? `${minutesToTime(s.startMinutes)} start`
-    : `${minutesToTime(s.startMinutes)}–${minutesToTime(s.endMinutes)}`;
+    ? `${formatClockMinutes(s.startMinutes)} start`
+    : `${formatClockMinutes(s.startMinutes)}–${formatClockMinutes(s.endMinutes)}`;
   return `${speed} · ${s.hoursOfEleven} of 11 · 30 after ${s.hoursBeforeThirty} hr · ${window}`;
+}
+
+function authBlock() {
+  if (state.signedIn) {
+    return `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}.</p>`;
+  }
+  if (!state.googleClientId && !state.appleClientId) {
+    return `<p class="fine">12 free credits in this browser. Apple and Google sign-in light up after those IDs are connected.</p>`;
+  }
+  return `
+    <div class="auth-row">
+      ${state.googleClientId ? `<div id="googleBtn"></div>` : ""}
+      ${state.appleClientId ? `<button type="button" class="secondary" id="appleSignIn">Sign in with Apple</button>` : ""}
+    </div>
+  `;
 }
 
 export function initPlanner(el) {
   plannerRoot = el;
+  const paid = new URLSearchParams(location.search).get("paid");
+  if (paid === "1") state.notice = "Payment received. Credits update in a few seconds.";
+  if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   applyShareFromLocation();
   render();
   refreshCredits().then(() => render());
@@ -755,12 +915,12 @@ function render() {
           <span>Leave now</span>
           <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
         </label>
-        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span><span class="field tight"><input id="leaveAt" type="datetime-local" value="${toDateTimeLocal(s.leaveAt)}"></span></label>`}
+        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt })}</label>`}
         <label class="setting">
           <span>Start time each day</span>
-          <input id="startTime" class="compact time" type="time" value="${minutesToTime(s.startMinutes)}">
+          ${timeChip("startTime", s.startMinutes)}
         </label>
-        ${s.endAnytime ? "" : `<label class="setting"><span>End time each day</span><input id="endTime" class="compact time" type="time" value="${minutesToTime(s.endMinutes)}"></label>`}
+        ${s.endAnytime ? "" : `<label class="setting"><span>End time each day</span>${timeChip("endTime", s.endMinutes)}</label>`}
         <label class="setting">
           <span>End the day anytime</span>
           <input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}>
@@ -802,11 +962,12 @@ function render() {
       <label>Trip name
         <input id="tripName" value="${escapeAttr(state.tripName)}" placeholder="Optional — Dallas to Atlanta">
       </label>
-      <div class="row">
-        <button type="button" class="primary" id="calculate">Calculate</button>
-        <button type="button" class="secondary" id="estimate" ${state.estimating ? "disabled" : ""}>${state.estimating ? "Asking HERE…" : "Estimate truck miles"}</button>
+      ${authBlock()}
+      <div class="stack">
+        <button type="button" class="primary" id="calculate" ${state.estimating ? "disabled" : ""}>${state.estimating ? "Asking HERE…" : "Calculate"}</button>
+        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : `Buy 124 credits — $${(state.packPriceCents / 100).toFixed(2)}`}</button>
       </div>
-      <p class="fine">${state.credits == null ? "12 free credits for HERE truck lookups." : `${state.credits} credit${state.credits === 1 ? "" : "s"} left.`} Estimate uses 1 credit per lookup. Truck only — not car, bike, or walk. Or type the miles yourself.</p>
+      <p class="fine">${state.credits == null ? "12 free credits for HERE truck lookups." : `${state.credits} credit${state.credits === 1 ? "" : "s"} left.`} Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
@@ -890,8 +1051,9 @@ function bind() {
     hosBoxOpen = hosBox.open;
   });
   bindSettings();
+  mountAuth();
   $("#calculate")?.addEventListener("click", () => calculate());
-  $("#estimate")?.addEventListener("click", () => estimateMiles());
+  $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => (

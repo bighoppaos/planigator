@@ -54,7 +54,7 @@ export function stamp(ms, military = false) {
     month: "short",
     day: "numeric",
     year: "numeric",
-    hour: "numeric",
+    hour: military ? "2-digit" : "numeric",
     minute: "2-digit",
     hourCycle: military ? "h23" : "h12",
   });
@@ -66,7 +66,7 @@ export function shortStamp(ms, military = false) {
     weekday: "short",
     month: "numeric",
     day: "numeric",
-    hour: "numeric",
+    hour: military ? "2-digit" : "numeric",
     minute: "2-digit",
     hourCycle: military ? "h23" : "h12",
   });

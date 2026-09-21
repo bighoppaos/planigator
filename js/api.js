@@ -44,3 +44,11 @@ export function truckRoute(from, to, options = {}) {
     }),
   });
 }
+
+export function startCheckout() {
+  return api("/v1/checkout", { method: "POST", body: "{}" });
+}
+
+export function loginWith(provider, idToken) {
+  return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken }) });
+}
