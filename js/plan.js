@@ -402,7 +402,7 @@ export function buildPlan({
   for (const i of destIndexes) {
     const stop = stops[i];
     if ((stop.hours || 0) <= 0.0001 && (stop.miles || 0) <= 0.05) {
-      return { error: `Calculate to get HERE truck miles for ${cardTitle(i, stops)}.` };
+      return { error: `Calculate to get © HERE truck miles for ${cardTitle(i, stops)}.` };
     }
   }
   const leaveAt = settings.leaveAt;
