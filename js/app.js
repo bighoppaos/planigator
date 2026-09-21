@@ -624,8 +624,8 @@ function newTrip() {
 
 let locateGeneration = 0;
 
-/** Omit maximumAge so the browser may return a recent Wi-Fi position. */
-const LOCATE_OPTIONS = { enableHighAccuracy: true, timeout: 30000 };
+/** Low accuracy + 60s cache so Mac Wi-Fi can succeed; no GPS/high-accuracy (error 2). */
+const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 };
 
 function dropServiceWorkers() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
