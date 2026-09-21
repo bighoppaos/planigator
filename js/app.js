@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, geocodeAddress, truckRoute, startCheckout, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, suggestAddresses, truckRoute, startCheckout, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -124,6 +124,7 @@ function defaultState() {
     origin: null,
     locating: false,
     estimating: false,
+    looking: "",
     buying: false,
     credits: null,
     signedIn: false,
@@ -146,6 +147,7 @@ function loadState() {
     delete state.settings.sleepHours;
     delete state.settings.readyMinutes;
     if (Array.isArray(saved.stops) && saved.stops.length) state.stops = saved.stops;
+    if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
     state.tripName = saved.tripName || "";
     state.activeTripId = saved.activeTripId || null;
     state.trips = Array.isArray(saved.trips) ? saved.trips : [];
@@ -258,18 +260,25 @@ function timeChip(id, minutes) {
   </span>`;
 }
 
+function pointReady(stop) {
+  if (stop.useCurrentLocation) return Boolean(state.origin);
+  return Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon));
+}
+
 function calculateCreditCount() {
-  const geocodes = state.stops.filter((stop) => !stop.useCurrentLocation).length;
-  const legs = Math.max(0, state.stops.length - 1);
-  return geocodes + legs;
+  let legs = 0;
+  for (let i = 1; i < state.stops.length; i += 1) {
+    if (pointReady(state.stops[i - 1]) && pointReady(state.stops[i])) legs += 1;
+  }
+  return legs;
 }
 
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE…";
   const count = calculateCreditCount();
-  const use = `${count} credit${count === 1 ? "" : "s"}`;
-  const left = state.credits == null ? "" : ` · ${state.credits} left`;
-  return `Calculate · ${use}${left}`;
+  const left = state.credits == null ? "" : `${state.credits} left`;
+  const use = count > 0 ? `uses ${count} credit${count === 1 ? "" : "s"}` : "";
+  return ["Calculate", use, left].filter(Boolean).join(" · ");
 }
 
 const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
@@ -526,10 +535,15 @@ function updateStop(id, patch) {
   if (patch.window === false) stop.end = stop.start;
   if (patch.anytime === true) stop.window = false;
   if ("address" in patch) {
-    stop.miles = "";
-    stop.hours = "";
-    delete stop.lat;
-    delete stop.lon;
+    const typed = String(patch.address || "").trim();
+    if (typed !== (stop.verifiedLabel || "")) {
+      stop.miles = "";
+      stop.hours = "";
+      stop.verifiedLabel = "";
+      stop.suggestions = [];
+      delete stop.lat;
+      delete stop.lon;
+    }
     const index = state.stops.findIndex((item) => item.id === id);
     const next = state.stops[index + 1];
     if (next) {
@@ -565,15 +579,6 @@ function startFromAddress() {
 }
 
 function startFromHere() {
-  if (!state.stops[0]?.useCurrentLocation) {
-    state.stops.unshift(defaultStop({
-      useCurrentLocation: true,
-      name: "Current location",
-      start: Date.now(),
-      end: Date.now(),
-    }));
-    persist();
-  }
   locate();
 }
 
@@ -591,11 +596,19 @@ function addStartBefore() {
 }
 
 function newTrip() {
-  const trips = state.trips;
-  const settings = { ...state.settings };
+  const keep = {
+    trips: state.trips,
+    settings: { ...state.settings },
+    credits: state.credits,
+    signedIn: state.signedIn,
+    email: state.email,
+    checkoutReady: state.checkoutReady,
+    googleClientId: state.googleClientId,
+    appleClientId: state.appleClientId,
+    packPriceCents: state.packPriceCents,
+  };
   Object.assign(state, defaultState());
-  state.trips = trips;
-  state.settings = settings;
+  Object.assign(state, keep);
   state.notice = "New trip.";
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
@@ -619,20 +632,41 @@ function locate() {
   }
   state.locating = true;
   state.locationError = "";
-  state.locationNotice = "Asking Safari for the location you already allowed.";
+  state.locationNotice = "Asking for your location…";
+  const button = document.getElementById("locate");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Waiting for permission…";
+  }
+  let settled = false;
   const finish = (pos) => {
+    if (settled) return;
+    settled = true;
+    navigator.geolocation.clearWatch(watch);
     state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    if (!state.stops[0]?.useCurrentLocation) {
+      state.stops.unshift(defaultStop({
+        useCurrentLocation: true,
+        name: "Current location",
+        start: Date.now(),
+        end: Date.now(),
+      }));
+    }
     state.locating = false;
     state.locationError = "";
-    state.locationNotice = "Got your location. Tap Calculate when the stops have addresses.";
+    state.locationNotice = "Got your location.";
     persist();
     render();
   };
   const fail = (error) => {
+    if (settled) return;
+    settled = true;
+    navigator.geolocation.clearWatch(watch);
     state.locating = false;
     state.locationNotice = "";
+    if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
     if (error?.code === 1) {
-      state.locationError = "Safari is still blocking this site. Tap AA in the address bar, set Location to Allow for bighoppaos.github.io, reload the page, then tap Use my location again.";
+      state.locationError = "Website Settings can say Allow while Safari itself is still off. On the iPhone open Settings → Privacy & Security → Location Services. Turn Location Services on, open Safari Websites, and choose While Using the App. Then swipe Safari away and open this page again.";
     } else if (error?.code === 3) {
       state.locationError = "Location timed out. Tap Use my location again.";
     } else {
@@ -640,16 +674,11 @@ function locate() {
     }
     render();
   };
-  const rough = { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 };
-  // Ask before render(). Safari drops the tap if the page redraws first.
-  navigator.geolocation.getCurrentPosition(finish, (error) => {
-    if (error?.code === 2 || error?.code === 3) {
-      navigator.geolocation.getCurrentPosition(finish, fail, rough);
-      return;
-    }
-    fail(error);
-  }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
-  render();
+  const watch = navigator.geolocation.watchPosition(finish, fail, {
+    enableHighAccuracy: false,
+    timeout: 25000,
+    maximumAge: 60000,
+  });
 }
 
 function applyAccount(me) {
@@ -671,6 +700,59 @@ async function refreshCredits() {
   }
 }
 
+async function lookupAddress(id) {
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop) return;
+  const query = (stop.address || "").trim();
+  if (query !== (stop.verifiedLabel || "")) {
+    delete stop.lat;
+    delete stop.lon;
+    stop.verifiedLabel = "";
+  }
+  if (!state.signedIn) {
+    state.error = "Sign in to look up an address.";
+    render();
+    return;
+  }
+  if (query.length < 3) {
+    state.error = "Type at least 3 letters, then look up the address.";
+    render();
+    return;
+  }
+  state.looking = id;
+  state.error = "";
+  render();
+  try {
+    const data = await suggestAddresses(query);
+    stop.suggestions = data.items || [];
+    if (data.credits != null) state.credits = data.credits;
+  } catch (error) {
+    stop.suggestions = [];
+    if (error.credits != null) state.credits = error.credits;
+    state.error = error.message || "Address lookup failed.";
+  }
+  state.looking = "";
+  render();
+}
+
+function chooseSuggestion(id, index) {
+  const stop = state.stops.find((item) => item.id === id);
+  const item = stop?.suggestions?.[index];
+  if (!stop || !item) return;
+  stop.address = item.label;
+  stop.verifiedLabel = item.label;
+  stop.lat = item.lat;
+  stop.lon = item.lon;
+  stop.suggestions = [];
+  stop.miles = "";
+  stop.hours = "";
+  state.plan = null;
+  state.error = "";
+  state.notice = "Using that address.";
+  persist();
+  render();
+}
+
 async function fillHereLegs() {
   const points = [];
   for (const stop of state.stops) {
@@ -679,14 +761,11 @@ async function fillHereLegs() {
       points.push(state.origin);
       continue;
     }
-    const line = (stop.address || stop.name || "").trim();
-    if (!line) throw new Error(`Add an address for ${cardTitle(state.stops.indexOf(stop), state.stops)}.`);
-    const point = await geocodeAddress(line);
-    stop.lat = point.lat;
-    stop.lon = point.lon;
-    if (!stop.address) stop.address = point.label;
-    if (point.credits != null) state.credits = point.credits;
-    points.push(point);
+    if (!pointReady(stop)) {
+      const title = cardTitle(state.stops.indexOf(stop), state.stops);
+      throw new Error(`Look up ${title} and tap a verified address. A lookup that finds nothing is not charged.`);
+    }
+    points.push({ lat: Number(stop.lat), lon: Number(stop.lon) });
   }
   const departAt = leaveAtNow();
   const speedCapMph = state.settings.governed ? mph() : null;
@@ -903,8 +982,11 @@ function stopCard(stop, index) {
         </div>
       </div>
       <label>Address
-        <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(originStop ? "City, state, or street" : `${title} address`)}">
+        <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(originStop ? "City, state, or street" : `${title} address`)}" autocomplete="off">
       </label>
+      <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : "Look up this address"}</button>
+      ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
+      ${pointReady(stop) ? `<p class="here-leg">Using this address.</p>` : ""}
       ${originStop ? `<p class="fine">This is where you roll from. HERE fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
         <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>
@@ -992,7 +1074,8 @@ function render() {
   const plan = state.plan;
   const maps = directionsUrl();
   root.innerHTML = `
-    <section class="hero card">
+    <section class="hero card hero-mark">
+      <h1>Planigator</h1>
       <ul class="pitch">
         <li>Get a HERE truck-legal route</li>
         <li>Know how much leeway time you have</li>
@@ -1197,16 +1280,7 @@ function bind() {
           event.preventDefault();
           const stop = state.stops.find((item) => item.id === id);
           if (stop) stop.address = input.value;
-          persist();
-          const addresses = [...document.querySelectorAll(".stop-card input[data-field=address]")];
-          const index = addresses.indexOf(input);
-          const following = addresses[index + 1];
-          if (following && !following.value.trim()) {
-            following.focus();
-            return;
-          }
-          if (state.signedIn) calculate();
-          else input.blur();
+          lookupAddress(id);
         });
       }
       if (input.type !== "checkbox" && input.type !== "datetime-local") {
@@ -1222,6 +1296,10 @@ function bind() {
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
     card.querySelector("[data-act=remove]")?.addEventListener("click", () => removeStop(id));
     card.querySelector("[data-act=start-before]")?.addEventListener("click", () => addStartBefore());
+    card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
+    card.querySelectorAll("[data-pick]").forEach((button) => {
+      button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-pick"))));
+    });
   });
   document.querySelectorAll("[data-after]").forEach((button) => {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
