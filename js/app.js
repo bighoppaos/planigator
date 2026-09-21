@@ -30,6 +30,7 @@ const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
+let hosBoxOpen = true;
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
 
 function pad(n) {
@@ -692,6 +693,8 @@ export function initPlanner(el) {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  const openBox = root.querySelector(".hos details");
+  if (openBox) hosBoxOpen = openBox.open;
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
   const destCards = state.stops
@@ -707,7 +710,7 @@ function render() {
     </section>
 
     <section class="card hos">
-      <details>
+      <details class="hos-box"${hosBoxOpen ? " open" : ""}>
         <summary>HOS <span class="muted">${escapeAttr(hosSummary())}</span></summary>
         <div class="row">
           <label class="check"><input type="checkbox" id="governed" ${s.governed ? "checked" : ""}> Governed</label>
@@ -846,6 +849,10 @@ function bindSettings() {
 }
 
 function bind() {
+  const hosBox = $(".hos-box");
+  hosBox?.addEventListener("toggle", () => {
+    hosBoxOpen = hosBox.open;
+  });
   bindSettings();
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#estimate")?.addEventListener("click", () => estimateMiles());
