@@ -1324,26 +1324,26 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => {
-    // getCurrentPosition must run in this tap turn before any render/await.
-    if (state.locating) return;
-    if (!window.isSecureContext || !navigator.geolocation) {
+    const generation = ++locateGeneration;
+    let gotPosition = false;
+    // First call in this listener — same tap turn, before render/innerHTML/await.
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          gotPosition = true;
+          if (generation !== locateGeneration) return;
+          applyLocatedPosition(pos);
+        },
+        (error) => {
+          if (gotPosition || generation !== locateGeneration) return;
+          onLocateTapError(error, generation, false);
+        },
+        LOCATE_OPTIONS,
+      );
+    } catch {
       showLocatePreflightError();
       return;
     }
-    const generation = ++locateGeneration;
-    let gotPosition = false;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        gotPosition = true;
-        if (generation !== locateGeneration) return;
-        applyLocatedPosition(pos);
-      },
-      (error) => {
-        if (gotPosition || generation !== locateGeneration) return;
-        onLocateTapError(error, generation, false);
-      },
-      LOCATE_OPTIONS,
-    );
     state.locating = true;
     state.locationError = "";
     state.locationNotice = "Asking for your location…";
