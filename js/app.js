@@ -624,8 +624,8 @@ function newTrip() {
 
 let locateGeneration = 0;
 
-/** Freightbox driver-app options. */
-const LOCATE_OPTIONS = { enableHighAccuracy: true, timeout: 60000, maximumAge: 15000 };
+/** Options that still show the Mac Allow dialog. */
+const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 };
 
 function dropServiceWorkers() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
@@ -680,61 +680,6 @@ function markLocateButtonWaiting() {
   if (!button) return;
   button.disabled = true;
   button.textContent = "Waiting for permission…";
-}
-
-/**
- * On error 1 only: one watchPosition (no loop). Some iOS Safari builds deny
- * getCurrentPosition then deliver a fix from watch when the site setting is Allow.
- */
-function tryWatchAfterDenied(generation) {
-  let watchId = null;
-  const clear = () => {
-    if (watchId == null) return;
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  };
-  try {
-    watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        clear();
-        if (generation !== locateGeneration) return;
-        applyLocatedPosition(pos);
-      },
-      (watchError) => {
-        clear();
-        if (generation !== locateGeneration) return;
-        showLocateTapError(watchError);
-      },
-      LOCATE_OPTIONS,
-    );
-  } catch {
-    showLocatePreflightError();
-  }
-}
-
-/**
- * Tap-path error handler. Code 1 → one watchPosition. Codes 2/3 → one getCurrentPosition retry.
- * No page-load geolocation — that left sticky errors and raced the tap.
- */
-function onLocateTapError(error, generation, retried) {
-  if (generation !== locateGeneration) return;
-  const code = error?.code;
-  if (code === 1) {
-    tryWatchAfterDenied(generation);
-    return;
-  }
-  if (!retried && (code === 2 || code === 3)) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (generation !== locateGeneration) return;
-        applyLocatedPosition(pos);
-      },
-      (retryError) => onLocateTapError(retryError, generation, true),
-      LOCATE_OPTIONS,
-    );
-    return;
-  }
-  showLocateTapError(error);
 }
 
 function applyAccount(me) {
@@ -1358,18 +1303,19 @@ function bind() {
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => {
     const generation = ++locateGeneration;
-    let gotPosition = false;
-    // First call in this listener — same tap turn, before render/innerHTML/await.
+    let settled = false;
+    // One getCurrentPosition per tap — same turn, before render/innerHTML.
     try {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          gotPosition = true;
+          settled = true;
           if (generation !== locateGeneration) return;
           applyLocatedPosition(pos);
         },
         (error) => {
-          if (gotPosition || generation !== locateGeneration) return;
-          onLocateTapError(error, generation, false);
+          settled = true;
+          if (generation !== locateGeneration) return;
+          showLocateTapError(error);
         },
         LOCATE_OPTIONS,
       );
@@ -1377,10 +1323,14 @@ function bind() {
       showLocatePreflightError();
       return;
     }
-    state.locating = true;
-    state.locationError = "";
-    state.locationNotice = "Asking for your location…";
-    markLocateButtonWaiting();
+    // Label only after the call is registered; never a second geo request.
+    queueMicrotask(() => {
+      if (settled || generation !== locateGeneration) return;
+      state.locating = true;
+      state.locationError = "";
+      state.locationNotice = "";
+      markLocateButtonWaiting();
+    });
   });
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
