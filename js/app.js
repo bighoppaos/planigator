@@ -622,8 +622,8 @@ function newTrip() {
   render();
 }
 
-function onLocateSuccess(pos) {
-  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+function applyLocatedOrigin(lat, lon, notice) {
+  state.origin = { lat, lon };
   if (!state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
@@ -634,12 +634,16 @@ function onLocateSuccess(pos) {
   }
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = "Got your location.";
+  state.locationNotice = notice;
   persist();
   render();
 }
 
-function onLocateError(error) {
+function onLocateSuccess(pos) {
+  applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
+}
+
+function showLocateError(error) {
   state.locating = false;
   state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
@@ -654,6 +658,60 @@ function onLocateError(error) {
     state.locationError = `Could not get a location (error ${code ?? "?"}).`;
   }
   render();
+}
+
+function onLocateError(error) {
+  const code = error?.code;
+  if (code === 2 || code === 3) {
+    tryWatchThenNetwork(error);
+    return;
+  }
+  showLocateError(error);
+}
+
+function tryWatchThenNetwork(originalError) {
+  if (!navigator.geolocation?.watchPosition) {
+    fetchNetworkLocation(originalError);
+    return;
+  }
+  let settled = false;
+  let watchId = null;
+  let timer = null;
+  const finish = (next) => {
+    if (settled) return;
+    settled = true;
+    if (timer != null) clearTimeout(timer);
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    next();
+  };
+  timer = setTimeout(() => {
+    finish(() => fetchNetworkLocation(originalError));
+  }, 20000);
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      finish(() => onLocateSuccess(pos));
+    },
+    () => {
+      finish(() => fetchNetworkLocation(originalError));
+    },
+    { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 }
+  );
+}
+
+async function fetchNetworkLocation(originalError) {
+  try {
+    const res = await fetch("https://ipwho.is/");
+    const data = await res.json();
+    const lat = Number(data?.latitude);
+    const lon = Number(data?.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      applyLocatedOrigin(lat, lon, "Using an approximate network location.");
+      return;
+    }
+  } catch {
+    // fall through to original geolocation error
+  }
+  showLocateError(originalError);
 }
 
 function applyAccount(me) {
