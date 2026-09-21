@@ -121,6 +121,9 @@ function defaultState() {
     notice: "",
     locationError: "",
     locationNotice: "",
+    lookupMessage: "",
+    lookupStopId: "",
+    lookupOk: false,
     trips: [],
     origin: null,
     locating: false,
@@ -696,6 +699,18 @@ async function refreshCredits() {
   }
 }
 
+function clearLookupMessage() {
+  state.lookupMessage = "";
+  state.lookupStopId = "";
+  state.lookupOk = false;
+}
+
+function setLookupMessage(stopId, message, { ok = false } = {}) {
+  state.lookupStopId = stopId;
+  state.lookupMessage = message;
+  state.lookupOk = ok;
+}
+
 async function lookupAddress(id) {
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
@@ -706,17 +721,17 @@ async function lookupAddress(id) {
     stop.verifiedLabel = "";
   }
   if (!state.signedIn) {
-    state.error = "Sign in to look up an address.";
+    setLookupMessage(id, "Sign in to look up an address.");
     render();
     return;
   }
   if (query.length < 3) {
-    state.error = "Type at least 3 letters, then look up the address.";
+    setLookupMessage(id, "Type at least 3 letters, then look up the address.");
     render();
     return;
   }
   state.looking = id;
-  state.error = "";
+  clearLookupMessage();
   render();
   try {
     const data = await suggestAddresses(query);
@@ -725,7 +740,7 @@ async function lookupAddress(id) {
   } catch (error) {
     stop.suggestions = [];
     if (error.credits != null) state.credits = error.credits;
-    state.error = error.message || "Address lookup failed.";
+    setLookupMessage(id, error.message || "Address lookup failed.");
   }
   state.looking = "";
   render();
@@ -743,8 +758,7 @@ function chooseSuggestion(id, index) {
   stop.miles = "";
   stop.hours = "";
   state.plan = null;
-  state.error = "";
-  state.notice = "Using that address.";
+  setLookupMessage(id, "Using that address.", { ok: true });
   persist();
   render();
 }
@@ -982,7 +996,12 @@ function stopCard(stop, index) {
       </label>
       <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : "Look up this address"}</button>
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
-      ${pointReady(stop) ? `<p class="here-leg">Using this address.</p>` : ""}
+      ${state.lookupStopId === stop.id && state.lookupMessage
+        ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
+        : ""}
+      ${pointReady(stop) && !(state.lookupStopId === stop.id && state.lookupOk)
+        ? `<p class="here-leg">Using this address.</p>`
+        : ""}
       ${originStop ? `<p class="fine">This is where you roll from. HERE<sup>©</sup> fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
         <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>

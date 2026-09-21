@@ -480,10 +480,16 @@ input.compact {
 .fine { font-size: 13px; color: var(--muted); }
 
 .stop-card .fine,
-.stop-card .here-leg {
+.stop-card .here-leg,
+.stop-card .ok {
   color: inherit;
   font-size: 16px;
   font-weight: 600;
+  line-height: 1.45;
+}
+
+.stop-card .error {
+  font-size: 16px;
   line-height: 1.45;
 }
 
