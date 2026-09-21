@@ -1,4 +1,4 @@
-const CACHE = "planigator-web-v15";
+const CACHE = "planigator-web-v16";
 const ASSETS = [
   "./",
   "./index.html",
@@ -30,14 +30,16 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.origin !== location.origin) return;
+  if (url.origin !== location.origin || event.request.method !== "GET") return;
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+    caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      const updating = fetch(event.request).then((response) => {
+        if (response && response.ok) cache.put(event.request, response.clone());
         return response;
-      })
-      .catch(() => caches.match(event.request))
+      }).catch(() => null);
+      if (cached) return cached;
+      return (await updating) || new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+    })
   );
 });

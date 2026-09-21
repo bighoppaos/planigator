@@ -222,17 +222,7 @@ function formatClockMinutes(minutes) {
   return `${hour % 12 || 12}:${pad(minute)} ${suffix}`;
 }
 
-function dateChip({ id = "", field = "", ms }) {
-  const attrs = [
-    id ? `id="${id}"` : "",
-    field ? `data-field="${field}"` : "",
-    `type="datetime-local"`,
-    `value="${toDateTimeLocal(ms)}"`,
-  ].filter(Boolean).join(" ");
-  return `<span class="date-chip"><span class="date-chip-text">${escapeAttr(formatShort(ms))}</span><input ${attrs}></span>`;
-}
-
-function timeChip(id, minutes) {
+function clockFields(minutes) {
   const military = state.settings.military;
   const hour24 = Math.trunc(Math.max(0, minutes) / 60) % 24;
   const minute = Math.max(0, minutes) % 60;
@@ -253,11 +243,25 @@ function timeChip(id, minutes) {
       <option value="AM"${ap === "AM" ? " selected" : ""}>AM</option>
       <option value="PM"${ap === "PM" ? " selected" : ""}>PM</option>
     </select>`;
-  return `<span class="time-picks" data-clock="${id}">
+  return `
     <select data-part="hour" aria-label="Hour">${hourOptions}</select>
     <select data-part="minute" aria-label="Minute">${minuteOptions}</select>
-    ${ampm}
+    ${ampm}`;
+}
+
+function dateChip({ id = "", field = "", ms }) {
+  const d = new Date(ms);
+  const dateValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const minutes = d.getHours() * 60 + d.getMinutes();
+  const key = id || field || "when";
+  return `<span class="when" data-when="${key}" ${field ? `data-stop-field="${field}"` : ""}>
+    <input type="date" data-part="date" value="${dateValue}" aria-label="Date">
+    <span class="time-picks">${clockFields(minutes)}</span>
   </span>`;
+}
+
+function timeChip(id, minutes) {
+  return `<span class="time-picks" data-clock="${id}">${clockFields(minutes)}</span>`;
 }
 
 function pointReady(stop) {
@@ -638,11 +642,7 @@ function locate() {
     button.disabled = true;
     button.textContent = "Waiting for permission…";
   }
-  let settled = false;
   const finish = (pos) => {
-    if (settled) return;
-    settled = true;
-    navigator.geolocation.clearWatch(watch);
     state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
     if (!state.stops[0]?.useCurrentLocation) {
       state.stops.unshift(defaultStop({
@@ -658,27 +658,24 @@ function locate() {
     persist();
     render();
   };
-  const fail = (error) => {
-    if (settled) return;
-    settled = true;
-    navigator.geolocation.clearWatch(watch);
+  const fail = () => {
     state.locating = false;
     state.locationNotice = "";
     if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-    if (error?.code === 1) {
-      state.locationError = "Website Settings can say Allow while Safari itself is still off. On the iPhone open Settings → Privacy & Security → Location Services. Turn Location Services on, open Safari Websites, and choose While Using the App. Then swipe Safari away and open this page again.";
-    } else if (error?.code === 3) {
-      state.locationError = "Location timed out. Tap Use my location again.";
-    } else {
-      state.locationError = "Could not get a location. Type an address instead.";
-    }
+    state.locationError = "This page did not get a location. Tap Use my location again. If Safari asks, choose Allow.";
     render();
   };
-  const watch = navigator.geolocation.watchPosition(finish, fail, {
-    enableHighAccuracy: false,
-    timeout: 25000,
-    maximumAge: 60000,
-  });
+  const ask = (accurate) => {
+    navigator.geolocation.getCurrentPosition(finish, () => {
+      if (accurate) ask(false);
+      else fail();
+    }, {
+      enableHighAccuracy: accurate,
+      timeout: accurate ? 12000 : 20000,
+      maximumAge: accurate ? 0 : 300000,
+    });
+  };
+  ask(true);
 }
 
 function applyAccount(me) {
@@ -1217,18 +1214,18 @@ function bindSettings() {
   });
 }
 
-function applyClock(wrap) {
+function minutesFromWrap(wrap) {
   const hour = Number(wrap.querySelector("[data-part=hour]")?.value);
   const minute = Number(wrap.querySelector("[data-part=minute]")?.value);
   const ap = wrap.querySelector("[data-part=ampm]")?.value;
-  let total = 0;
-  if (state.settings.military) {
-    total = hour * 60 + minute;
-  } else {
-    let h = hour % 12;
-    if (ap === "PM") h += 12;
-    total = h * 60 + minute;
-  }
+  if (state.settings.military) return hour * 60 + minute;
+  let h = hour % 12;
+  if (ap === "PM") h += 12;
+  return h * 60 + minute;
+}
+
+function applyClock(wrap) {
+  const total = minutesFromWrap(wrap);
   const id = wrap.getAttribute("data-clock");
   if (id === "startTime") state.settings.startMinutes = total;
   if (id === "endTime") state.settings.endMinutes = total;
@@ -1236,11 +1233,37 @@ function applyClock(wrap) {
   if (state.plan) calculate({ silent: true });
 }
 
+function applyWhen(wrap) {
+  const date = wrap.querySelector("[data-part=date]")?.value || "";
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return;
+  const minutes = minutesFromWrap(wrap);
+  const ms = new Date(year, month - 1, day, Math.trunc(minutes / 60), minutes % 60).getTime();
+  if (wrap.getAttribute("data-when") === "leaveAt") {
+    state.settings.leaveAt = ms;
+    persist();
+    if (state.plan) calculate({ silent: true });
+    else render();
+    return;
+  }
+  const field = wrap.getAttribute("data-stop-field");
+  const id = wrap.closest("[data-stop]")?.getAttribute("data-stop");
+  if (!field || !id) return;
+  const patch = { [field]: ms };
+  if (field === "start" && !state.stops.find((stop) => stop.id === id)?.window) patch.end = ms;
+  updateStop(id, patch);
+}
+
 function bind() {
   bindSettings();
   document.querySelectorAll("[data-clock]").forEach((wrap) => {
     wrap.querySelectorAll("select").forEach((select) => {
       select.addEventListener("change", () => applyClock(wrap));
+    });
+  });
+  document.querySelectorAll("[data-when]").forEach((wrap) => {
+    wrap.querySelectorAll("input, select").forEach((control) => {
+      control.addEventListener("change", () => applyWhen(wrap));
     });
   });
   mountAuth();
