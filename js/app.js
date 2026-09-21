@@ -587,10 +587,6 @@ function startFromAddress() {
   else render();
 }
 
-function startFromHere() {
-  locate();
-}
-
 function addStartBefore() {
   if (state.stops[0]?.useCurrentLocation) return;
   state.stops.unshift(defaultStop({
@@ -627,7 +623,9 @@ function newTrip() {
 }
 
 let locateGeneration = 0;
-let locationAutoTried = false;
+
+/** Freightbox driver-app options. */
+const LOCATE_OPTIONS = { enableHighAccuracy: true, timeout: 60000, maximumAge: 15000 };
 
 function dropServiceWorkers() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
@@ -638,85 +636,72 @@ function dropServiceWorkers() {
     .catch(() => {});
 }
 
-function locate({ auto = false } = {}) {
-  if (state.locating) return;
+function applyLocatedPosition(pos) {
+  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  if (!state.stops[0]?.useCurrentLocation) {
+    state.stops.unshift(defaultStop({
+      useCurrentLocation: true,
+      name: "Current location",
+      start: Date.now(),
+      end: Date.now(),
+    }));
+  }
+  state.locating = false;
+  state.locationError = "";
+  state.locationNotice = "Got your location.";
+  persist();
+  render();
+}
+
+function showLocatePreflightError() {
   if (!window.isSecureContext) {
     state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
-    state.locationNotice = "";
-    render();
-    return;
-  }
-  if (!navigator.geolocation) {
+  } else {
     state.locationError = "This browser cannot share a location. Type an address instead.";
-    state.locationNotice = "";
-    render();
+  }
+  state.locationNotice = "";
+  state.locating = false;
+  render();
+}
+
+function showLocateTapError(error) {
+  state.locating = false;
+  state.locationNotice = "";
+  if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
+  const code = error?.code ?? "?";
+  state.locationError = code === 1
+    ? "Safari blocked location for this site (error 1)."
+    : `This page did not get a location (error ${code}). Tap Use my location again.`;
+  render();
+}
+
+function markLocateButtonWaiting() {
+  const button = document.getElementById("locate");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "Waiting for permission…";
+}
+
+/**
+ * Tap-only locate. Call getCurrentPosition from the click listener as the first
+ * statement (same user-gesture turn). No page-load ask — that left sticky errors
+ * and an in-flight request that made the next tap look broken.
+ */
+function onLocateTapError(error, generation, retried) {
+  if (generation !== locateGeneration) return;
+  const code = error?.code;
+  if (!retried && (code === 2 || code === 3)) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (generation !== locateGeneration) return;
+        applyLocatedPosition(pos);
+      },
+      (retryError) => onLocateTapError(retryError, generation, true),
+      LOCATE_OPTIONS,
+    );
     return;
   }
-
-  const generation = ++locateGeneration;
-  let gotPosition = false;
-
-  const finish = (pos) => {
-    gotPosition = true;
-    if (generation !== locateGeneration) return;
-    state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-    if (!state.stops[0]?.useCurrentLocation) {
-      state.stops.unshift(defaultStop({
-        useCurrentLocation: true,
-        name: "Current location",
-        start: Date.now(),
-        end: Date.now(),
-      }));
-    }
-    state.locating = false;
-    state.locationError = "";
-    state.locationNotice = "Got your location.";
-    persist();
-    render();
-  };
-
-  const finalFail = (error) => {
-    if (gotPosition || generation !== locateGeneration) return;
-    state.locating = false;
-    state.locationNotice = "";
-    if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-    const code = error?.code ?? "?";
-    state.locationError = code === 1
-      ? "Safari blocked location for this site (error 1)."
-      : `This page did not get a location (error ${code}). Tap Use my location again.`;
-    render();
-  };
-
-  const onError = (error, retried) => {
-    if (gotPosition || generation !== locateGeneration) return;
-    const code = error?.code;
-    if (!retried && (code === 2 || code === 3)) {
-      navigator.geolocation.getCurrentPosition(
-        finish,
-        (retryError) => onError(retryError, true),
-        { enableHighAccuracy: false, timeout: 60000, maximumAge: 300000 },
-      );
-      return;
-    }
-    finalFail(error);
-  };
-
-  state.locating = true;
-  state.locationError = "";
-  state.locationNotice = auto ? "" : "Asking for your location…";
-
-  // Must stay in the same tap turn: no render(), innerHTML, or await before this.
-  navigator.geolocation.getCurrentPosition(
-    finish,
-    (error) => onError(error, false),
-    { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 },
-  );
-
-  const button = document.getElementById("locate");
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Waiting for permission…";
-  }
+  showLocateTapError(error);
 }
 
 function applyAccount(me) {
@@ -1115,13 +1100,10 @@ export function initPlanner(el) {
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   applyShareFromLocation();
   render();
-  dropServiceWorkers().then(() => {
-    if (locationAutoTried || state.origin || state.locating) return;
-    locationAutoTried = true;
-    // One try when the Start Location card is up. Works without a tap if
-    // Safari already allowed this site; otherwise the button still asks.
-    locate({ auto: true });
-  });
+  // Drop leftover SW/caches only — do not auto-call getCurrentPosition on load.
+  // A non-gesture ask set sticky errors and left an in-flight request that
+  // made the Use my location tap look broken.
+  dropServiceWorkers();
   refreshCredits().then(async () => {
     await pullAccountTrips();
     if (!state.locating) render();
@@ -1342,7 +1324,30 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => {
-    locate();
+    // getCurrentPosition must run in this tap turn before any render/await.
+    if (state.locating) return;
+    if (!window.isSecureContext || !navigator.geolocation) {
+      showLocatePreflightError();
+      return;
+    }
+    const generation = ++locateGeneration;
+    let gotPosition = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        gotPosition = true;
+        if (generation !== locateGeneration) return;
+        applyLocatedPosition(pos);
+      },
+      (error) => {
+        if (gotPosition || generation !== locateGeneration) return;
+        onLocateTapError(error, generation, false);
+      },
+      LOCATE_OPTIONS,
+    );
+    state.locating = true;
+    state.locationError = "";
+    state.locationNotice = "Asking for your location…";
+    markLocateButtonWaiting();
   });
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
