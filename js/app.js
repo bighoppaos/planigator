@@ -280,7 +280,7 @@ function calculateCreditCount() {
 }
 
 function calculateButtonLabel() {
-  if (state.estimating) return "Asking © HERE…";
+  if (state.estimating) return "Asking HERE<sup>©</sup>…";
   const count = calculateCreditCount();
   const left = state.credits == null ? "" : `${state.credits} left`;
   const use = count > 0 ? `uses ${count} credit${count === 1 ? "" : "s"}` : "";
@@ -373,13 +373,13 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   if (!silent) {
     state.estimating = true;
     state.error = "";
-    state.notice = "Asking © HERE for a truck-legal route…";
+    state.notice = "Asking HERE© for a truck-legal route…";
     render();
     try {
       await fillHereLegs();
     } catch (error) {
       if (error.credits != null) state.credits = error.credits;
-      state.error = error.message || "Could not get a © HERE truck route.";
+      state.error = error.message || "Could not get a HERE© truck route.";
       state.estimating = false;
       render();
       return;
@@ -409,12 +409,12 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     if (state.signedIn) {
       try {
         await putTrips(state.trips);
-        state.notice = `© HERE truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
+        state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
       } catch (error) {
         state.notice = error.message || "Saved on this device. The account copy did not update.";
       }
     } else {
-      state.notice = `© HERE truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
+      state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
     }
   }
   if (!skipHash) writeShareHash();
@@ -983,7 +983,7 @@ function stopCard(stop, index) {
       <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : "Look up this address"}</button>
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${pointReady(stop) ? `<p class="here-leg">Using this address.</p>` : ""}
-      ${originStop ? `<p class="fine">This is where you roll from. © HERE fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
+      ${originStop ? `<p class="fine">This is where you roll from. HERE<sup>©</sup> fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
         <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>
       ` : originStop ? "" : `
@@ -1017,9 +1017,9 @@ function hereLeg(stop) {
   const miles = Number(stop.miles) || 0;
   const hours = Number(stop.hours) || 0;
   if (miles > 0.05 || hours > 0.0001) {
-    return `<p class="here-leg">${escapeAttr(formatMiles(miles))} · ${escapeAttr(hoursLabel(hours))} from © HERE</p>`;
+    return `<p class="here-leg">${escapeAttr(formatMiles(miles))} · ${escapeAttr(hoursLabel(hours))} from HERE<sup>©</sup></p>`;
   }
-  return `<p class="fine">Miles and drive time come from © HERE when you Calculate.</p>`;
+  return `<p class="fine">Miles and drive time come from HERE<sup>©</sup> when you Calculate.</p>`;
 }
 
 function hosSummary() {
@@ -1077,7 +1077,7 @@ function render() {
     <section class="hero card hero-mark">
       <h1>Planigator</h1>
       <ul class="pitch">
-        <li>Get a © HERE truck-legal route</li>
+        <li>Get a HERE<sup>©</sup> truck-legal route</li>
         <li>Know how much leeway time you have</li>
         <li>Know when to leave</li>
         <li>Know when to take your 30 and your 10</li>
@@ -1102,7 +1102,7 @@ function render() {
           <span>Hours into driving before 30-minute break</span>
           ${wheelChip("hoursBeforeThirty", s.hoursBeforeThirty, HOS_THIRTY, thirtyLabel)}
         </label>
-        <label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt, disabled: s.leaveNow })}</label>
+        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt })}</label>`}
         <label class="setting">
           <span>Leave now</span>
           <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
@@ -1157,7 +1157,7 @@ function render() {
         <button type="button" class="primary" id="calculate" ${state.estimating || !state.signedIn ? "disabled" : ""}>${calculateButtonLabel()}</button>
         ${state.signedIn ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      <p class="fine">${state.signedIn ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks © HERE for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.signedIn ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>

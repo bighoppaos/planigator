@@ -23,6 +23,8 @@
 
 * { box-sizing: border-box; }
 
+sup { font-size: 0.65em; }
+
 html, body {
   margin: 0;
   padding: 0;
