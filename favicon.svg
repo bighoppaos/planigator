@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Planigator">
+  <rect width="64" height="64" rx="14" fill="#1f8a62"/>
+  <path fill="#fffdf8" d="M12 40V28h18l8-8h14v20H12zm6-6h8v4h-8v-4z"/>
+  <circle cx="22" cy="46" r="5" fill="#13202a"/>
+  <circle cx="46" cy="46" r="5" fill="#13202a"/>
+</svg>
