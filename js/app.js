@@ -30,7 +30,6 @@ const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
-let locateWatchId = null;
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
 
 function pad(n) {
@@ -1264,21 +1263,15 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => {
-    const id = navigator.geolocation.watchPosition(
+    navigator.geolocation.getCurrentPosition(
       (pos) => {
-        navigator.geolocation.clearWatch(id);
-        if (locateWatchId === id) locateWatchId = null;
         applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
       },
       (error) => {
-        navigator.geolocation.clearWatch(id);
-        if (locateWatchId === id) locateWatchId = null;
         showLocateError(error);
       },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+      { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 }
     );
-    if (locateWatchId != null) navigator.geolocation.clearWatch(locateWatchId);
-    locateWatchId = id;
     state.locating = true;
     state.locationError = "";
     state.locationNotice = "";
