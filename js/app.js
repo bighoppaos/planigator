@@ -626,7 +626,20 @@ function newTrip() {
   render();
 }
 
-function locate() {
+let locateGeneration = 0;
+let locationAutoTried = false;
+
+function dropServiceWorkers() {
+  if (!("serviceWorker" in navigator)) return Promise.resolve();
+  return navigator.serviceWorker.getRegistrations()
+    .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+    .then(() => (window.caches ? caches.keys() : []))
+    .then((keys) => Promise.all((keys || []).map((key) => caches.delete(key))))
+    .catch(() => {});
+}
+
+function locate({ auto = false } = {}) {
+  if (state.locating) return;
   if (!window.isSecureContext) {
     state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
     state.locationNotice = "";
@@ -639,7 +652,13 @@ function locate() {
     render();
     return;
   }
+
+  const generation = ++locateGeneration;
+  let gotPosition = false;
+
   const finish = (pos) => {
+    gotPosition = true;
+    if (generation !== locateGeneration) return;
     state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
     if (!state.stops[0]?.useCurrentLocation) {
       state.stops.unshift(defaultStop({
@@ -655,24 +674,44 @@ function locate() {
     persist();
     render();
   };
-  const fail = (error) => {
+
+  const finalFail = (error) => {
+    if (gotPosition || generation !== locateGeneration) return;
     state.locating = false;
     state.locationNotice = "";
     if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-    const code = error?.code || "?";
+    const code = error?.code ?? "?";
     state.locationError = code === 1
       ? "Safari blocked location for this site (error 1)."
       : `This page did not get a location (error ${code}). Tap Use my location again.`;
     render();
   };
-  navigator.geolocation.getCurrentPosition(finish, fail, {
-    enableHighAccuracy: false,
-    timeout: 20000,
-    maximumAge: 60000,
-  });
+
+  const onError = (error, retried) => {
+    if (gotPosition || generation !== locateGeneration) return;
+    const code = error?.code;
+    if (!retried && (code === 2 || code === 3)) {
+      navigator.geolocation.getCurrentPosition(
+        finish,
+        (retryError) => onError(retryError, true),
+        { enableHighAccuracy: false, timeout: 60000, maximumAge: 300000 },
+      );
+      return;
+    }
+    finalFail(error);
+  };
+
   state.locating = true;
   state.locationError = "";
-  state.locationNotice = "Asking for your location…";
+  state.locationNotice = auto ? "" : "Asking for your location…";
+
+  // Must stay in the same tap turn: no render(), innerHTML, or await before this.
+  navigator.geolocation.getCurrentPosition(
+    finish,
+    (error) => onError(error, false),
+    { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 },
+  );
+
   const button = document.getElementById("locate");
   if (button) {
     button.disabled = true;
@@ -1076,9 +1115,16 @@ export function initPlanner(el) {
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   applyShareFromLocation();
   render();
+  dropServiceWorkers().then(() => {
+    if (locationAutoTried || state.origin || state.locating) return;
+    locationAutoTried = true;
+    // One try when the Start Location card is up. Works without a tap if
+    // Safari already allowed this site; otherwise the button still asks.
+    locate({ auto: true });
+  });
   refreshCredits().then(async () => {
     await pullAccountTrips();
-    render();
+    if (!state.locating) render();
   });
 }
 
@@ -1295,9 +1341,9 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
-  $("#locate")?.addEventListener("click", () => (
-    state.stops[0]?.useCurrentLocation ? locate() : startFromHere()
-  ));
+  $("#locate")?.addEventListener("click", () => {
+    locate();
+  });
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());
@@ -1354,11 +1400,7 @@ function bind() {
 }
 
 if (document.body.classList.contains("planner-only")) {
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      regs.forEach((reg) => reg.unregister());
-    }).catch(() => {});
-  }
+  dropServiceWorkers();
   window.addEventListener("hashchange", () => {
     if (writingHash) return;
     applyShareFromLocation();

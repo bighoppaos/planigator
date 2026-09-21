@@ -30,10 +30,13 @@
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then((regs) => {
-        regs.forEach((reg) => reg.unregister());
+        return Promise.all(regs.map((reg) => reg.unregister()));
+      }).then(() => {
+        if (!window.caches) return;
+        return caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
       });
     }
   </script>
-  <script type="module" src="./js/app.js?v=23"></script>
+  <script type="module" src="./js/app.js?v=24"></script>
 </body>
 </html>
