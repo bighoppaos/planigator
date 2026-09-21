@@ -38,6 +38,8 @@ header, main, footer {
   max-width: 720px;
   margin: 0 auto;
   padding: 0 20px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
 }
 
 header {
@@ -73,13 +75,13 @@ h2 { font-size: 1.2rem; margin-top: 28px; }
   margin: 16px 0;
   max-width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-wrap: anywhere;
 }
 
 a { color: var(--mint); }
 
 .muted, footer { color: var(--muted); font-size: 15px; }
-footer { padding: 28px 20px 48px; }
+footer { padding: 28px 20px calc(48px + env(safe-area-inset-bottom)); }
 
 ul { padding-left: 20px; }
 li { margin: 8px 0; }
@@ -90,6 +92,7 @@ nav a[aria-current="page"] {
 
 body.app main {
   max-width: 760px;
+  overflow-x: clip;
 }
 
 .eyebrow {
@@ -256,17 +259,21 @@ button.ghost {
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card, .chip {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0;
   max-width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-wrap: anywhere;
 }
 
 .stops {
   min-width: 0;
   max-width: 100%;
+  overflow-x: clip;
 }
 
 .stop-head, .chip-top, .icon-row {
@@ -320,9 +327,28 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 640px) {
   html, body { font-size: 16px; }
-  header, main, footer { padding-left: 12px; padding-right: 12px; }
+  header, main, footer {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
   .card, .stop-card { padding: 14px; }
   .row button, .row a.secondary { width: 100%; }
+  .pair {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pair > label {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  input[type="datetime-local"],
+  input[type="date"],
+  input[type="time"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 16px;
+  }
 }
 
 textarea {

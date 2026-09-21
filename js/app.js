@@ -23,8 +23,8 @@ import {
   truckWeGoUrl,
   planPlainText,
 } from "./plan.js";
-import { HERE_API_KEY } from "./here-key.js";
-import { geocodeAddress, truckRoute, TRUCK_PROFILE } from "./here.js";
+import { TRUCK_PROFILE } from "./here.js";
+import { creditsMe, geocodeAddress, truckRoute } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -125,6 +125,7 @@ function defaultState() {
     origin: null,
     locating: false,
     estimating: false,
+    credits: null,
     copiedText: "",
   };
 }
@@ -487,12 +488,16 @@ function locate() {
   );
 }
 
-async function estimateMiles() {
-  if (!HERE_API_KEY) {
-    state.error = "This site is missing a HERE key, so it cannot request a truck route.";
-    render();
-    return;
+async function refreshCredits() {
+  try {
+    const me = await creditsMe();
+    state.credits = me.credits;
+  } catch {
+    if (state.credits == null) state.credits = null;
   }
+}
+
+async function estimateMiles() {
   state.estimating = true;
   state.error = "";
   state.notice = "Asking HERE for a truck-legal route…";
@@ -507,27 +512,30 @@ async function estimateMiles() {
       }
       const line = (stop.address || stop.name || "").trim();
       if (!line) throw new Error(`Add an address for ${cardTitle(state.stops.indexOf(stop), state.stops)}.`);
-      const point = await geocodeAddress(line, HERE_API_KEY);
+      const point = await geocodeAddress(line);
       stop.lat = point.lat;
       stop.lon = point.lon;
       if (!stop.address) stop.address = point.label;
+      if (point.credits != null) state.credits = point.credits;
       points.push(point);
     }
     const departAt = leaveAtNow();
     const speedCapMph = state.settings.governed ? mph() : null;
     for (let i = 1; i < state.stops.length; i += 1) {
       if (!points[i - 1] || !points[i]) continue;
-      const leg = await truckRoute(points[i - 1], points[i], HERE_API_KEY, {
+      const leg = await truckRoute(points[i - 1], points[i], {
         speedCapMph,
         departAt,
       });
       state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
       state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
+      if (leg.credits != null) state.credits = leg.credits;
     }
     state.notice = `Filled miles from a HERE truck route (${TRUCK_PROFILE.summary}).`;
     persist();
     calculate({ silent: true });
   } catch (error) {
+    if (error.credits != null) state.credits = error.credits;
     state.error = error.message || "Could not estimate truck miles.";
     render();
   } finally {
@@ -703,6 +711,7 @@ export function initPlanner(el) {
   plannerRoot = el;
   applyShareFromLocation();
   render();
+  refreshCredits().then(() => render());
 }
 
 function render() {
@@ -779,7 +788,7 @@ function render() {
         <button type="button" class="primary" id="calculate">Calculate</button>
         <button type="button" class="secondary" id="estimate" ${state.estimating ? "disabled" : ""}>${state.estimating ? "Asking HERE…" : "Estimate truck miles"}</button>
       </div>
-      <p class="fine">Estimate truck miles uses HERE truck routing for a ${escapeAttr(TRUCK_PROFILE.summary)}. Truck only — not car, bike, or walk. Or type the miles yourself.</p>
+      <p class="fine">${state.credits == null ? "12 free credits for HERE truck lookups." : `${state.credits} credit${state.credits === 1 ? "" : "s"} left.`} Estimate uses 1 credit per lookup. Truck only — not car, bike, or walk. Or type the miles yourself.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>

@@ -1,4 +1,4 @@
-const CACHE = "planigator-web-v6";
+const CACHE = "planigator-web-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -15,7 +15,7 @@ const ASSETS = [
   "./js/hos.js",
   "./js/plan.js",
   "./js/here.js",
-  "./js/here-key.js",
+  "./js/api.js",
 ];
 
 self.addEventListener("install", (event) => {
