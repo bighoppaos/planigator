@@ -663,14 +663,14 @@ function stopCard(stop, index) {
         <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(originStop ? "City, state, or street" : `${title} address`)}">
       </label>
       ${originStop ? `<p class="fine">This is where you roll from. Miles on the next stop are from here.</p>` : `
-      <div class="pair">
-        <label>Miles from previous
-          <input data-field="miles" inputmode="decimal" value="${escapeAttr(stop.miles)}" placeholder="0">
-        </label>
-        <label>Drive hours
-          <input data-field="hours" inputmode="decimal" value="${escapeAttr(stop.hours)}" placeholder="from miles">
-        </label>
-      </div>`}
+      <label class="setting">
+        <span>Miles from previous</span>
+        <input class="compact" data-field="miles" inputmode="decimal" value="${escapeAttr(stop.miles)}" placeholder="0">
+      </label>
+      <label class="setting">
+        <span>Drive hours</span>
+        <input class="compact" data-field="hours" inputmode="decimal" value="${escapeAttr(stop.hours)}" placeholder="from miles">
+      </label>`}
       ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
         <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>
       ` : originStop ? "" : `
@@ -681,8 +681,8 @@ function stopCard(stop, index) {
         `}
       </div>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<label>Opens<span class="field"><input type="datetime-local" data-field="start" value="${toDateTimeLocal(stop.start)}"></span></label>` : ""}
-        <label>Be there by<span class="field"><input type="datetime-local" data-field="${stop.window ? "end" : "start"}" value="${toDateTimeLocal(stop.window ? stop.end : stop.start)}"></span></label>
+        ${stop.window ? `<label class="setting"><span>Opens</span><span class="field tight"><input type="datetime-local" data-field="start" value="${toDateTimeLocal(stop.start)}"></span></label>` : ""}
+        <label class="setting"><span>Be there by</span><span class="field tight"><input type="datetime-local" data-field="${stop.window ? "end" : "start"}" value="${toDateTimeLocal(stop.window ? stop.end : stop.start)}"></span></label>
       `}`}
     </article>
     ${around.after.map(chip).join("")}
@@ -736,37 +736,55 @@ function render() {
     <section class="card hos">
       <details class="hos-box"${hosBoxOpen ? " open" : ""}>
         <summary>HOS <span class="muted">${escapeAttr(hosSummary())}</span></summary>
-        <div class="row">
-          <label class="check"><input type="checkbox" id="governed" ${s.governed ? "checked" : ""}> Governed</label>
-          ${s.governed ? `<label class="inline">mph <input id="mph" inputmode="decimal" value="${escapeAttr(s.governedMph)}"></label>` : ""}
+        <div class="setting">
+          <label for="governed">Governed</label>
+          <span class="setting-control">
+            <input type="checkbox" id="governed" ${s.governed ? "checked" : ""}>
+            ${s.governed ? `<input id="mph" class="compact" inputmode="decimal" aria-label="Governed mph" value="${escapeAttr(s.governedMph)}">` : ""}
+          </span>
         </div>
-        <label>Hours I’ll drive out of the 11
-          <input id="hoursOfEleven" type="number" min="1" max="11" step="1" value="${s.hoursOfEleven}">
+        <label class="setting">
+          <span>Hours I’ll drive out of the 11</span>
+          <input id="hoursOfEleven" class="compact" type="number" min="1" max="11" step="1" value="${s.hoursOfEleven}">
         </label>
-        <label>Hours into driving before 30-minute break
-          <input id="hoursBeforeThirty" type="number" min="0.5" max="8" step="0.5" value="${s.hoursBeforeThirty}">
+        <label class="setting">
+          <span>Hours into driving before 30-minute break</span>
+          <input id="hoursBeforeThirty" class="compact" type="number" min="0.5" max="8" step="0.5" value="${s.hoursBeforeThirty}">
         </label>
-        <label class="check"><input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}> Leave now</label>
-        ${s.leaveNow ? "" : `<label>Leave at<span class="field"><input id="leaveAt" type="datetime-local" value="${toDateTimeLocal(s.leaveAt)}"></span></label>`}
-        <label>Start time each day<span class="field"><input id="startTime" type="time" value="${minutesToTime(s.startMinutes)}"></span></label>
-        ${s.endAnytime ? "" : `<label>End time each day<span class="field"><input id="endTime" type="time" value="${minutesToTime(s.endMinutes)}"></span></label>`}
-        <label class="check"><input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}> End the day anytime</label>
-        <div class="row">
-          <label class="check"><input type="checkbox" id="military" ${s.military ? "checked" : ""}> Military time</label>
-          <label class="check"><input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}> Kilometers</label>
-        </div>
+        <label class="setting">
+          <span>Leave now</span>
+          <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
+        </label>
+        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span><span class="field tight"><input id="leaveAt" type="datetime-local" value="${toDateTimeLocal(s.leaveAt)}"></span></label>`}
+        <label class="setting">
+          <span>Start time each day</span>
+          <input id="startTime" class="compact time" type="time" value="${minutesToTime(s.startMinutes)}">
+        </label>
+        ${s.endAnytime ? "" : `<label class="setting"><span>End time each day</span><input id="endTime" class="compact time" type="time" value="${minutesToTime(s.endMinutes)}"></label>`}
+        <label class="setting">
+          <span>End the day anytime</span>
+          <input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}>
+        </label>
+        <label class="setting">
+          <span>Military time</span>
+          <input type="checkbox" id="military" ${s.military ? "checked" : ""}>
+        </label>
+        <label class="setting">
+          <span>Kilometers</span>
+          <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
+        </label>
       </details>
     </section>
 
     <section class="card origin">
       <h2>Start</h2>
-      <p class="muted">Default is pickup → drop. To route from where you are, tap Use my location and allow this site when the browser asks.</p>
+      <p class="muted">Pickup → drop unless you start from here.</p>
       <p>${origin && state.origin
-        ? `Routing from your location ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}`
+        ? `Routing from ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}`
         : origin
-          ? "Waiting for location. Allow Planigator when the browser asks, or type an address."
-          : "First card is where you roll from. Type that city, or use your location."}</p>
-      <div class="row">
+          ? "Waiting for location. Allow Planigator, or type an address."
+          : "Type the first city, or use your location."}</p>
+      <div class="stack">
         <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
         ${origin ? `<button type="button" class="secondary" id="fromAddress">Start from an address</button>` : ""}
         <button type="button" class="secondary" id="newTrip">New trip</button>
