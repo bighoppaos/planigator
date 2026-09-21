@@ -1,4 +1,4 @@
-const CACHE = "planigator-web-v13";
+const CACHE = "planigator-web-v14";
 const ASSETS = [
   "./",
   "./index.html",

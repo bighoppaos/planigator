@@ -231,7 +231,31 @@ function dateChip({ id = "", field = "", ms }) {
 }
 
 function timeChip(id, minutes) {
-  return `<button type="button" class="wheel-chip time-open" data-time="${id}" data-minutes="${minutes}">${escapeAttr(formatClockMinutes(minutes))}</button>`;
+  const military = state.settings.military;
+  const hour24 = Math.trunc(Math.max(0, minutes) / 60) % 24;
+  const minute = Math.max(0, minutes) % 60;
+  const hour = military ? hour24 : (hour24 % 12 || 12);
+  const ap = hour24 >= 12 ? "PM" : "AM";
+  const hours = military
+    ? Array.from({ length: 24 }, (_, i) => i)
+    : Array.from({ length: 12 }, (_, i) => i + 1);
+  const hourOptions = hours.map((value) => {
+    const label = military ? pad(value) : String(value);
+    return `<option value="${value}"${value === hour ? " selected" : ""}>${label}</option>`;
+  }).join("");
+  const minuteOptions = Array.from({ length: 60 }, (_, value) => (
+    `<option value="${value}"${value === minute ? " selected" : ""}>${pad(value)}</option>`
+  )).join("");
+  const ampm = military ? "" : `
+    <select data-part="ampm" aria-label="AM or PM">
+      <option value="AM"${ap === "AM" ? " selected" : ""}>AM</option>
+      <option value="PM"${ap === "PM" ? " selected" : ""}>PM</option>
+    </select>`;
+  return `<span class="time-picks" data-clock="${id}">
+    <select data-part="hour" aria-label="Hour">${hourOptions}</select>
+    <select data-part="minute" aria-label="Minute">${minuteOptions}</select>
+    ${ampm}
+  </span>`;
 }
 
 function calculateCreditCount() {
@@ -243,7 +267,9 @@ function calculateCreditCount() {
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE…";
   const count = calculateCreditCount();
-  return `Calculate · ${count} credit${count === 1 ? "" : "s"}`;
+  const use = `${count} credit${count === 1 ? "" : "s"}`;
+  const left = state.credits == null ? "" : ` · ${state.credits} left`;
+  return `Calculate · ${use}${left}`;
 }
 
 const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
@@ -324,6 +350,11 @@ function applyShareFromLocation() {
 }
 
 async function calculate({ silent = false, skipHash = false } = {}) {
+  if (!silent && !state.signedIn) {
+    state.error = "Sign in to calculate.";
+    render();
+    return;
+  }
   if (!silent) {
     state.estimating = true;
     state.error = "";
@@ -565,7 +596,7 @@ function newTrip() {
   Object.assign(state, defaultState());
   state.trips = trips;
   state.settings = settings;
-  state.notice = "New trip. Old ones stay in the list below.";
+  state.notice = "New trip.";
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
   queueMicrotask(() => { writingHash = false; });
@@ -588,29 +619,37 @@ function locate() {
   }
   state.locating = true;
   state.locationError = "";
-  state.locationNotice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
+  state.locationNotice = "Asking Safari for the location you already allowed.";
+  const finish = (pos) => {
+    state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    state.locating = false;
+    state.locationError = "";
+    state.locationNotice = "Got your location. Tap Calculate when the stops have addresses.";
+    persist();
+    render();
+  };
+  const fail = (error) => {
+    state.locating = false;
+    state.locationNotice = "";
+    if (error?.code === 1) {
+      state.locationError = "Safari is still blocking this site. Tap AA in the address bar, set Location to Allow for bighoppaos.github.io, reload the page, then tap Use my location again.";
+    } else if (error?.code === 3) {
+      state.locationError = "Location timed out. Tap Use my location again.";
+    } else {
+      state.locationError = "Could not get a location. Type an address instead.";
+    }
+    render();
+  };
+  const rough = { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 };
+  // Ask before render(). Safari drops the tap if the page redraws first.
+  navigator.geolocation.getCurrentPosition(finish, (error) => {
+    if (error?.code === 2 || error?.code === 3) {
+      navigator.geolocation.getCurrentPosition(finish, fail, rough);
+      return;
+    }
+    fail(error);
+  }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
   render();
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-      state.locating = false;
-      state.locationError = "";
-      state.locationNotice = "Got your location. Tap Calculate when the stops have addresses.";
-      persist();
-      render();
-    },
-    (error) => {
-      state.locating = false;
-      state.locationNotice = "";
-      if (error?.code === 1) {
-        state.locationError = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
-      } else {
-        state.locationError = "Could not get a location. Type an address instead.";
-      }
-      render();
-    },
-    { enableHighAccuracy: true, timeout: 12000 }
-  );
 }
 
 function applyAccount(me) {
@@ -954,7 +993,13 @@ function render() {
   const maps = directionsUrl();
   root.innerHTML = `
     <section class="hero card">
-      <p>Get a HERE truck-legal route, leave-by, 30s, 10-hour rests, and leeway. It stays in this browser. Share the link with anyone — iPhone or Android.</p>
+      <ul class="pitch">
+        <li>Get a HERE truck-legal route</li>
+        <li>Know how much leeway time you have</li>
+        <li>Know when to leave</li>
+        <li>Know when to take your 30 and your 10</li>
+        <li>Share the trip link with anyone</li>
+      </ul>
     </section>
 
     <section class="card hos">
@@ -1025,8 +1070,8 @@ function render() {
       </label>
       ${authBlock()}
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating ? "disabled" : ""}>${calculateButtonLabel()}</button>
-        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
+        <button type="button" class="primary" id="calculate" ${state.estimating || !state.signedIn ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        ${state.signedIn ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
       <p class="fine">${state.signedIn ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
@@ -1053,21 +1098,6 @@ function render() {
       </section>
     ` : ""}
 
-    <section class="card trips">
-      <h2>${state.signedIn ? "Trips on this account" : "Trips on this device"}</h2>
-      ${state.trips.length === 0 ? `<p class="muted">${state.signedIn ? "Calculate saves the trip on the account you signed in with." : "Calculate saves the trip in this browser. Sign in and the next save stays on that account."}</p>` : ""}
-      <ul>
-        ${state.trips.map((trip) => `
-          <li class="${trip.id === state.activeTripId ? "active" : ""}">
-            <button type="button" data-load="${trip.id}">
-              <strong>${escapeAttr(trip.name)}</strong>
-              <span>${trip.summary ? `${formatMiles(trip.summary.miles)} · leave ${formatShort(trip.summary.rollAt)}` : ""}</span>
-            </button>
-            <button type="button" class="ghost" data-delete="${trip.id}" aria-label="Delete ${escapeAttr(trip.name)}">Delete</button>
-          </li>
-        `).join("")}
-      </ul>
-    </section>
   `;
   bind();
 }
@@ -1104,117 +1134,30 @@ function bindSettings() {
   });
 }
 
-function closeTimeSheet() {
-  document.querySelector(".time-sheet")?.remove();
-}
-
-function fillTimeColumn(col, values, current, label) {
-  values.forEach((value) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "time-opt";
-    button.dataset.value = String(value);
-    button.textContent = label(value);
-    if (String(value) === String(current)) button.classList.add("on");
-    button.addEventListener("click", () => {
-      col.querySelectorAll(".time-opt").forEach((item) => item.classList.toggle("on", item === button));
-      const top = button.offsetTop - col.clientHeight / 2 + button.offsetHeight / 2;
-      col.scrollTo({ top, behavior: "smooth" });
-    });
-    col.appendChild(button);
-  });
-}
-
-function markCenteredTime(col) {
-  const mid = col.scrollTop + col.clientHeight / 2;
-  let best = null;
-  let bestDist = Infinity;
-  col.querySelectorAll(".time-opt").forEach((opt) => {
-    const center = opt.offsetTop + opt.offsetHeight / 2;
-    const dist = Math.abs(center - mid);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = opt;
-    }
-  });
-  if (!best) return;
-  col.querySelectorAll(".time-opt").forEach((opt) => opt.classList.toggle("on", opt === best));
-}
-
-function centerTimeColumn(col) {
-  const on = col.querySelector(".on");
-  if (!on) return;
-  col.scrollTop = on.offsetTop - col.clientHeight / 2 + on.offsetHeight / 2;
-}
-
-function openTimeSheet(id, minutes) {
-  closeTimeSheet();
-  const military = state.settings.military;
-  const hour24 = Math.trunc(Math.max(0, minutes) / 60) % 24;
-  const minute = Math.max(0, minutes) % 60;
-  const sheet = document.createElement("div");
-  sheet.className = "time-sheet";
-  sheet.innerHTML = `
-    <div class="time-sheet-card" role="dialog" aria-label="Pick a time">
-      <div class="time-wheels">
-        <div class="time-col" data-part="hour"></div>
-        <div class="time-col" data-part="minute"></div>
-        ${military ? "" : `<div class="time-col" data-part="ampm"></div>`}
-      </div>
-      <button type="button" class="primary" data-done>Done</button>
-    </div>
-  `;
-  const hourCol = sheet.querySelector("[data-part=hour]");
-  const minuteCol = sheet.querySelector("[data-part=minute]");
-  const hours = military
-    ? Array.from({ length: 24 }, (_, i) => i)
-    : Array.from({ length: 12 }, (_, i) => i + 1);
-  const shownHour = military ? hour24 : (hour24 % 12 || 12);
-  fillTimeColumn(hourCol, hours, shownHour, (value) => (military ? pad(value) : String(value)));
-  fillTimeColumn(minuteCol, Array.from({ length: 60 }, (_, i) => i), minute, (value) => pad(value));
-  const ampmCol = sheet.querySelector("[data-part=ampm]");
-  if (ampmCol) fillTimeColumn(ampmCol, ["AM", "PM"], hour24 >= 12 ? "PM" : "AM", (value) => value);
-  let settling = true;
-  sheet.querySelectorAll(".time-col").forEach((col) => {
-    col.addEventListener("scroll", () => {
-      if (settling) return;
-      markCenteredTime(col);
-    });
-  });
-  sheet.querySelector("[data-done]").addEventListener("click", () => {
-    const pickedHour = Number(hourCol.querySelector(".on")?.dataset.value);
-    const pickedMinute = Number(minuteCol.querySelector(".on")?.dataset.value);
-    let total = 0;
-    if (military) {
-      total = pickedHour * 60 + pickedMinute;
-    } else {
-      const ap = ampmCol?.querySelector(".on")?.dataset.value || "AM";
-      let hour = pickedHour % 12;
-      if (ap === "PM") hour += 12;
-      total = hour * 60 + pickedMinute;
-    }
-    if (id === "startTime") state.settings.startMinutes = total;
-    if (id === "endTime") state.settings.endMinutes = total;
-    persist();
-    closeTimeSheet();
-    if (state.plan) calculate({ silent: true });
-    else render();
-  });
-  sheet.addEventListener("click", (event) => {
-    if (event.target === sheet) closeTimeSheet();
-  });
-  document.body.appendChild(sheet);
-  requestAnimationFrame(() => {
-    sheet.querySelectorAll(".time-col").forEach(centerTimeColumn);
-    requestAnimationFrame(() => { settling = false; });
-  });
+function applyClock(wrap) {
+  const hour = Number(wrap.querySelector("[data-part=hour]")?.value);
+  const minute = Number(wrap.querySelector("[data-part=minute]")?.value);
+  const ap = wrap.querySelector("[data-part=ampm]")?.value;
+  let total = 0;
+  if (state.settings.military) {
+    total = hour * 60 + minute;
+  } else {
+    let h = hour % 12;
+    if (ap === "PM") h += 12;
+    total = h * 60 + minute;
+  }
+  const id = wrap.getAttribute("data-clock");
+  if (id === "startTime") state.settings.startMinutes = total;
+  if (id === "endTime") state.settings.endMinutes = total;
+  persist();
+  if (state.plan) calculate({ silent: true });
 }
 
 function bind() {
   bindSettings();
-  document.querySelectorAll("[data-time]").forEach((button) => {
-    button.addEventListener("click", () => {
-      openTimeSheet(button.getAttribute("data-time"), Number(button.getAttribute("data-minutes")) || 0);
+  document.querySelectorAll("[data-clock]").forEach((wrap) => {
+    wrap.querySelectorAll("select").forEach((select) => {
+      select.addEventListener("change", () => applyClock(wrap));
     });
   });
   mountAuth();
@@ -1248,6 +1191,24 @@ function bind() {
         updateStop(id, patch);
       };
       input.addEventListener("change", apply);
+      if (field === "address") {
+        input.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          const stop = state.stops.find((item) => item.id === id);
+          if (stop) stop.address = input.value;
+          persist();
+          const addresses = [...document.querySelectorAll(".stop-card input[data-field=address]")];
+          const index = addresses.indexOf(input);
+          const following = addresses[index + 1];
+          if (following && !following.value.trim()) {
+            following.focus();
+            return;
+          }
+          if (state.signedIn) calculate();
+          else input.blur();
+        });
+      }
       if (input.type !== "checkbox" && input.type !== "datetime-local") {
         input.addEventListener("input", () => {
           const stop = state.stops.find((item) => item.id === id);

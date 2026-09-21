@@ -485,13 +485,43 @@ input.compact {
   line-height: 1.45;
 }
 
-footer .brand {
-  display: inline-block;
+header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   color: var(--navy);
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-decoration: none;
+}
+
+header .brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: block;
+}
+
+.pitch {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.pitch li { margin: 6px 0; }
+
+.time-picks {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.time-picks select {
+  width: auto;
+  min-width: 4.2rem;
+  margin: 0;
+  padding: 8px 6px;
+  text-align: center;
 }
 
 body.app main { padding-top: 16px; }
