@@ -587,10 +587,6 @@ function startFromAddress() {
   else render();
 }
 
-function startFromHere() {
-  locate();
-}
-
 function addStartBefore() {
   if (state.stops[0]?.useCurrentLocation) return;
   state.stops.unshift(defaultStop({
@@ -626,53 +622,38 @@ function newTrip() {
   render();
 }
 
-function locate() {
-  if (!window.isSecureContext) {
-    state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
-    state.locationNotice = "";
-    render();
-    return;
+function onLocateSuccess(pos) {
+  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  if (!state.stops[0]?.useCurrentLocation) {
+    state.stops.unshift(defaultStop({
+      useCurrentLocation: true,
+      name: "Current location",
+      start: Date.now(),
+      end: Date.now(),
+    }));
   }
-  if (!navigator.geolocation) {
-    state.locationError = "This browser cannot share a location. Type an address instead.";
-    state.locationNotice = "";
-    render();
-    return;
-  }
-  state.locating = true;
+  state.locating = false;
   state.locationError = "";
-  state.locationNotice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
+  state.locationNotice = "Got your location.";
+  persist();
   render();
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-      if (!state.stops[0]?.useCurrentLocation) {
-        state.stops.unshift(defaultStop({
-          useCurrentLocation: true,
-          name: "Current location",
-          start: Date.now(),
-          end: Date.now(),
-        }));
-      }
-      state.locating = false;
-      state.locationError = "";
-      state.locationNotice = "Got your location.";
-      persist();
-      render();
-    },
-    (error) => {
-      state.locating = false;
-      state.locationNotice = "";
-      if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-      if (error?.code === 1) {
-        state.locationError = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
-      } else {
-        state.locationError = "Could not get a location. Type an address instead.";
-      }
-      render();
-    },
-    { enableHighAccuracy: true, timeout: 12000 }
-  );
+}
+
+function onLocateError(error) {
+  state.locating = false;
+  state.locationNotice = "";
+  if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
+  const code = error?.code;
+  if (code === 1) {
+    state.locationError = "This page was not allowed to use location (error 1).";
+  } else if (code === 2) {
+    state.locationError = "This browser could not get a Wi-Fi location (error 2).";
+  } else if (code === 3) {
+    state.locationError = "Location timed out (error 3).";
+  } else {
+    state.locationError = `Could not get a location (error ${code ?? "?"}).`;
+  }
+  render();
 }
 
 function applyAccount(me) {
@@ -1149,7 +1130,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1290,9 +1271,21 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
-  $("#locate")?.addEventListener("click", () => (
-    state.stops[0]?.useCurrentLocation ? locate() : startFromHere()
-  ));
+  $("#locate")?.addEventListener("click", () => {
+    navigator.geolocation.getCurrentPosition(
+      onLocateSuccess,
+      onLocateError,
+      { enableHighAccuracy: false, timeout: 60000, maximumAge: 30000 }
+    );
+    state.locating = true;
+    state.locationError = "";
+    state.locationNotice = "";
+    const button = $("#locate");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Getting your location…";
+    }
+  });
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());
