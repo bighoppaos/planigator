@@ -681,8 +681,8 @@ function stopCard(stop, index) {
         `}
       </div>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<label>Opens<input type="datetime-local" data-field="start" value="${toDateTimeLocal(stop.start)}"></label>` : ""}
-        <label>Be there by<input type="datetime-local" data-field="${stop.window ? "end" : "start"}" value="${toDateTimeLocal(stop.window ? stop.end : stop.start)}"></label>
+        ${stop.window ? `<label>Opens<span class="field"><input type="datetime-local" data-field="start" value="${toDateTimeLocal(stop.start)}"></span></label>` : ""}
+        <label>Be there by<span class="field"><input type="datetime-local" data-field="${stop.window ? "end" : "start"}" value="${toDateTimeLocal(stop.window ? stop.end : stop.start)}"></span></label>
       `}`}
     </article>
     ${around.after.map(chip).join("")}
@@ -747,9 +747,9 @@ function render() {
           <input id="hoursBeforeThirty" type="number" min="0.5" max="8" step="0.5" value="${s.hoursBeforeThirty}">
         </label>
         <label class="check"><input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}> Leave now</label>
-        ${s.leaveNow ? "" : `<label>Leave at<input id="leaveAt" type="datetime-local" value="${toDateTimeLocal(s.leaveAt)}"></label>`}
-        <label>Start time each day<input id="startTime" type="time" value="${minutesToTime(s.startMinutes)}"></label>
-        ${s.endAnytime ? "" : `<label>End time each day<input id="endTime" type="time" value="${minutesToTime(s.endMinutes)}"></label>`}
+        ${s.leaveNow ? "" : `<label>Leave at<span class="field"><input id="leaveAt" type="datetime-local" value="${toDateTimeLocal(s.leaveAt)}"></span></label>`}
+        <label>Start time each day<span class="field"><input id="startTime" type="time" value="${minutesToTime(s.startMinutes)}"></span></label>
+        ${s.endAnytime ? "" : `<label>End time each day<span class="field"><input id="endTime" type="time" value="${minutesToTime(s.endMinutes)}"></span></label>`}
         <label class="check"><input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}> End the day anytime</label>
         <div class="row">
           <label class="check"><input type="checkbox" id="military" ${s.military ? "checked" : ""}> Military time</label>
@@ -775,7 +775,7 @@ function render() {
       ${state.locationNotice ? `<p class="ok">${escapeAttr(state.locationNotice)}</p>` : ""}
     </section>
 
-    <section class="stops">
+    <section class="card stops">
       ${destCards}
       <button type="button" class="add" id="addStop">Add a stop</button>
     </section>

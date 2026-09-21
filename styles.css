@@ -92,7 +92,8 @@ nav a[aria-current="page"] {
 
 body.app main {
   max-width: 760px;
-  overflow-x: clip;
+  overflow-x: hidden;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
 }
 
 .eyebrow {
@@ -260,20 +261,29 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card, .chip {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   box-sizing: border-box;
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0;
-  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 
 .stops {
   min-width: 0;
   max-width: 100%;
-  overflow-x: clip;
+  overflow: hidden;
+}
+
+.field {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stop-head, .chip-top, .icon-row {
@@ -325,11 +335,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-top: 0;
 }
 
+.card.stops > :first-child { margin-top: 0; }
+.card.stops > :last-child { margin-bottom: 0; }
+
 @media (max-width: 640px) {
   html, body { font-size: 16px; }
   header, main, footer {
-    padding-left: max(16px, env(safe-area-inset-left));
-    padding-right: max(16px, env(safe-area-inset-right));
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
   }
   .card, .stop-card { padding: 14px; }
   .row button, .row a.secondary { width: 100%; }
@@ -348,6 +361,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
     max-width: 100%;
     min-width: 0;
     font-size: 16px;
+  }
+  .stop-card {
+    margin-left: 0;
+    margin-right: 0;
   }
 }
 
