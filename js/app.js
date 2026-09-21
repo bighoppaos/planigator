@@ -670,7 +670,7 @@ function showLocateTapError(error) {
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
   const code = error?.code ?? "?";
   state.locationError = code === 1
-    ? "Safari blocked location for this site (error 1)."
+    ? "Safari refused location for this page (error 1)."
     : `This page did not get a location (error ${code}). Tap Use my location again.`;
   render();
 }
@@ -683,13 +683,46 @@ function markLocateButtonWaiting() {
 }
 
 /**
- * Tap-only locate. Call getCurrentPosition from the click listener as the first
- * statement (same user-gesture turn). No page-load ask — that left sticky errors
- * and an in-flight request that made the next tap look broken.
+ * On error 1 only: one watchPosition (no loop). Some iOS Safari builds deny
+ * getCurrentPosition then deliver a fix from watch when the site setting is Allow.
+ */
+function tryWatchAfterDenied(generation) {
+  let watchId = null;
+  const clear = () => {
+    if (watchId == null) return;
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  };
+  try {
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        clear();
+        if (generation !== locateGeneration) return;
+        applyLocatedPosition(pos);
+      },
+      (watchError) => {
+        clear();
+        if (generation !== locateGeneration) return;
+        showLocateTapError(watchError);
+      },
+      LOCATE_OPTIONS,
+    );
+  } catch {
+    showLocatePreflightError();
+  }
+}
+
+/**
+ * Tap-path error handler. Code 1 → one watchPosition. Codes 2/3 → one getCurrentPosition retry.
+ * No page-load geolocation — that left sticky errors and raced the tap.
  */
 function onLocateTapError(error, generation, retried) {
   if (generation !== locateGeneration) return;
   const code = error?.code;
+  if (code === 1) {
+    tryWatchAfterDenied(generation);
+    return;
+  }
   if (!retried && (code === 2 || code === 3)) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
