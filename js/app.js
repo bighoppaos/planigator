@@ -235,6 +235,23 @@ function timeChip(id, minutes) {
   return `<span class="date-chip"><span class="date-chip-text">${escapeAttr(formatClockMinutes(minutes))}</span><input id="${id}" type="time" value="${minutesToTime(minutes)}"></span>`;
 }
 
+const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
+const HOS_THIRTY = Array.from({ length: 16 }, (_, i) => (i + 1) / 2);
+const MPH_CHOICES = Array.from({ length: 21 }, (_, i) => 55 + i);
+
+function thirtyLabel(value) {
+  const n = Number(value);
+  return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
+}
+
+function wheelChip(id, value, values, labelFn = String) {
+  const options = values.map((item) => {
+    const selected = Number(item) === Number(value) ? " selected" : "";
+    return `<option value="${item}"${selected}>${labelFn(item)}</option>`;
+  }).join("");
+  return `<span class="wheel-chip"><span class="wheel-chip-text">${escapeAttr(labelFn(value))}</span><select id="${id}">${options}</select></span>`;
+}
+
 function leaveAtNow() {
   return resolvedLeaveAt({
     leaveNow: state.settings.leaveNow,
@@ -854,7 +871,7 @@ function authBlock() {
     return `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}.</p>`;
   }
   if (!state.googleClientId && !state.appleClientId) {
-    return `<p class="fine">12 free credits in this browser. Apple and Google sign-in light up after those IDs are connected.</p>`;
+    return `<p class="fine">Sign in with Apple or Google for 12 free credits. A new browser or VPN does not get a free pile.</p>`;
   }
   return `
     <div class="auth-row">
@@ -900,16 +917,16 @@ function render() {
           <label for="governed">Governed</label>
           <span class="setting-control">
             <input type="checkbox" id="governed" ${s.governed ? "checked" : ""}>
-            ${s.governed ? `<input id="mph" class="compact" inputmode="decimal" aria-label="Governed mph" value="${escapeAttr(s.governedMph)}">` : ""}
+            ${s.governed ? wheelChip("mph", s.governedMph, MPH_CHOICES) : ""}
           </span>
         </div>
         <label class="setting">
           <span>Hours I’ll drive out of the 11</span>
-          <input id="hoursOfEleven" class="compact" type="number" min="1" max="11" step="1" value="${s.hoursOfEleven}">
+          ${wheelChip("hoursOfEleven", s.hoursOfEleven, HOS_ELEVEN)}
         </label>
         <label class="setting">
           <span>Hours into driving before 30-minute break</span>
-          <input id="hoursBeforeThirty" class="compact" type="number" min="0.5" max="8" step="0.5" value="${s.hoursBeforeThirty}">
+          ${wheelChip("hoursBeforeThirty", s.hoursBeforeThirty, HOS_THIRTY, thirtyLabel)}
         </label>
         <label class="setting">
           <span>Leave now</span>
@@ -967,7 +984,9 @@ function render() {
         <button type="button" class="primary" id="calculate" ${state.estimating ? "disabled" : ""}>${state.estimating ? "Asking HERE…" : "Calculate"}</button>
         <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : `Buy 124 credits — $${(state.packPriceCents / 100).toFixed(2)}`}</button>
       </div>
-      <p class="fine">${state.credits == null ? "12 free credits for HERE truck lookups." : `${state.credits} credit${state.credits === 1 ? "" : "s"} left.`} Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.signedIn
+        ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left.`
+        : "No free credits until you sign in."} Calculate asks HERE for truck miles and hours. Each address and each leg uses 1 credit. One credit is priced at 3× a HERE call. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
