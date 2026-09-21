@@ -713,7 +713,7 @@ function render() {
     <section class="hero card">
       <p class="eyebrow">Truck trip clock</p>
       <h1>Planigator</h1>
-      <p>Type pickup and drop. Get a HERE truck-legal route, leave-by, 30s, 10-hour rests, and bedtime. It stays in this browser. Share the link with anyone — iPhone or Android.</p>
+      <p>Type pickup and drop. Get a HERE truck-legal route, leave-by, 30s, 10-hour rests, and leeway. It stays in this browser. Share the link with anyone — iPhone or Android.</p>
     </section>
 
     <section class="card hos">
@@ -779,8 +779,6 @@ function render() {
         <h2>Plan</h2>
         ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
         <dl>
-          <div><dt>In bed by</dt><dd>${formatTime(plan.bedtime)}</dd></div>
-          <div><dt>Wake up to get ready</dt><dd>${formatTime(plan.wakeAt)}</dd></div>
           <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>
           <div><dt>Arrive</dt><dd>${formatTime(plan.arriveAt)}</dd></div>
           <div><dt>Driving</dt><dd>${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}</dd></div>

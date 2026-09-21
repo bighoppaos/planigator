@@ -1,7 +1,7 @@
 {
   "name": "Planigator",
   "short_name": "Planigator",
-  "description": "Plan a truck trip in the browser. HERE truck routes, leave-by, and bedtime stay on this device.",
+  "description": "Plan a truck trip in the browser. HERE truck routes, leave-by, 30s, and 10-hour rests stay on this device.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f1ea",

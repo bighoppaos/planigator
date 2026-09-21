@@ -8,8 +8,6 @@ import {
   DEFAULT_MPH,
   clampedMaxHours,
   clampedHoursBeforeThirty,
-  sleepBy,
-  wakeToGetReady,
   TruckerHOSClock,
 } from "./hos.js";
 
@@ -436,8 +434,6 @@ export function buildPlan({
     blocks,
     rollAt,
     arriveAt: lastArrive,
-    bedtime: sleepBy(rollAt),
-    wakeAt: wakeToGetReady(rollAt),
     late,
     lastTimedTitle: lastTimed ? lastTimed.name?.trim() || "the last timed stop" : "",
     lastDeadline: lastTimed ? latestArrive(lastTimed) : null,
@@ -550,8 +546,6 @@ export function planPlainText({
     if (plan.late && plan.lastDeadline) {
       lines.push(`LATE for ${plan.lastTimedTitle} (be there by ${formatShort(plan.lastDeadline)}).`);
     }
-    lines.push(`In bed by: ${formatTime(plan.bedtime)}`);
-    lines.push(`Wake to get ready: ${formatTime(plan.wakeAt)}`);
     lines.push(`Leave by: ${formatTime(plan.rollAt)}`);
     lines.push(`Arrive: ${formatTime(plan.arriveAt)}`);
     lines.push(`Driving: ${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}`);
