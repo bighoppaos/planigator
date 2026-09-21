@@ -110,8 +110,6 @@ function defaultState() {
       endAnytime: false,
       hoursOfEleven: LEGAL_MAX_DRIVE_HOURS,
       hoursBeforeThirty: DEFAULT_HOURS_BEFORE_THIRTY,
-      sleepHours: 8,
-      readyMinutes: 60,
       military: false,
       kilometers: false,
     },
@@ -136,6 +134,8 @@ function loadState() {
     if (!raw) return state;
     const saved = JSON.parse(raw);
     state.settings = { ...state.settings, ...(saved.settings || {}) };
+    delete state.settings.sleepHours;
+    delete state.settings.readyMinutes;
     if (Array.isArray(saved.stops) && saved.stops.length) state.stops = saved.stops;
     state.tripName = saved.tripName || "";
     state.activeTripId = saved.activeTripId || null;
@@ -149,9 +149,16 @@ function loadState() {
 
 const state = loadState();
 
+function settingsForSave() {
+  const settings = { ...state.settings };
+  delete settings.sleepHours;
+  delete settings.readyMinutes;
+  return settings;
+}
+
 function persist() {
   localStorage.setItem(STORAGE, JSON.stringify({
-    settings: state.settings,
+    settings: settingsForSave(),
     stops: state.stops,
     tripName: state.tripName,
     activeTripId: state.activeTripId,
@@ -727,10 +734,6 @@ function render() {
         <label>Start time each day<input id="startTime" type="time" value="${minutesToTime(s.startMinutes)}"></label>
         ${s.endAnytime ? "" : `<label>End time each day<input id="endTime" type="time" value="${minutesToTime(s.endMinutes)}"></label>`}
         <label class="check"><input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}> End the day anytime</label>
-        <div class="pair">
-          <label>Sleep hours<input id="sleepHours" type="number" min="1" max="14" step="0.5" value="${s.sleepHours}"></label>
-          <label>Ready minutes<input id="readyMinutes" type="number" min="15" max="180" step="15" value="${s.readyMinutes}"></label>
-        </div>
         <div class="row">
           <label class="check"><input type="checkbox" id="military" ${s.military ? "checked" : ""}> Military time</label>
           <label class="check"><input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}> Kilometers</label>
@@ -823,8 +826,6 @@ function bindSettings() {
     ["startTime", (el) => { state.settings.startMinutes = timeToMinutes(el.value); }],
     ["endTime", (el) => { state.settings.endMinutes = timeToMinutes(el.value); }],
     ["endAnytime", (el) => { state.settings.endAnytime = el.checked; }],
-    ["sleepHours", (el) => { state.settings.sleepHours = Number(el.value) || 8; }],
-    ["readyMinutes", (el) => { state.settings.readyMinutes = Number(el.value) || 60; }],
     ["military", (el) => { state.settings.military = el.checked; }],
     ["kilometers", (el) => { state.settings.kilometers = el.checked; }],
     ["tripName", (el) => { state.tripName = el.value; persist(); }],

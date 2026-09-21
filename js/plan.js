@@ -6,7 +6,6 @@ import {
   DEFAULT_END_MINUTES,
   DEFAULT_HOURS_BEFORE_THIRTY,
   DEFAULT_MPH,
-  SLEEP_HOURS,
   clampedMaxHours,
   clampedHoursBeforeThirty,
   sleepBy,
@@ -428,8 +427,6 @@ export function buildPlan({
   const lastArrive = lastDest != null && blocks[lastDest] ? blocks[lastDest].end : leaveAt;
   const lastTimed = [...destIndexes].reverse().map((i) => stops[i]).find((stop) => !stop.anytime);
   const late = lastTimed ? lastArrive > latestArrive(lastTimed) + 60 * 1000 : false;
-  const readyHours = (settings.readyMinutes || 60) / 60;
-  const hoursOfSleep = settings.sleepHours || SLEEP_HOURS;
   const breakCount = Object.values(blocks).reduce((sum, block) => sum + block.breakCount, 0);
   const restCount = Object.values(blocks).reduce((sum, block) => sum + block.restCount, 0);
   const totalDrive = destIndexes.reduce((sum, i) => sum + driveHours[i], 0);
@@ -439,8 +436,8 @@ export function buildPlan({
     blocks,
     rollAt,
     arriveAt: lastArrive,
-    bedtime: sleepBy(rollAt, hoursOfSleep, readyHours),
-    wakeAt: wakeToGetReady(rollAt, readyHours),
+    bedtime: sleepBy(rollAt),
+    wakeAt: wakeToGetReady(rollAt),
     late,
     lastTimedTitle: lastTimed ? lastTimed.name?.trim() || "the last timed stop" : "",
     lastDeadline: lastTimed ? latestArrive(lastTimed) : null,
@@ -453,10 +450,13 @@ export function buildPlan({
 }
 
 export function tripSharePayload({ settings, stops, tripName }) {
+  const clean = { ...settings };
+  delete clean.sleepHours;
+  delete clean.readyMinutes;
   return {
     v: 1,
     tripName: tripName || "",
-    settings: { ...settings },
+    settings: clean,
     stops: stops.map((stop) => ({ ...stop })),
   };
 }
