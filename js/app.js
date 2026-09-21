@@ -660,60 +660,6 @@ function showLocateError(error) {
   render();
 }
 
-function onLocateError(error) {
-  const code = error?.code;
-  if (code === 2 || code === 3) {
-    tryWatchThenNetwork(error);
-    return;
-  }
-  showLocateError(error);
-}
-
-function tryWatchThenNetwork(originalError) {
-  if (!navigator.geolocation?.watchPosition) {
-    fetchNetworkLocation(originalError);
-    return;
-  }
-  let settled = false;
-  let watchId = null;
-  let timer = null;
-  const finish = (next) => {
-    if (settled) return;
-    settled = true;
-    if (timer != null) clearTimeout(timer);
-    if (watchId != null) navigator.geolocation.clearWatch(watchId);
-    next();
-  };
-  timer = setTimeout(() => {
-    finish(() => fetchNetworkLocation(originalError));
-  }, 20000);
-  watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      finish(() => onLocateSuccess(pos));
-    },
-    () => {
-      finish(() => fetchNetworkLocation(originalError));
-    },
-    { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 }
-  );
-}
-
-async function fetchNetworkLocation(originalError) {
-  try {
-    const res = await fetch("https://ipwho.is/");
-    const data = await res.json();
-    const lat = Number(data?.latitude);
-    const lon = Number(data?.longitude);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      applyLocatedOrigin(lat, lon, "Using an approximate network location.");
-      return;
-    }
-  } catch {
-    // fall through to original geolocation error
-  }
-  showLocateError(originalError);
-}
-
 function applyAccount(me) {
   if (!me) return;
   state.credits = me.credits;
@@ -1332,8 +1278,8 @@ function bind() {
   $("#locate")?.addEventListener("click", () => {
     navigator.geolocation.getCurrentPosition(
       onLocateSuccess,
-      onLocateError,
-      { enableHighAccuracy: false, timeout: 60000, maximumAge: 30000 }
+      showLocateError,
+      { enableHighAccuracy: false, timeout: 60000, maximumAge: 0 }
     );
     state.locating = true;
     state.locationError = "";
