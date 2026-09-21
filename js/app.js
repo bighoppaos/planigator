@@ -223,12 +223,13 @@ function formatClockMinutes(minutes) {
   return `${hour % 12 || 12}:${pad(minute)} ${suffix}`;
 }
 
-function clockFields(minutes) {
+function clockFields(minutes, disabled = false) {
   const military = state.settings.military;
   const hour24 = Math.trunc(Math.max(0, minutes) / 60) % 24;
   const minute = Math.max(0, minutes) % 60;
   const hour = military ? hour24 : (hour24 % 12 || 12);
   const ap = hour24 >= 12 ? "PM" : "AM";
+  const dis = disabled ? " disabled" : "";
   const hours = military
     ? Array.from({ length: 24 }, (_, i) => i)
     : Array.from({ length: 12 }, (_, i) => i + 1);
@@ -240,24 +241,24 @@ function clockFields(minutes) {
     `<option value="${value}"${value === minute ? " selected" : ""}>${pad(value)}</option>`
   )).join("");
   const ampm = military ? "" : `
-    <select data-part="ampm" aria-label="AM or PM">
+    <select data-part="ampm" aria-label="AM or PM"${dis}>
       <option value="AM"${ap === "AM" ? " selected" : ""}>AM</option>
       <option value="PM"${ap === "PM" ? " selected" : ""}>PM</option>
     </select>`;
   return `
-    <select data-part="hour" aria-label="Hour">${hourOptions}</select>
-    <select data-part="minute" aria-label="Minute">${minuteOptions}</select>
+    <select data-part="hour" aria-label="Hour"${dis}>${hourOptions}</select>
+    <select data-part="minute" aria-label="Minute"${dis}>${minuteOptions}</select>
     ${ampm}`;
 }
 
-function dateChip({ id = "", field = "", ms }) {
+function dateChip({ id = "", field = "", ms, disabled = false }) {
   const d = new Date(ms);
   const dateValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const minutes = d.getHours() * 60 + d.getMinutes();
   const key = id || field || "when";
   return `<span class="when" data-when="${key}" ${field ? `data-stop-field="${field}"` : ""}>
-    <input type="date" data-part="date" value="${dateValue}" aria-label="Date">
-    <span class="time-picks">${clockFields(minutes)}</span>
+    <input type="date" data-part="date" value="${dateValue}" aria-label="Date"${disabled ? " disabled" : ""}>
+    <span class="time-picks">${clockFields(minutes, disabled)}</span>
   </span>`;
 }
 
@@ -1101,11 +1102,11 @@ function render() {
           <span>Hours into driving before 30-minute break</span>
           ${wheelChip("hoursBeforeThirty", s.hoursBeforeThirty, HOS_THIRTY, thirtyLabel)}
         </label>
+        <label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt, disabled: s.leaveNow })}</label>
         <label class="setting">
           <span>Leave now</span>
           <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
         </label>
-        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt })}</label>`}
         ${s.startAnytime ? "" : `<label class="setting"><span>Start time each day</span>${timeChip("startTime", s.startMinutes)}</label>`}
         <label class="setting">
           <span>Start the day anytime</span>
