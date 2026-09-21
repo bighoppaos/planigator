@@ -587,6 +587,10 @@ function startFromAddress() {
   else render();
 }
 
+function startFromHere() {
+  locate();
+}
+
 function addStartBefore() {
   if (state.stops[0]?.useCurrentLocation) return;
   state.stops.unshift(defaultStop({
@@ -622,68 +626,53 @@ function newTrip() {
   render();
 }
 
-let locateGeneration = 0;
-
-/** Low accuracy + 60s cache so Mac Wi-Fi can succeed; no GPS/high-accuracy (error 2). */
-const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 };
-
-function dropServiceWorkers() {
-  if (!("serviceWorker" in navigator)) return Promise.resolve();
-  return navigator.serviceWorker.getRegistrations()
-    .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
-    .then(() => (window.caches ? caches.keys() : []))
-    .then((keys) => Promise.all((keys || []).map((key) => caches.delete(key))))
-    .catch(() => {});
-}
-
-function applyLocatedPosition(pos) {
-  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-  if (!state.stops[0]?.useCurrentLocation) {
-    state.stops.unshift(defaultStop({
-      useCurrentLocation: true,
-      name: "Current location",
-      start: Date.now(),
-      end: Date.now(),
-    }));
-  }
-  state.locating = false;
-  state.locationError = "";
-  state.locationNotice = "Got your location.";
-  persist();
-  render();
-}
-
-function showLocatePreflightError() {
+function locate() {
   if (!window.isSecureContext) {
     state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
-  } else {
-    state.locationError = "This browser cannot share a location. Type an address instead.";
+    state.locationNotice = "";
+    render();
+    return;
   }
-  state.locationNotice = "";
-  state.locating = false;
+  if (!navigator.geolocation) {
+    state.locationError = "This browser cannot share a location. Type an address instead.";
+    state.locationNotice = "";
+    render();
+    return;
+  }
+  state.locating = true;
+  state.locationError = "";
+  state.locationNotice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
   render();
-}
-
-function showLocateTapError(error) {
-  state.locating = false;
-  state.locationNotice = "";
-  if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-  const code = error?.code ?? "?";
-  state.locationError = code === 1
-    ? "Safari refused location for this page (error 1)."
-    : code === 2
-      ? "This browser did not return a location (error 2)."
-      : code === 3
-        ? "Location timed out (error 3). Tap Use my location again."
-        : `This page did not get a location (error ${code}). Tap Use my location again.`;
-  render();
-}
-
-function markLocateButtonWaiting() {
-  const button = document.getElementById("locate");
-  if (!button) return;
-  button.disabled = true;
-  button.textContent = "Getting your location…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (!state.stops[0]?.useCurrentLocation) {
+        state.stops.unshift(defaultStop({
+          useCurrentLocation: true,
+          name: "Current location",
+          start: Date.now(),
+          end: Date.now(),
+        }));
+      }
+      state.locating = false;
+      state.locationError = "";
+      state.locationNotice = "Got your location.";
+      persist();
+      render();
+    },
+    (error) => {
+      state.locating = false;
+      state.locationNotice = "";
+      if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
+      if (error?.code === 1) {
+        state.locationError = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
+      } else {
+        state.locationError = "Could not get a location. Type an address instead.";
+      }
+      render();
+    },
+    { enableHighAccuracy: true, timeout: 12000 }
+  );
 }
 
 function applyAccount(me) {
@@ -1082,10 +1071,6 @@ export function initPlanner(el) {
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   applyShareFromLocation();
   render();
-  // Drop leftover SW/caches only — do not auto-call getCurrentPosition on load.
-  // A non-gesture ask set sticky errors and left an in-flight request that
-  // made the Use my location tap look broken.
-  dropServiceWorkers();
   refreshCredits().then(async () => {
     await pullAccountTrips();
     if (!state.locating) render();
@@ -1164,7 +1149,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1305,37 +1290,9 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
-  $("#locate")?.addEventListener("click", () => {
-    const generation = ++locateGeneration;
-    let settled = false;
-    // Exactly one getCurrentPosition per tap — same turn, before render/innerHTML.
-    try {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          settled = true;
-          if (generation !== locateGeneration) return;
-          applyLocatedPosition(pos);
-        },
-        (error) => {
-          settled = true;
-          if (generation !== locateGeneration) return;
-          showLocateTapError(error);
-        },
-        LOCATE_OPTIONS,
-      );
-    } catch {
-      showLocatePreflightError();
-      return;
-    }
-    // Label only after the call is registered; never a second geo request.
-    queueMicrotask(() => {
-      if (settled || generation !== locateGeneration) return;
-      state.locating = true;
-      state.locationError = "";
-      state.locationNotice = "";
-      markLocateButtonWaiting();
-    });
-  });
+  $("#locate")?.addEventListener("click", () => (
+    state.stops[0]?.useCurrentLocation ? locate() : startFromHere()
+  ));
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());
@@ -1392,7 +1349,6 @@ function bind() {
 }
 
 if (document.body.classList.contains("planner-only")) {
-  dropServiceWorkers();
   window.addEventListener("hashchange", () => {
     if (writingHash) return;
     applyShareFromLocation();
