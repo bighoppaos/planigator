@@ -624,10 +624,8 @@ function newTrip() {
 
 let locateGeneration = 0;
 
-/** Fresh fix — still shows the Mac Allow dialog. */
-const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 };
-/** After a timeout only: allow a recent Wi-Fi/cached position. */
-const LOCATE_CACHED_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 };
+/** Omit maximumAge so the browser may return a recent Wi-Fi position. */
+const LOCATE_OPTIONS = { enableHighAccuracy: true, timeout: 30000 };
 
 function dropServiceWorkers() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
@@ -673,9 +671,11 @@ function showLocateTapError(error) {
   const code = error?.code ?? "?";
   state.locationError = code === 1
     ? "Safari refused location for this page (error 1)."
-    : code === 3
-      ? "The Mac did not return a location in time (error 3). Tap Use my location again."
-      : `This page did not get a location (error ${code}). Tap Use my location again.`;
+    : code === 2
+      ? "This browser did not return a location (error 2)."
+      : code === 3
+        ? "Location timed out (error 3). Tap Use my location again."
+        : `This page did not get a location (error ${code}). Tap Use my location again.`;
   render();
 }
 
@@ -1308,40 +1308,18 @@ function bind() {
   $("#locate")?.addEventListener("click", () => {
     const generation = ++locateGeneration;
     let settled = false;
-    const onSuccess = (pos) => {
-      settled = true;
-      if (generation !== locateGeneration) return;
-      applyLocatedPosition(pos);
-    };
-    const onFinalError = (error) => {
-      settled = true;
-      if (generation !== locateGeneration) return;
-      showLocateTapError(error);
-    };
-    // One getCurrentPosition per tap — same turn, before render/innerHTML.
+    // Exactly one getCurrentPosition per tap — same turn, before render/innerHTML.
     try {
       navigator.geolocation.getCurrentPosition(
-        onSuccess,
+        (pos) => {
+          settled = true;
+          if (generation !== locateGeneration) return;
+          applyLocatedPosition(pos);
+        },
         (error) => {
-          if (generation !== locateGeneration) {
-            settled = true;
-            return;
-          }
-          // Timeout only: one sequential follow-up that may use a cached fix.
-          // Do not start this alongside the first call (that hid the Mac dialog).
-          if (error?.code === 3) {
-            try {
-              navigator.geolocation.getCurrentPosition(
-                onSuccess,
-                onFinalError,
-                LOCATE_CACHED_OPTIONS,
-              );
-            } catch {
-              onFinalError(error);
-            }
-            return;
-          }
-          onFinalError(error);
+          settled = true;
+          if (generation !== locateGeneration) return;
+          showLocateTapError(error);
         },
         LOCATE_OPTIONS,
       );
@@ -1349,7 +1327,7 @@ function bind() {
       showLocatePreflightError();
       return;
     }
-    // Label only after the call is registered; never a concurrent second geo request.
+    // Label only after the call is registered; never a second geo request.
     queueMicrotask(() => {
       if (settled || generation !== locateGeneration) return;
       state.locating = true;
