@@ -556,6 +556,7 @@ header .brand img {
   text-align: center;
   font-size: 6.2cqi;
   line-height: 1.05;
+  white-space: nowrap;
 }
 
 .pitch {

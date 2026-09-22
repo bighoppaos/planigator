@@ -1232,7 +1232,7 @@ function render() {
   root.innerHTML = `
     <section class="hero card hero-mark">
       <div class="hero-copy">
-      <h1>Planigator</h1>
+      <h1>Planigator.help</h1>
       <ul class="pitch">
         <li>Get a HERE<sup>©</sup> truck-legal route</li>
         <li>Know how much leeway time you have</li>
