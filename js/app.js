@@ -630,6 +630,10 @@ const LOCATE_WATCH_OPTIONS = { enableHighAccuracy: false, timeout: 25000, maximu
 let locateWatchId = null;
 let locateWatchTimer = null;
 let locateAnswerTimer = null;
+// Raised when a tap starts, and again when that tap finishes. A reply from
+// getCurrentPosition cannot be cancelled, so a late one must not fail or
+// restart a newer tap.
+let locateAttempt = 0;
 
 function endLocateWatch() {
   if (locateWatchId !== null) {
@@ -662,7 +666,9 @@ function locateMessage(code) {
   return "This page did not get a location. Tap Use my location again, or type an address.";
 }
 
-function locateSucceeded(pos) {
+function locateSucceeded(pos, attempt) {
+  if (attempt !== locateAttempt) return;
+  locateAttempt += 1;
   endLocateWatch();
   state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
   if (!state.stops[0]?.useCurrentLocation) {
@@ -680,7 +686,9 @@ function locateSucceeded(pos) {
   render();
 }
 
-function locateFailed(error) {
+function locateFailed(error, attempt) {
+  if (attempt !== locateAttempt) return;
+  locateAttempt += 1;
   endLocateWatch();
   state.locating = false;
   state.locationNotice = "";
@@ -692,20 +700,21 @@ function locateFailed(error) {
 // WebKit answers a cold first ask with error 2 or 3 while Core Location is still
 // warming up. A watch started after that error keeps the same granted permission
 // and picks up the fix when it lands. A denial is final, so it is not retried.
-function locateRetry(firstError) {
+function locateRetry(firstError, attempt) {
+  if (attempt !== locateAttempt) return;
   if (firstError?.code === 1 || locateWatchId !== null) {
-    locateFailed(firstError);
+    locateFailed(firstError, attempt);
     return;
   }
   clearTimeout(locateAnswerTimer);
   locateAnswerTimer = null;
   showLocateProgress("Still looking…", "Still looking…");
   locateWatchId = navigator.geolocation.watchPosition(
-    (pos) => locateSucceeded(pos),
-    (watchError) => { if (watchError?.code === 1) locateFailed(watchError); },
+    (pos) => locateSucceeded(pos, attempt),
+    (watchError) => { if (watchError?.code === 1) locateFailed(watchError, attempt); },
     LOCATE_WATCH_OPTIONS,
   );
-  locateWatchTimer = setTimeout(() => locateFailed(firstError), LOCATE_WATCH_OPTIONS.timeout);
+  locateWatchTimer = setTimeout(() => locateFailed(firstError, attempt), LOCATE_WATCH_OPTIONS.timeout);
 }
 
 // Painted by hand rather than through render(). Replacing the button that was just
@@ -736,10 +745,15 @@ function locate() {
     render();
     return;
   }
+  const attempt = ++locateAttempt;
   endLocateWatch();
   // First thing in the tap. Anything ahead of it can spend the user gesture that
   // Safari requires before it will prompt.
-  navigator.geolocation.getCurrentPosition(locateSucceeded, locateRetry, LOCATE_OPTIONS);
+  navigator.geolocation.getCurrentPosition(
+    (pos) => locateSucceeded(pos, attempt),
+    (error) => locateRetry(error, attempt),
+    LOCATE_OPTIONS,
+  );
   state.locating = true;
   state.locationError = "";
   state.locationNotice = "Asking for your location…";
@@ -748,7 +762,7 @@ function locate() {
   // Left alone, an ignored sheet disables the button until the page is reloaded.
   locateAnswerTimer = setTimeout(() => {
     locateAnswerTimer = null;
-    locateFailed({ code: 4 });
+    locateFailed({ code: 4 }, attempt);
   }, 60000);
 }
 
