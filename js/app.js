@@ -640,7 +640,7 @@ function newTrip() {
   };
   Object.assign(state, defaultState());
   Object.assign(state, keep);
-  state.notice = "New trip.";
+  state.notice = "";
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
   queueMicrotask(() => { writingHash = false; });
