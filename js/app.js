@@ -1136,7 +1136,7 @@ function stopCard(stop, index) {
       ${pointReady(stop) && !(state.lookupStopId === stop.id && state.lookupOk)
         ? `<p class="here-leg">Using this address.</p>`
         : ""}
-      ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? `<p class="fine">This is where you roll from. HERE<sup>©</sup> fills miles on the next stop when you Calculate.</p>` : originStop ? "" : hereLeg(stop)}
+      ${originStop ? "" : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
       <label class="setting">
         <span>Anytime</span>
