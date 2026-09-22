@@ -1204,6 +1204,22 @@ function popConfetti() {
   requestAnimationFrame(tick);
 }
 
+function syncOwnerLink() {
+  const nav = document.querySelector("footer nav");
+  if (!nav) return;
+  const existing = nav.querySelector("[data-accounts]");
+  if (state.signedIn && state.unlimited) {
+    if (existing) return;
+    const link = document.createElement("a");
+    link.href = "./accounts.html";
+    link.textContent = "Accounts";
+    link.setAttribute("data-accounts", "");
+    nav.append(link);
+    return;
+  }
+  existing?.remove();
+}
+
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
   if (googleBox && state.googleClientId) {
@@ -1766,6 +1782,7 @@ function bind() {
     });
   });
   mountAuth();
+  syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
