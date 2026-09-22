@@ -1128,7 +1128,7 @@ function stopCard(stop, index) {
       <label>Address
         <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(originStop ? "City, state, or street" : `${title} address`)}" autocomplete="off">
       </label>
-      <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : "Look up this address"}</button>
+      <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${state.lookupStopId === stop.id && state.lookupMessage
         ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
