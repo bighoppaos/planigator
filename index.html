@@ -26,7 +26,8 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>page 47</p>
+    <p>page 48</p>
+    <p id="locate-live"></p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -39,116 +40,20 @@
     }
   </script>
   <script>
-    (function () {
-      var watchId = null;
-      var prevWatchId = null;
-      var err2Timer = null;
-      var settled = false;
-
-      function clearErr2Timer() {
-        if (err2Timer == null) return;
-        clearTimeout(err2Timer);
-        err2Timer = null;
-      }
-
-      function stopWatch() {
-        if (watchId == null) return;
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
-
-      function paintOk(lat, lon) {
-        var el = document.getElementById("locate-status");
-        if (!el) return;
-        el.textContent = "Got your location. " + lat + ", " + lon;
-        el.className = "ok";
-      }
-
-      function paintErr(error) {
-        var el = document.getElementById("locate-status");
-        if (!el) return;
-        var code = error && error.code != null ? error.code : "?";
-        var message = error && error.message ? error.message : "";
-        if (!message) {
-          if (code === 2) message = "no position";
-          else if (code === 3) message = "timed out";
-        }
-        el.textContent = "Safari error " + code + ": " + message;
-        el.className = "error";
-      }
-
-      function paintErr2() {
-        var el = document.getElementById("locate-status");
-        if (!el) return;
-        el.textContent = "Safari error 2: no position";
-        el.className = "error";
-      }
-
-      function onPos(pos) {
-        if (settled) return;
-        settled = true;
-        clearErr2Timer();
-        stopWatch();
-        var lat = pos.coords.latitude;
-        var lon = pos.coords.longitude;
-        paintOk(lat, lon);
-        try {
-          if (typeof window.planigatorLocateSuccess === "function") {
-            window.planigatorLocateSuccess(pos);
-          }
-        } catch (e) {}
-      }
-
-      function onErr(error) {
-        var code = error && error.code;
-        if (code === 2) {
-          if (settled || err2Timer != null) return;
-          var err2At = Date.now();
-          err2Timer = setTimeout(function () {
-            err2Timer = null;
-            if (settled) return;
-            settled = true;
-            stopWatch();
-            paintErr2();
-            try {
-              if (typeof window.planigatorLocateError === "function") {
-                window.planigatorLocateError({ code: 2, message: "no position", at: err2At });
-              }
-            } catch (e) {}
-          }, 25000);
-          return;
-        }
-        if (settled) return;
-        settled = true;
-        clearErr2Timer();
-        stopWatch();
-        paintErr(error);
-        try {
-          if (typeof window.planigatorLocateError === "function") {
-            window.planigatorLocateError(error || { code: "?" });
-          }
-        } catch (e) {}
-      }
-
-      window.planigatorLocate = function () {
-        watchId = navigator.geolocation.watchPosition(onPos, onErr, {
-          enableHighAccuracy: false,
-          maximumAge: 0
-        });
-        if (prevWatchId != null && prevWatchId !== watchId) {
-          try { navigator.geolocation.clearWatch(prevWatchId); } catch (e) {}
-        }
-        prevWatchId = watchId;
-        clearErr2Timer();
-        settled = false;
-        try {
-          if (typeof window.planigatorLocateStarted === "function") {
-            window.planigatorLocateStarted();
-          }
-        } catch (e) {}
-      };
-    })();
+    function planigatorLocate(){
+      var el = document.getElementById('locate-live');
+      if (el) el.textContent = 'Asking Safari…';
+      navigator.geolocation.getCurrentPosition(function(p){
+        var line = 'Got your location. ' + p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5);
+        if (el) el.textContent = line;
+        if (window.planigatorLocateSuccess) window.planigatorLocateSuccess(p);
+      }, function(e){
+        var line = 'Safari error ' + e.code + ': ' + (e.message || (e.code===2?'no position':e.code===3?'timed out':'denied'));
+        if (el) el.textContent = line;
+        if (window.planigatorLocateError) window.planigatorLocateError(e);
+      }, { enableHighAccuracy: false, timeout: 90000 });
+    }
   </script>
-  <script type="module" src="./js/app.js?v=47"></script>
+  <script type="module" src="./js/app.js?v=48"></script>
 </body>
 </html>
