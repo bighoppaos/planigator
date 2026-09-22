@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -132,6 +132,7 @@ function defaultState() {
     buying: false,
     savingCard: false,
     credits: null,
+    calls: [],
     signedIn: false,
     email: "",
     checkoutReady: false,
@@ -611,6 +612,7 @@ function newTrip() {
     trips: state.trips,
     settings: { ...state.settings },
     credits: state.credits,
+    calls: state.calls,
     signedIn: state.signedIn,
     email: state.email,
     checkoutReady: state.checkoutReady,
@@ -665,7 +667,7 @@ function locateMessage(code) {
     return "Location is turned off for this site. Allow it for Planigator, then tap again. On iPhone check Settings, Privacy & Security, Location Services, Safari Websites.";
   }
   if (code === 2) {
-    return "Your device could not work out where it is (error 2). That is the device, not this page. A laptop needs Wi-Fi networks it recognises nearby, so a hotspot or a quiet street will not do it. Type an address instead.";
+    return "This browser could not get a location (error 2). On iPhone, turn Location Services on for Safari, then tap again. Or type an address.";
   }
   if (code === 3) {
     return "Location took too long (error 3). Tap Use my location again, or type an address.";
@@ -795,6 +797,12 @@ async function refreshCredits() {
     applyAccount(await creditsMe());
   } catch {
     if (state.credits == null) state.credits = null;
+  }
+  try {
+    const data = await fetchCalls();
+    state.calls = Array.isArray(data.calls) ? data.calls : [];
+  } catch {
+    state.calls = state.calls || [];
   }
 }
 
@@ -1266,6 +1274,8 @@ function render() {
         <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
       </div>
       <p class="fine">${state.credits == null ? "" : `${state.credits} credit${state.credits === 1 ? "" : "s"} left. `}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 are once per debit or credit card. Truck only — not car, bike, or walk.</p>
+      <h2>HERE calls from this browser</h2>
+      ${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">Calls from here on are saved. The two already spent were not.</p>`}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>

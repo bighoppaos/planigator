@@ -371,6 +371,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-size: 16px;
 }
 
+.call-log {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+.call-log li { margin: 8px 0; }
+.call-log span { color: var(--muted); }
+
 .here-leg {
   margin: 8px 0 4px;
   font-size: 14px;

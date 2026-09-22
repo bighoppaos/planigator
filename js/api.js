@@ -29,6 +29,10 @@ export function creditsMe() {
   return api("/v1/me");
 }
 
+export function fetchCalls() {
+  return api("/v1/calls");
+}
+
 export function geocodeAddress(query) {
   return api("/v1/geocode", { method: "POST", body: JSON.stringify({ q: query }) });
 }
