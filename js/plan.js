@@ -130,7 +130,10 @@ export function schedules({
     const open = arriveLatest
       ? (stop.anytime ? null : latestArrive(stop))
       : notBefore(stop);
-    if (open != null) clock.holdForArrival(open, drive, cap);
+    if (open != null) {
+      if (arriveLatest) clock.holdToArriveBy(open, drive, cap);
+      else clock.holdForArrival(open, drive, cap);
+    }
     const chipClock = clock.clone();
     const chipEvents = chipClock.driveReporting(drive, cap, [0], [0]);
     const chipRouteHours = chipEvents
@@ -334,7 +337,7 @@ export function timeline({
           miles: pieceMiles,
           tripHours: chipHours,
           timePhrase: "Drive",
-          arrivalPhrase: stops[index].anytime ? "Arrive" : "Earliest",
+          arrivalPhrase: stops[index].anytime ? "Arrive" : (arriveLatest ? "Latest" : "Earliest"),
           title,
           rgb,
           earliestArrive: block.end,

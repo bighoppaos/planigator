@@ -225,6 +225,30 @@ export class TruckerHOSClock {
     }
   }
 
+  /** Latest departure that still arrives at or before `deadline`. */
+  holdToArriveBy(deadline, driveHours, hoursOfEleven) {
+    const arrivalIfLeaveAt = (startMs) => {
+      const probe = this.clone();
+      if (startMs > probe.now + 60 * 1000) probe.waitUntil(startMs);
+      probe.driveReporting(driveHours, hoursOfEleven, [0], [0]);
+      return probe.now;
+    };
+    if (arrivalIfLeaveAt(this.now) > deadline + 60 * 1000) return;
+    let lo = this.now;
+    let hi = deadline;
+    let best = this.now;
+    for (let i = 0; i < 28 && hi - lo > 60 * 1000; i += 1) {
+      const mid = Math.floor(lo + (hi - lo) / 2);
+      if (arrivalIfLeaveAt(mid) <= deadline + 60 * 1000) {
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    if (best > this.now + 60 * 1000) this.waitUntil(best);
+  }
+
   drive(hours, hoursOfEleven, sitHours = 0, delayHours = 0) {
     this.driveReporting(hours, hoursOfEleven, [sitHours], [delayHours]);
   }
