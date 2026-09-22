@@ -26,7 +26,7 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>page 45</p>
+    <p>page 46</p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -52,6 +52,10 @@
         if (!el) return;
         var code = error && error.code != null ? error.code : "?";
         var message = error && error.message ? error.message : "";
+        if (!message) {
+          if (code === 2) message = "no position";
+          else if (code === 3) message = "timed out";
+        }
         el.textContent = "Safari error " + code + ": " + message;
         el.className = "error";
       }
@@ -79,12 +83,11 @@
       window.planigatorLocate = function () {
         navigator.geolocation.getCurrentPosition(onOk, fail, {
           enableHighAccuracy: false,
-          timeout: 60000,
-          maximumAge: 600000
+          timeout: 120000
         });
       };
     })();
   </script>
-  <script type="module" src="./js/app.js?v=45"></script>
+  <script type="module" src="./js/app.js?v=46"></script>
 </body>
 </html>

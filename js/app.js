@@ -644,7 +644,11 @@ function showLocateError(error) {
   state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
   const code = error?.code ?? "?";
-  const message = error?.message ?? "";
+  let message = error?.message ?? "";
+  if (!message) {
+    if (code === 2) message = "no position";
+    else if (code === 3) message = "timed out";
+  }
   state.locationError = `Safari error ${code}: ${message}`;
   render();
 }
