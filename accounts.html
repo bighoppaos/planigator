@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Accounts — Planigator</title>
+  <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
+  <link rel="stylesheet" href="./styles.css?v=28">
+</head>
+<body>
+  <header>
+    <a href="./">Planigator</a>
+    <nav>
+      <a href="./">Plan</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Accounts</h1>
+    <p id="status" class="muted">Loading…</p>
+    <div class="card account-scroll">
+      <table class="account-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Used</th>
+            <th>Left</th>
+            <th>Card</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script type="module" src="./js/accounts.js?v=1"></script>
+</body>
+</html>

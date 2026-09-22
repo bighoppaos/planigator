@@ -858,3 +858,25 @@ a.primary {
   border-radius: 12px;
   font-weight: 700;
 }
+
+.account-scroll { overflow-x: auto; }
+
+.account-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+
+.account-table th,
+.account-table td {
+  text-align: left;
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.account-table th {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
