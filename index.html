@@ -26,6 +26,7 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
+    <p>page 42</p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -39,63 +40,32 @@
   </script>
   <script>
     (function () {
-      var watchId = null;
-      var error2Timer = null;
-
-      function clearError2Timer() {
-        if (error2Timer == null) return;
-        clearTimeout(error2Timer);
-        error2Timer = null;
-      }
-
-      function clearLocateWatch() {
-        if (watchId == null) return;
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
+      function clearLeftoverWatch() {
+        if (window.planigatorLocateWatchId == null) return;
+        navigator.geolocation.clearWatch(window.planigatorLocateWatchId);
+        window.planigatorLocateWatchId = null;
       }
 
       function success(pos) {
-        clearError2Timer();
-        clearLocateWatch();
+        clearLeftoverWatch();
         if (typeof window.planigatorLocateSuccess === "function") {
           window.planigatorLocateSuccess(pos);
         }
       }
 
       function onError(error) {
-        var code = error && error.code;
-        if (code === 2) {
-          if (error2Timer == null) {
-            error2Timer = setTimeout(function () {
-              error2Timer = null;
-              clearLocateWatch();
-              if (typeof window.planigatorLocateError === "function") {
-                window.planigatorLocateError({ code: 2 });
-              }
-            }, 20000);
-          }
-          return;
-        }
-        clearError2Timer();
-        clearLocateWatch();
+        clearLeftoverWatch();
         if (typeof window.planigatorLocateError === "function") {
-          window.planigatorLocateError(error || { code: code || "?" });
+          window.planigatorLocateError(error || { code: "?" });
         }
       }
 
       window.planigatorLocate = function () {
-        clearError2Timer();
-        if (watchId != null) clearLocateWatch();
-        watchId = navigator.geolocation.watchPosition(success, onError, {
-          enableHighAccuracy: false,
-          maximumAge: 0
-        });
-        if (typeof window.planigatorLocateStarted === "function") {
-          window.planigatorLocateStarted();
-        }
+        clearLeftoverWatch();
+        navigator.geolocation.getCurrentPosition(success, onError, { enableHighAccuracy: true, timeout: 12000 });
       };
     })();
   </script>
-  <script type="module" src="./js/app.js?v=40"></script>
+  <script type="module" src="./js/app.js?v=42"></script>
 </body>
 </html>
