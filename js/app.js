@@ -1292,37 +1292,65 @@ function syncOwnerLink() {
   existing?.remove();
 }
 
+function hostedOnPlanigator() {
+  return location.hostname === "planigator.help" || location.hostname === "www.planigator.help";
+}
+
+function googleNeedsFullPageRedirect() {
+  if (!hostedOnPlanigator()) return false;
+  if (window.hoppOSBrowser) return true;
+  if (window.navigator.standalone === true) return true;
+  try {
+    if (window.matchMedia("(display-mode: standalone)").matches) return true;
+    if (window.matchMedia("(display-mode: fullscreen)").matches) return true;
+  } catch {
+    // Older webviews omit matchMedia.
+  }
+  return false;
+}
+
+async function completeGoogleCredential(credential) {
+  const me = await loginWith("google", credential);
+  applyAccount(me);
+  if (me.signupCredits) {
+    state.signupNote = "5 free credits are yours.";
+    state.notice = "";
+    popConfetti();
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else if (!maybeCelebratePack() && !maybeCelebrateCard()) {
+    state.signupNote = "";
+    state.notice = "Signed in with Google.";
+    render();
+  }
+  pulseActivity();
+  await pullAccountTrips();
+  if (!state.locating) render();
+}
+
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
   if (googleBox && state.googleClientId) {
     const start = () => {
       if (!window.google?.accounts?.id) return;
-      window.google.accounts.id.initialize({
+      const redirect = googleNeedsFullPageRedirect();
+      const settings = {
         client_id: state.googleClientId,
+        auto_select: false,
+        itp_support: true,
+        use_fedcm_for_prompt: false,
+        ux_mode: redirect ? "redirect" : "popup",
         callback: async ({ credential }) => {
           try {
-            const me = await loginWith("google", credential);
-            applyAccount(me);
-            if (me.signupCredits) {
-              state.signupNote = "5 free credits are yours.";
-              state.notice = "";
-              popConfetti();
-              render();
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            } else if (!maybeCelebratePack() && !maybeCelebrateCard()) {
-              state.signupNote = "";
-              state.notice = "Signed in with Google.";
-              render();
-            }
-            pulseActivity();
-            await pullAccountTrips();
-            if (!state.locating) render();
+            await completeGoogleCredential(credential);
           } catch (error) {
             state.error = error.message || "Google sign-in failed.";
             render();
           }
         },
-      });
+      };
+      if (redirect) settings.login_uri = `${location.origin}/oauth/google`;
+      window.google.accounts.id.initialize(settings);
       googleBox.innerHTML = "";
       window.google.accounts.id.renderButton(googleBox, { theme: "outline", size: "large", width: 280 });
     };
@@ -1692,6 +1720,14 @@ export function initPlanner(el) {
   applyShareFromLocation();
   render();
   refreshCredits().then(async () => {
+    if (sessionStorage.getItem("planigator.web.signup") === "1") {
+      sessionStorage.removeItem("planigator.web.signup");
+      if (state.signedIn) {
+        state.signupNote = "5 free credits are yours.";
+        state.notice = "";
+        popConfetti();
+      }
+    }
     if (state.idleSignOut) {
       state.calls = [];
       state.notice = "Signed out after an hour away.";
