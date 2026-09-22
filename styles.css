@@ -486,7 +486,7 @@ input.compact {
   flex: 0 0 auto;
 }
 
-.setting select {
+.setting > select {
   display: inline-block;
   width: auto;
   min-width: 7.5rem;
