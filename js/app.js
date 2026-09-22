@@ -1623,6 +1623,44 @@ function maskEmail(email) {
   return `${text[0]}${"*".repeat(text.length - 2)}${text[text.length - 1]}`;
 }
 
+let installEvent = null;
+
+function phoneKind() {
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "";
+}
+
+function installedApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+}
+
+function installBlock() {
+  if (installedApp()) return "";
+  const phone = phoneKind();
+  if (!phone && !installEvent) return "";
+  return `<div class="install-app">
+    <button type="button" class="secondary" id="installApp">Add Planigator to your home screen</button>
+    ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
+  </div>`;
+}
+
+async function installApp() {
+  if (installEvent) {
+    installEvent.prompt();
+    const choice = await installEvent.userChoice;
+    installEvent = null;
+    state.installHint = choice?.outcome === "accepted" ? "Planigator is on your home screen." : "";
+    render();
+    return;
+  }
+  state.installHint = phoneKind() === "ios"
+    ? "Tap the Share button, then Add to Home Screen."
+    : "Open the browser menu, then tap Install app or Add to Home screen.";
+  render();
+}
+
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
   const google = state.signedIn
@@ -1642,6 +1680,16 @@ function authBlock() {
 }
 
 export function initPlanner(el) {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    installEvent = event;
+    render();
+  });
+  window.addEventListener("appinstalled", () => {
+    installEvent = null;
+    state.installHint = "Planigator is on your home screen.";
+    render();
+  });
   plannerRoot = el;
   const paid = new URLSearchParams(location.search).get("paid");
   if (paid === "1") state.notice = "";
@@ -1711,6 +1759,7 @@ function render() {
         <li>Know when to take your 30 and your 10</li>
         <li>Share the trip link with anyone</li>
       </ul>
+      ${installBlock()}
       </div>
     </section>
 
@@ -1888,6 +1937,7 @@ function bind() {
   mountAuth();
   syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
+  $("#installApp")?.addEventListener("click", () => installApp());
   $("#revealEmail")?.addEventListener("click", () => {
     state.emailRevealed = !state.emailRevealed;
     render();
