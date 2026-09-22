@@ -1143,6 +1143,67 @@ async function logout() {
   render();
 }
 
+function popConfetti() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("aria-hidden", "true");
+  canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:80;";
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    canvas.remove();
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.width = Math.floor(window.innerWidth * dpr);
+  const height = canvas.height = Math.floor(window.innerHeight * dpr);
+  const colors = ["#1f8a62", "#3dcaa0", "#f2c14e", "#e07a3d", "#fffdf8", "#2f6fed"];
+  const pieces = [];
+  const originX = width / 2;
+  const originY = height - 12 * dpr;
+  for (let i = 0; i < 140; i++) {
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.15;
+    const speed = (9 + Math.random() * 11) * dpr;
+    pieces.push({
+      x: originX,
+      y: originY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      w: (5 + Math.random() * 7) * dpr,
+      h: (8 + Math.random() * 10) * dpr,
+      color: colors[i % colors.length],
+      spin: (Math.random() - 0.5) * 0.28,
+      angle: Math.random() * Math.PI,
+      life: 80 + Math.random() * 35,
+    });
+  }
+  const started = performance.now();
+  const tick = (now) => {
+    ctx.clearRect(0, 0, width, height);
+    let alive = false;
+    for (const piece of pieces) {
+      piece.life -= 1;
+      if (piece.life <= 0) continue;
+      alive = true;
+      piece.vy += 0.32 * dpr;
+      piece.x += piece.vx;
+      piece.y += piece.vy;
+      piece.vx *= 0.992;
+      piece.angle += piece.spin;
+      ctx.save();
+      ctx.translate(piece.x, piece.y);
+      ctx.rotate(piece.angle);
+      ctx.globalAlpha = Math.max(0, Math.min(1, piece.life / 28));
+      ctx.fillStyle = piece.color;
+      ctx.fillRect(-piece.w / 2, -piece.h / 2, piece.w, piece.h);
+      ctx.restore();
+    }
+    if (alive && now - started < 4500) requestAnimationFrame(tick);
+    else canvas.remove();
+  };
+  requestAnimationFrame(tick);
+}
+
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
   if (googleBox && state.googleClientId) {
@@ -1152,9 +1213,15 @@ function mountAuth() {
         client_id: state.googleClientId,
         callback: async ({ credential }) => {
           try {
-            applyAccount(await loginWith("google", credential));
+            const me = await loginWith("google", credential);
+            applyAccount(me);
             await pullAccountTrips();
-            state.notice = "Signed in with Google.";
+            if (me.signupCredits) {
+              state.notice = `Signed in. ${me.signupCredits} free credits are yours.`;
+              popConfetti();
+            } else {
+              state.notice = "Signed in with Google.";
+            }
             render();
           } catch (error) {
             state.error = error.message || "Google sign-in failed.";
