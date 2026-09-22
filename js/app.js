@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, removeSavedCard } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -143,6 +143,8 @@ function defaultState() {
     cardBrand: "",
     cardLast4: "",
     cardNote: "",
+    cardGrantUsed: false,
+    cardSavedNote: false,
     packPriceCents: 149,
     copiedText: "",
   };
@@ -744,6 +746,8 @@ function resetEditor() {
     cardBrand: state.cardBrand,
     cardLast4: state.cardLast4,
     cardNote: state.cardNote,
+    cardGrantUsed: state.cardGrantUsed,
+    cardSavedNote: state.cardSavedNote,
     savingCard: state.savingCard,
     buying: state.buying,
     packPriceCents: state.packPriceCents,
@@ -771,6 +775,8 @@ function newTrip() {
     cardBrand: state.cardBrand,
     cardLast4: state.cardLast4,
     cardNote: state.cardNote,
+    cardGrantUsed: state.cardGrantUsed,
+    cardSavedNote: state.cardSavedNote,
     savingCard: state.savingCard,
     packPriceCents: state.packPriceCents,
   };
@@ -985,6 +991,7 @@ function applyAccount(me) {
   state.cardLast4 = me.cardLast4 || "";
   state.cardNote = me.cardNote || "";
   state.cardCredits = Number(me.cardCredits) || 0;
+  state.cardGrantUsed = Boolean(me.cardGrantUsed);
   state.packPriceCents = me.packPriceCents || 149;
 }
 
@@ -1101,6 +1108,17 @@ async function fillHereLegs() {
   persist();
 }
 
+async function deleteCard() {
+  state.error = "";
+  try {
+    applyAccount(await removeSavedCard());
+    state.cardSavedNote = false;
+  } catch (error) {
+    state.error = error.message || "Could not delete that card.";
+  }
+  render();
+}
+
 async function saveCard() {
   state.savingCard = true;
   state.error = "";
@@ -1161,6 +1179,8 @@ async function logout() {
   state.cardBrand = "";
   state.cardLast4 = "";
   state.cardNote = "";
+  state.cardGrantUsed = false;
+  state.cardSavedNote = false;
   state.credits = null;
   state.calls = [];
   state.notice = "Signed out.";
@@ -1579,9 +1599,12 @@ function authBlock() {
   const card = !state.signedIn
     ? ""
     : state.cardOnFile
-      ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
-      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 10 more free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
-  return `<div class="auth-block">${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
+      ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p><button type="button" class="secondary" id="deleteCard">Delete card</button>`
+      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : state.cardGrantUsed ? "Save a card" : "Save a card for 10 more free credits"}</button><p class="fine">${state.cardGrantUsed ? "Adding another card does not add another 10. " : ""}We do not charge that card when the free credits run out.</p>`;
+  const cardSaved = state.cardSavedNote
+    ? `<p class="fine">Card saved. Free credits show up after Stripe confirms that card has not been used.</p>`
+    : "";
+  return `<div class="auth-block">${google}${card}${cardSaved}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
 }
 
 export function initPlanner(el) {
@@ -1590,6 +1613,7 @@ export function initPlanner(el) {
   if (paid === "1") state.notice = "Payment received. Credits update in a few seconds.";
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   const card = new URLSearchParams(location.search).get("card");
+  if (card === "1") state.cardSavedNote = true;
   if (card === "0") state.notice = "Card setup canceled. No free credits were added.";
   applyShareFromLocation();
   render();
@@ -1833,6 +1857,7 @@ function bind() {
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
   mountMap();
   $("#saveCard")?.addEventListener("click", () => saveCard());
+  $("#deleteCard")?.addEventListener("click", () => deleteCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());

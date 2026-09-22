@@ -16,6 +16,10 @@ function deviceId() {
 
 let lastPulse = 0;
 
+export function removeSavedCard() {
+  return api("/v1/delete-card", { method: "POST", body: "{}" });
+}
+
 export function clearCardWelcome() {
   return api("/v1/card-seen", { method: "POST", body: "{}" }).catch(() => {});
 }
