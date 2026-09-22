@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -950,6 +950,7 @@ function applyAccount(me) {
   if (!me) return;
   state.credits = me.credits;
   state.signedIn = Boolean(me.signedIn);
+  state.idleSignOut = Boolean(me.idle);
   state.unlimited = Boolean(me.unlimited);
   state.email = me.email || "";
   state.checkoutReady = Boolean(me.checkoutReady);
@@ -1231,6 +1232,7 @@ function mountAuth() {
           try {
             const me = await loginWith("google", credential);
             applyAccount(me);
+            pulseActivity();
             await pullAccountTrips();
             if (me.signupCredits) {
               state.notice = `Signed in. ${me.signupCredits} free credits are yours.`;
@@ -1564,9 +1566,21 @@ export function initPlanner(el) {
   applyShareFromLocation();
   render();
   refreshCredits().then(async () => {
+    if (state.idleSignOut) {
+      state.calls = [];
+      state.notice = "Signed out after an hour away.";
+      resetEditor();
+      persist();
+    } else if (state.signedIn) {
+      pulseActivity();
+    }
     await pullAccountTrips();
     if (!state.locating) render();
   });
+  const mark = () => { if (state.signedIn) pulseActivity(); };
+  document.addEventListener("pointerdown", mark);
+  document.addEventListener("keydown", mark);
+  document.addEventListener("scroll", mark, true);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") watchSignIn();
   });
@@ -1580,7 +1594,7 @@ async function watchSignIn() {
   await refreshCredits();
   if (was && !state.signedIn) {
     state.calls = [];
-    state.notice = "Signed out.";
+    state.notice = state.idleSignOut ? "Signed out after an hour away." : "Signed out.";
     resetEditor();
     persist();
     render();

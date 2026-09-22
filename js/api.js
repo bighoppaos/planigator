@@ -3,6 +3,25 @@ const API_BASE = location.hostname === "planigator.help" || location.hostname ==
   : "https://planigator.bighoppaos.workers.dev";
 const SESSION_KEY = "planigator.web.session";
 const AUTH_KEY = "planigator.web.auth";
+const DEVICE_KEY = "planigator.web.device";
+
+function deviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
+
+let lastPulse = 0;
+
+export function pulseActivity() {
+  const now = Date.now();
+  if (now - lastPulse < 60_000) return Promise.resolve();
+  lastPulse = now;
+  return api("/v1/active", { method: "POST", body: "{}" }).catch(() => {});
+}
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
@@ -18,6 +37,7 @@ export async function api(path, options = {}) {
   if (session) headers.Authorization = `Bearer ${session}`;
   const nonce = localStorage.getItem(AUTH_KEY);
   if (nonce) headers["X-Planigator-Auth"] = nonce;
+  headers["X-Planigator-Device"] = deviceId();
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   let data = {};
   try {
