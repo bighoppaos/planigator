@@ -114,6 +114,7 @@ export function schedules({
   startMinutes = DEFAULT_START_MINUTES,
   endMinutes = DEFAULT_END_MINUTES,
   hoursBeforeThirty = DEFAULT_HOURS_BEFORE_THIRTY,
+  arriveLatest = false,
 }) {
   const result = {};
   const clock = new TruckerHOSClock({
@@ -126,7 +127,9 @@ export function schedules({
   stops.forEach((stop, index) => {
     if (isOriginStop(stops, index)) return;
     const drive = inboundDrive(index, driveHours);
-    const open = notBefore(stop);
+    const open = arriveLatest
+      ? (stop.anytime ? null : latestArrive(stop))
+      : notBefore(stop);
     if (open != null) clock.holdForArrival(open, drive, cap);
     const chipClock = clock.clone();
     const chipEvents = chipClock.driveReporting(drive, cap, [0], [0]);
@@ -285,6 +288,7 @@ export function timeline({
   endMinutes,
   hoursOfEleven,
   hoursBeforeThirty,
+  arriveLatest = false,
 }) {
   const blocks = schedules({
     stops,
@@ -294,6 +298,7 @@ export function timeline({
     startMinutes,
     endMinutes,
     hoursBeforeThirty,
+    arriveLatest,
   });
   const destinations = scheduledIndexes(stops);
   const events = [];
@@ -328,7 +333,7 @@ export function timeline({
           end: block.end,
           miles: pieceMiles,
           tripHours: chipHours,
-          timePhrase: pieceIndex === 0 ? "Leave by" : "Leave",
+          timePhrase: "Drive",
           arrivalPhrase: stops[index].anytime ? "Arrive" : "Earliest",
           title,
           rgb,
@@ -345,7 +350,7 @@ export function timeline({
           end: piece.end,
           miles: pieceMiles,
           tripHours: chipHours,
-          timePhrase: pieceIndex === 0 ? "Leave by" : "Leave",
+          timePhrase: "Drive",
           title,
           rgb,
           stopID: stops[index].id,
@@ -364,7 +369,7 @@ export function timeline({
       start: gap.start,
       end: gap.end,
       tripHours: gap.hours,
-      timePhrase: isLastSlack ? "Leeway before you have to be there" : "Leeway",
+      timePhrase: arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival",
       rgb: LEEWAY_RGB,
       after: gap.after,
       stopID: gap.after >= 0 ? stops[gap.after].id : destinations[0] != null ? stops[destinations[0]].id : null,
@@ -418,6 +423,7 @@ export function buildPlan({
     endMinutes: settings.endAnytime ? -1 : settings.endMinutes,
     hoursOfEleven: settings.hoursOfEleven,
     hoursBeforeThirty: settings.hoursBeforeThirty,
+    arriveLatest: settings.arrival === "latest",
   });
   const firstDest = destIndexes[0];
   const lastDest = destIndexes[destIndexes.length - 1];

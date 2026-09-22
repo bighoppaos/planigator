@@ -111,6 +111,7 @@ function defaultState() {
       hoursBeforeThirty: DEFAULT_HOURS_BEFORE_THIRTY,
       military: false,
       kilometers: false,
+      arrival: "earliest",
     },
     stops: defaultStops(),
     tripName: "",
@@ -1183,7 +1184,6 @@ function planBox() {
   const plan = state.plan;
   if (!plan) return "";
   return `<section class="card result">
-    <h2>Plan</h2>
     <div id="routeMap" class="route-map"></div>
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <dl>
@@ -1192,11 +1192,7 @@ function planBox() {
       <div><dt>Driving</dt><dd>${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}</dd></div>
       <div><dt>HOS on this path</dt><dd>${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</dd></div>
     </dl>
-    <p class="muted">Total trip-time including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
-    <div class="row">
-      <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
-    </div>
-    ${state.copiedText ? `<textarea id="copiedPlan" readonly rows="14">${escapeAttr(state.copiedText)}</textarea>` : ""}
+    <p class="muted">Total trip-time including 10's and 30's: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
   </section>`;
 }
 
@@ -1443,6 +1439,13 @@ function render() {
           <span>Kilometers</span>
           <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
         </label>
+        <label class="setting">
+          <span>Arrival</span>
+          <select id="arrival">
+            <option value="earliest" ${s.arrival === "latest" ? "" : "selected"}>Earliest</option>
+            <option value="latest" ${s.arrival === "latest" ? "selected" : ""}>Latest</option>
+          </select>
+        </label>
         ${routeFromLine(origin)}
         <div class="stack">
           <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
@@ -1493,6 +1496,7 @@ function bindSettings() {
     ["startAnytime", (el) => { state.settings.startAnytime = el.checked; }],
     ["military", (el) => { state.settings.military = el.checked; }],
     ["kilometers", (el) => { state.settings.kilometers = el.checked; }],
+    ["arrival", (el) => { state.settings.arrival = el.value === "latest" ? "latest" : "earliest"; }],
     ["tripName", (el) => { state.tripName = el.value; persist(); }],
   ];
   map.forEach(([id, apply]) => {
@@ -1501,7 +1505,8 @@ function bindSettings() {
     el.addEventListener("change", () => {
       apply(el);
       persist();
-      if (id !== "tripName") render();
+      if (id === "arrival" && state.plan) calculate({ silent: true });
+      else if (id !== "tripName") render();
     });
     if (el.type !== "checkbox") {
       el.addEventListener("input", () => {
