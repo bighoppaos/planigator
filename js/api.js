@@ -16,6 +16,10 @@ function deviceId() {
 
 let lastPulse = 0;
 
+export function clearCardWelcome() {
+  return api("/v1/card-seen", { method: "POST", body: "{}" }).catch(() => {});
+}
+
 export function pulseActivity() {
   const now = Date.now();
   if (now - lastPulse < 60_000) return Promise.resolve();

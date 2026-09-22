@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -947,6 +947,30 @@ function locate() {
   }, 60000);
 }
 
+let cardCelebrated = false;
+
+function maybeCelebrateCard() {
+  if (cardCelebrated || !state.signedIn || !state.cardCredits) return false;
+  cardCelebrated = true;
+  state.signupNote = "10 free credits are yours.";
+  state.notice = "";
+  state.cardCredits = 0;
+  popConfetti();
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  clearCardWelcome();
+  return true;
+}
+
+async function watchCardGrant() {
+  for (let i = 0; i < 8; i += 1) {
+    if (cardCelebrated) return;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await refreshCredits();
+    if (maybeCelebrateCard()) return;
+  }
+}
+
 function applyAccount(me) {
   if (!me) return;
   state.credits = me.credits;
@@ -960,6 +984,7 @@ function applyAccount(me) {
   state.cardBrand = me.cardBrand || "";
   state.cardLast4 = me.cardLast4 || "";
   state.cardNote = me.cardNote || "";
+  state.cardCredits = Number(me.cardCredits) || 0;
   state.packPriceCents = me.packPriceCents || 149;
 }
 
@@ -1565,7 +1590,6 @@ export function initPlanner(el) {
   if (paid === "1") state.notice = "Payment received. Credits update in a few seconds.";
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   const card = new URLSearchParams(location.search).get("card");
-  if (card === "1") state.notice = "Card saved. Free credits show up after Stripe confirms that card has not been used.";
   if (card === "0") state.notice = "Card setup canceled. No free credits were added.";
   applyShareFromLocation();
   render();
@@ -1575,11 +1599,12 @@ export function initPlanner(el) {
       state.notice = "Signed out after an hour away.";
       resetEditor();
       persist();
-    } else if (state.signedIn) {
+    } else if (!maybeCelebrateCard() && state.signedIn) {
       pulseActivity();
     }
     await pullAccountTrips();
     if (!state.locating) render();
+    if (card === "1") watchCardGrant();
   });
   const mark = () => { if (state.signedIn) pulseActivity(); };
   document.addEventListener("pointerdown", mark);
@@ -1596,6 +1621,7 @@ export function initPlanner(el) {
 async function watchSignIn() {
   const was = state.signedIn;
   await refreshCredits();
+  if (maybeCelebrateCard()) return;
   if (was && !state.signedIn) {
     state.calls = [];
     state.notice = state.idleSignOut ? "Signed out after an hour away." : "Signed out.";
