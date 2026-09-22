@@ -1144,25 +1144,6 @@ function routePoints() {
   return pins;
 }
 
-function planTimeline(plan) {
-  const events = Array.isArray(plan.events) ? plan.events : [];
-  if (!events.length) return "";
-  return `<ol class="plan-timeline">${events.map((event) => {
-    const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
-    const hours = event.tripHours != null && event.tripHours > 0.01 ? hoursLabel(event.tripHours) : "";
-    const span = event.end && event.end !== event.start
-      ? `${formatShort(event.start)} – ${formatShort(event.end)}`
-      : formatShort(event.start);
-    const title = event.title ? ` · ${escapeAttr(event.title)}` : "";
-    const meta = [hours, miles].filter(Boolean).join(" · ");
-    return `<li class="plan-row ${escapeAttr(event.kind || "")}">
-      <div class="plan-when">${span}</div>
-      <div class="plan-what">${escapeAttr(event.timePhrase || "Stop")}${title}</div>
-      ${meta ? `<div class="plan-meta">${escapeAttr(meta)}</div>` : ""}
-    </li>`;
-  }).join("")}</ol>`;
-}
-
 function savedTripsBlock() {
   if (!state.trips.length) return "";
   return `<section class="card trips">
@@ -1208,16 +1189,50 @@ function mountMap() {
   setTimeout(() => map.invalidateSize(), 0);
 }
 
+function chip(event) {
+  const ink = stopInk(event.rgb);
+  const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
+  const hours = event.tripHours != null ? hoursLabel(event.tripHours) : "";
+  return `
+    <div class="chip ${event.kind}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
+      <div class="chip-top">
+        <strong>${escapeAttr(event.timePhrase || "")}</strong>
+        <span>${escapeAttr(hours)}${miles ? ` · ${escapeAttr(miles)}` : ""}</span>
+      </div>
+      <div class="chip-time">${formatShort(event.start)}${event.end && event.end !== event.start ? ` – ${formatShort(event.end)}` : ""}</div>
+      ${event.arrivalPhrase && event.earliestArrive ? `<div class="chip-arrive ${event.late ? "late" : ""}">${escapeAttr(event.arrivalPhrase)} ${formatShort(event.earliestArrive)}</div>` : ""}
+      ${event.title && event.kind !== "stop" ? `<div class="chip-time">Toward ${escapeAttr(event.title)}</div>` : ""}
+    </div>
+  `;
+}
+
+function eventsAround(stopId) {
+  const events = state.plan?.events || [];
+  const self = events.find((event) => event.id === stopId);
+  const mine = events.filter((event) => event.stopID === stopId && event.id !== stopId && event.kind !== "leeway");
+  return {
+    before: mine.filter((event) => !self || event.start < self.start).sort((a, b) => a.start - b.start),
+    self,
+    following: mine.filter((event) => self && event.start >= self.start).sort((a, b) => a.start - b.start),
+    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1),
+    now: events.filter((event) => event.kind === "leeway" && event.after === -1),
+  };
+}
+
 function stopCard(stop, index) {
   const dests = destinations();
   const destIndex = dests.findIndex((item) => item.id === stop.id);
   const originStop = isOriginStop(state.stops, index);
   const rgb = stopColor(index, state.stops);
   const ink = stopInk(rgb);
+  const around = eventsAround(stop.id);
   const title = cardTitle(index, state.stops);
   const canRemove = !originStop && dests.length > 1;
   return `
+    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
+    ${around.before.map(chip).join("")}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
+      ${around.self ? chip(around.self) : ""}
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
@@ -1255,6 +1270,8 @@ function stopCard(stop, index) {
         <label class="setting"><span>Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</label>
       `}`}
     </article>
+    ${around.following.map(chip).join("")}
+    ${around.after.map(chip).join("")}
     ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="add-inline" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
   `;
 }
@@ -1431,7 +1448,6 @@ function render() {
         <div class="row">
           <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
         </div>
-        ${planTimeline(plan)}
         ${state.copiedText ? `<textarea id="copiedPlan" readonly rows="14">${escapeAttr(state.copiedText)}</textarea>` : ""}
       </section>
     ` : ""}
