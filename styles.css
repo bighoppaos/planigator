@@ -773,6 +773,10 @@ body.app main { padding-top: 16px; }
   color: var(--muted);
   font-size: 14px;
 }
+.trips li button[data-delete] {
+  flex: 0 0 auto;
+  width: auto;
+}
 .trips li.active button[data-load] { outline: 2px solid var(--mint); }
 
 .hos h2, .origin h2, .actions h2, .result h2, .trips h2, .card h2 {

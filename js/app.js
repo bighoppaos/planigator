@@ -1154,6 +1154,7 @@ function savedTripsBlock() {
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
           <span>${formatShort(trip.savedAt)}</span>
         </button>
+        <button type="button" class="secondary" data-delete="${escapeAttr(trip.id)}">Delete</button>
       </li>`).join("")}
     </ul>
   </section>`;
