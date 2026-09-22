@@ -26,7 +26,7 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>page 44</p>
+    <p>page 45</p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -76,27 +76,15 @@
         } catch (e) {}
       }
 
-      function onErr(error) {
-        var code = error && error.code;
-        if (code === 2 || code === 3) {
-          navigator.geolocation.getCurrentPosition(onOk, fail, {
-            enableHighAccuracy: false,
-            timeout: 8000,
-            maximumAge: 120000
-          });
-          return;
-        }
-        fail(error);
-      }
-
       window.planigatorLocate = function () {
-        navigator.geolocation.getCurrentPosition(onOk, onErr, {
-          enableHighAccuracy: true,
-          timeout: 12000
+        navigator.geolocation.getCurrentPosition(onOk, fail, {
+          enableHighAccuracy: false,
+          timeout: 60000,
+          maximumAge: 600000
         });
       };
     })();
   </script>
-  <script type="module" src="./js/app.js?v=44"></script>
+  <script type="module" src="./js/app.js?v=45"></script>
 </body>
 </html>
