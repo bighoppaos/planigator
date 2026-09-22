@@ -587,10 +587,6 @@ function startFromAddress() {
   else render();
 }
 
-function startFromHere() {
-  locate();
-}
-
 function addStartBefore() {
   if (state.stops[0]?.useCurrentLocation) return;
   state.stops.unshift(defaultStop({
@@ -626,54 +622,45 @@ function newTrip() {
   render();
 }
 
-function locate() {
-  if (!window.isSecureContext) {
-    state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
-    state.locationNotice = "";
-    render();
-    return;
+function applyLocatedOrigin(lat, lon, notice) {
+  state.origin = { lat, lon };
+  if (!state.stops[0]?.useCurrentLocation) {
+    state.stops.unshift(defaultStop({
+      useCurrentLocation: true,
+      name: "Current location",
+      start: Date.now(),
+      end: Date.now(),
+    }));
   }
-  if (!navigator.geolocation) {
-    state.locationError = "This browser cannot share a location. Type an address instead.";
-    state.locationNotice = "";
-    render();
-    return;
-  }
+  state.locating = false;
+  state.locationError = "";
+  state.locationNotice = notice;
+  persist();
+  render();
+}
+
+function showLocateError(error) {
+  state.locating = false;
+  state.locationNotice = "";
+  if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
+  state.locationError = `error ${error?.code ?? "?"}`;
+  render();
+}
+
+window.planigatorLocateStarted = function () {
   state.locating = true;
   state.locationError = "";
-  state.locationNotice = "The browser will ask this site for your location. Allow it to truck-route from where you are.";
+  state.locationNotice = "";
   render();
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-      if (!state.stops[0]?.useCurrentLocation) {
-        state.stops.unshift(defaultStop({
-          useCurrentLocation: true,
-          name: "Current location",
-          start: Date.now(),
-          end: Date.now(),
-        }));
-      }
-      state.locating = false;
-      state.locationError = "";
-      state.locationNotice = "Got your location.";
-      persist();
-      render();
-    },
-    (error) => {
-      state.locating = false;
-      state.locationNotice = "";
-      if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-      if (error?.code === 1) {
-        state.locationError = "Location was blocked. In the browser, allow Planigator to use your location, or type an address.";
-      } else {
-        state.locationError = "Could not get a location. Type an address instead.";
-      }
-      render();
-    },
-    { enableHighAccuracy: true, timeout: 12000 }
-  );
-}
+};
+
+window.planigatorLocateSuccess = function (pos) {
+  applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
+};
+
+window.planigatorLocateError = function (error) {
+  showLocateError(error);
+};
 
 function applyAccount(me) {
   if (!me) return;
@@ -1149,7 +1136,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" onclick="planigatorLocate()" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1290,9 +1277,6 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
-  $("#locate")?.addEventListener("click", () => (
-    state.stops[0]?.useCurrentLocation ? locate() : startFromHere()
-  ));
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());

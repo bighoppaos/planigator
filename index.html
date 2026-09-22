@@ -37,6 +37,65 @@
       });
     }
   </script>
-  <script type="module" src="./js/app.js?v=39"></script>
+  <script>
+    (function () {
+      var watchId = null;
+      var error2Timer = null;
+
+      function clearError2Timer() {
+        if (error2Timer == null) return;
+        clearTimeout(error2Timer);
+        error2Timer = null;
+      }
+
+      function clearLocateWatch() {
+        if (watchId == null) return;
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
+      function success(pos) {
+        clearError2Timer();
+        clearLocateWatch();
+        if (typeof window.planigatorLocateSuccess === "function") {
+          window.planigatorLocateSuccess(pos);
+        }
+      }
+
+      function onError(error) {
+        var code = error && error.code;
+        if (code === 2) {
+          if (error2Timer == null) {
+            error2Timer = setTimeout(function () {
+              error2Timer = null;
+              clearLocateWatch();
+              if (typeof window.planigatorLocateError === "function") {
+                window.planigatorLocateError({ code: 2 });
+              }
+            }, 20000);
+          }
+          return;
+        }
+        clearError2Timer();
+        clearLocateWatch();
+        if (typeof window.planigatorLocateError === "function") {
+          window.planigatorLocateError(error || { code: code || "?" });
+        }
+      }
+
+      window.planigatorLocate = function () {
+        clearError2Timer();
+        if (watchId != null) clearLocateWatch();
+        watchId = navigator.geolocation.watchPosition(success, onError, {
+          enableHighAccuracy: false,
+          maximumAge: 0
+        });
+        if (typeof window.planigatorLocateStarted === "function") {
+          window.planigatorLocateStarted();
+        }
+      };
+    })();
+  </script>
+  <script type="module" src="./js/app.js?v=40"></script>
 </body>
 </html>
