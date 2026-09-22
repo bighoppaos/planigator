@@ -716,6 +716,37 @@ body.app main { padding-top: 16px; }
   margin-top: 12px;
 }
 
+.route-map {
+  height: 280px;
+  margin: 0 0 14px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #d7e2ea;
+}
+
+.route-map img { max-width: none; }
+
+.plan-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+
+.plan-row {
+  padding: 10px 12px;
+  margin: 8px 0;
+  border-radius: 12px;
+  background: #f4f1ea;
+  border-left: 6px solid #1f8a62;
+}
+
+.plan-row.rest { border-left-color: #3d5a80; }
+.plan-row.thirty { border-left-color: #c4a35a; }
+.plan-row.leeway { border-left-color: #8a8f7a; }
+.plan-when { font-weight: 700; }
+.plan-what { margin-top: 2px; }
+.plan-meta { color: var(--muted); font-size: 14px; margin-top: 2px; }
+
 .result dl {
   display: grid;
   gap: 10px;

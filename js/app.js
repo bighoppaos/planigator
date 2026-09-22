@@ -20,7 +20,6 @@ import {
   isOriginStop,
   encodeTripShare,
   decodeTripShare,
-  truckWeGoUrl,
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
@@ -156,12 +155,17 @@ function loadState() {
     state.settings = { ...state.settings, ...(saved.settings || {}) };
     delete state.settings.sleepHours;
     delete state.settings.readyMinutes;
+    state.origin = saved.origin || null;
     if (Array.isArray(saved.stops) && saved.stops.length) state.stops = saved.stops;
+    const gps = state.stops.find((stop) => stop.useCurrentLocation);
+    if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
+      state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
+    }
     if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
     state.tripName = saved.tripName || "";
     state.activeTripId = saved.activeTripId || null;
     state.trips = Array.isArray(saved.trips) ? saved.trips : [];
-    state.origin = saved.origin || null;
+    if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
   } catch {
     return state;
   }
@@ -185,7 +189,47 @@ function persist() {
     activeTripId: state.activeTripId,
     trips: state.trips,
     origin: state.origin,
+    plan: slimPlan(state.plan),
   }));
+}
+
+function slimPlan(plan) {
+  if (!plan || !Array.isArray(plan.events)) return null;
+  return {
+    events: plan.events,
+    rollAt: plan.rollAt,
+    arriveAt: plan.arriveAt,
+    late: Boolean(plan.late),
+    lastTimedTitle: plan.lastTimedTitle || "",
+    lastDeadline: plan.lastDeadline || null,
+    breakCount: plan.breakCount || 0,
+    restCount: plan.restCount || 0,
+    driveHours: plan.driveHours || 0,
+    miles: plan.miles || 0,
+  };
+}
+
+function originPoint() {
+  if (state.origin && Number.isFinite(Number(state.origin.lat)) && Number.isFinite(Number(state.origin.lon))) {
+    return { lat: Number(state.origin.lat), lon: Number(state.origin.lon) };
+  }
+  const stop = state.stops.find((item) => item.useCurrentLocation);
+  if (stop && Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon))) {
+    return { lat: Number(stop.lat), lon: Number(stop.lon) };
+  }
+  return null;
+}
+
+function rememberOrigin() {
+  const point = originPoint();
+  if (!point) return null;
+  state.origin = point;
+  const stop = state.stops.find((item) => item.useCurrentLocation);
+  if (stop) {
+    stop.lat = point.lat;
+    stop.lon = point.lon;
+  }
+  return point;
 }
 
 function destinations() {
@@ -394,6 +438,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
       return;
     }
     state.estimating = false;
+    rememberOrigin();
   }
   const result = buildPlan({
     stops: state.stops.map(normalizeStop),
@@ -413,18 +458,16 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   }
   state.plan = result;
   state.error = "";
-  if (!silent) {
-    saveTrip();
-    if (state.signedIn) {
-      try {
-        await putTrips(state.trips);
-        state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
-      } catch (error) {
-        state.notice = error.message || "Saved on this device. The account copy did not update.";
-      }
-    } else {
-      state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
+  saveTrip();
+  if (state.signedIn) {
+    try {
+      await putTrips(state.trips);
+      if (!silent) state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
+    } catch (error) {
+      if (!silent) state.notice = error.message || "Saved on this device. The account copy did not update.";
     }
+  } else if (!silent) {
+    state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
   }
   if (!skipHash) writeShareHash();
   render();
@@ -449,6 +492,8 @@ function saveTrip() {
     settings: { ...state.settings },
     stops: state.stops.map((stop) => ({ ...stop })),
     tripName: named,
+    origin: originPoint(),
+    plan: slimPlan(state.plan),
     summary: {
       miles: state.plan.miles,
       driveHours: state.plan.driveHours,
@@ -467,8 +512,18 @@ function loadTrip(id) {
   state.stops = trip.stops.map((stop) => ({ ...stop }));
   state.tripName = trip.tripName || trip.name || "";
   state.activeTripId = trip.id;
+  state.origin = trip.origin || null;
+  const gps = state.stops.find((stop) => stop.useCurrentLocation);
+  if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
+    state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
+  }
+  state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
   state.notice = `Opened ${trip.name}.`;
-  calculate({ silent: true });
+  if (!state.plan) calculate({ silent: true, skipHash: true });
+  else {
+    render();
+    persist();
+  }
 }
 
 async function deleteTrip(id) {
@@ -705,6 +760,7 @@ function locateSucceeded(pos, attempt) {
       end: Date.now(),
     }));
   }
+  rememberOrigin();
   state.locating = false;
   state.locationError = "";
   state.locationNotice = "";
@@ -902,8 +958,9 @@ async function fillHereLegs() {
   const points = [];
   for (const stop of state.stops) {
     if (stop.useCurrentLocation) {
-      if (!state.origin) throw new Error("Allow location first, then Calculate.");
-      points.push(state.origin);
+      const here = originPoint();
+      if (!here) throw new Error("Allow location first, then Calculate.");
+      points.push(here);
       continue;
     }
     if (!pointReady(stop)) {
@@ -922,6 +979,7 @@ async function fillHereLegs() {
     });
     state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
     state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
+    state.stops[i].path = Array.isArray(leg.points) ? leg.points : [];
     if (leg.credits != null) state.credits = leg.credits;
   }
   persist();
@@ -1056,40 +1114,98 @@ async function copyPlan() {
   render();
 }
 
-function directionsUrl() {
-  return truckWeGoUrl(state.stops, state.origin);
+function routeFromLine(originStop) {
+  const point = originPoint();
+  if (point) return `<p>Routing from ${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}</p>`;
+  if (originStop) return `<p>Waiting for location. Allow Planigator, or type an address.</p>`;
+  return "";
 }
 
-function chip(event) {
-  const ink = stopInk(event.rgb);
-  const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
-  const hours = event.tripHours != null ? hoursLabel(event.tripHours) : "";
-  return `
-    <div class="chip ${event.kind}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
-      <div class="chip-top">
-        <strong>${event.timePhrase}</strong>
-        <span>${hours}${miles ? ` · ${miles}` : ""}</span>
-      </div>
-      <div class="chip-time">${formatShort(event.start)}${event.end && event.end !== event.start ? ` → ${formatShort(event.end)}` : ""}</div>
-      ${event.arrivalPhrase && event.earliestArrive ? `<div class="chip-arrive ${event.late ? "late" : ""}">${event.arrivalPhrase} ${formatShort(event.earliestArrive)}</div>` : ""}
-    </div>
-  `;
+function routePoints() {
+  const line = [];
+  for (const stop of state.stops) {
+    if (!Array.isArray(stop.path)) continue;
+    for (const pair of stop.path) {
+      const lat = Number(pair?.[0]);
+      const lon = Number(pair?.[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) line.push([lat, lon]);
+    }
+  }
+  if (line.length >= 2) return line;
+  const pins = [];
+  const here = originPoint();
+  if (here) pins.push([here.lat, here.lon]);
+  for (const stop of state.stops) {
+    if (stop.useCurrentLocation) continue;
+    if (Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon))) {
+      pins.push([Number(stop.lat), Number(stop.lon)]);
+    }
+  }
+  return pins;
 }
 
-function eventsAround(stopId) {
-  const events = state.plan?.events || [];
-  const self = events.find((event) => event.id === stopId);
-  return {
-    before: events.filter((event) => (
-      event.stopID === stopId
-      && event.id !== stopId
-      && event.kind !== "leeway"
-      && (!self || event.start < self.start)
-    )),
-    self,
-    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1),
-    now: events.filter((event) => event.kind === "leeway" && event.after === -1),
-  };
+function planTimeline(plan) {
+  const events = Array.isArray(plan.events) ? plan.events : [];
+  if (!events.length) return "";
+  return `<ol class="plan-timeline">${events.map((event) => {
+    const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
+    const hours = event.tripHours != null && event.tripHours > 0.01 ? hoursLabel(event.tripHours) : "";
+    const span = event.end && event.end !== event.start
+      ? `${formatShort(event.start)} – ${formatShort(event.end)}`
+      : formatShort(event.start);
+    const title = event.title ? ` · ${escapeAttr(event.title)}` : "";
+    const meta = [hours, miles].filter(Boolean).join(" · ");
+    return `<li class="plan-row ${escapeAttr(event.kind || "")}">
+      <div class="plan-when">${span}</div>
+      <div class="plan-what">${escapeAttr(event.timePhrase || "Stop")}${title}</div>
+      ${meta ? `<div class="plan-meta">${escapeAttr(meta)}</div>` : ""}
+    </li>`;
+  }).join("")}</ol>`;
+}
+
+function savedTripsBlock() {
+  if (!state.trips.length) return "";
+  return `<section class="card trips">
+    <h2>Saved trips</h2>
+    <ul>
+      ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
+        <button type="button" data-load="${escapeAttr(trip.id)}">
+          ${escapeAttr(trip.name || trip.tripName || "Trip")}
+          <span>${formatShort(trip.savedAt)}</span>
+        </button>
+      </li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+function mountMap() {
+  const el = document.getElementById("routeMap");
+  const leaflet = window.L;
+  if (!el || !leaflet) return;
+  const line = routePoints();
+  if (line.length < 2) {
+    el.hidden = true;
+    return;
+  }
+  const map = leaflet.map(el, { zoomControl: true });
+  leaflet.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    maxZoom: 16,
+    subdomains: "abcd",
+  }).addTo(map);
+  const drawn = leaflet.polyline(line, { color: "#1f8a62", weight: 5 }).addTo(map);
+  line.forEach((pair, index) => {
+    if (index !== 0 && index !== line.length - 1) return;
+    leaflet.circleMarker(pair, {
+      radius: 6,
+      color: "#14201c",
+      fillColor: index === 0 ? "#1f8a62" : "#f4f1ea",
+      fillOpacity: 1,
+      weight: 2,
+    }).addTo(map);
+  });
+  map.fitBounds(drawn.getBounds(), { padding: [18, 18] });
+  setTimeout(() => map.invalidateSize(), 0);
 }
 
 function stopCard(stop, index) {
@@ -1098,14 +1214,10 @@ function stopCard(stop, index) {
   const originStop = isOriginStop(state.stops, index);
   const rgb = stopColor(index, state.stops);
   const ink = stopInk(rgb);
-  const around = eventsAround(stop.id);
   const title = cardTitle(index, state.stops);
   const canRemove = !originStop && dests.length > 1;
   return `
-    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
-    ${around.before.map(chip).join("")}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
-      ${around.self ? chip(around.self) : ""}
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
@@ -1143,7 +1255,6 @@ function stopCard(stop, index) {
         <label class="setting"><span>Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</label>
       `}`}
     </article>
-    ${around.after.map(chip).join("")}
     ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="add-inline" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
   `;
 }
@@ -1217,7 +1328,6 @@ function render() {
     .map((stop, index) => (stop.useCurrentLocation ? "" : stopCard(stop, index)))
     .join("");
   const plan = state.plan;
-  const maps = directionsUrl();
   root.innerHTML = `
     <section class="hero card hero-mark">
       <div class="hero-copy">
@@ -1274,15 +1384,12 @@ function render() {
           <span>Kilometers</span>
           <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
         </label>
-        ${origin && state.origin
-          ? `<p>Routing from ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}</p>`
-          : origin
-            ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
-            : ""}
+        ${routeFromLine(origin)}
         <div class="stack">
           <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="secondary" id="fromAddress">Start from an address</button>
           <button type="button" class="secondary" id="newTrip">new/clear trip</button>
+          ${state.plan ? `<button type="button" class="secondary" id="updateTimes">Update times</button>` : ""}
         </div>
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
@@ -1307,9 +1414,12 @@ function render() {
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
 
+    ${savedTripsBlock()}
+
     ${plan ? `
       <section class="card result">
         <h2>Plan</h2>
+        <div id="routeMap" class="route-map"></div>
         ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
         <dl>
           <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>
@@ -1320,8 +1430,8 @@ function render() {
         <p class="muted">Total clock including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
         <div class="row">
           <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
-          ${maps ? `<a class="secondary" id="openMaps" href="${escapeAttr(maps)}" target="_blank" rel="noopener">Open truck directions</a>` : ""}
         </div>
+        ${planTimeline(plan)}
         ${state.copiedText ? `<textarea id="copiedPlan" readonly rows="14">${escapeAttr(state.copiedText)}</textarea>` : ""}
       </section>
     ` : ""}
@@ -1350,9 +1460,7 @@ function bindSettings() {
     el.addEventListener("change", () => {
       apply(el);
       persist();
-      if (id === "tripName") return;
-      if (state.plan) calculate({ silent: true });
-      else render();
+      if (id !== "tripName") render();
     });
     if (el.type !== "checkbox") {
       el.addEventListener("input", () => {
@@ -1379,7 +1487,7 @@ function applyClock(wrap) {
   if (id === "startTime") state.settings.startMinutes = total;
   if (id === "endTime") state.settings.endMinutes = total;
   persist();
-  if (state.plan) calculate({ silent: true });
+  render();
 }
 
 function applyWhen(wrap) {
@@ -1391,8 +1499,7 @@ function applyWhen(wrap) {
   if (wrap.getAttribute("data-when") === "leaveAt") {
     state.settings.leaveAt = ms;
     persist();
-    if (state.plan) calculate({ silent: true });
-    else render();
+    render();
     return;
   }
   const field = wrap.getAttribute("data-stop-field");
@@ -1417,6 +1524,8 @@ function bind() {
   });
   mountAuth();
   $("#calculate")?.addEventListener("click", () => calculate());
+  $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
+  mountMap();
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());

@@ -453,7 +453,11 @@ export function tripSharePayload({ settings, stops, tripName }) {
     v: 1,
     tripName: tripName || "",
     settings: clean,
-    stops: stops.map((stop) => ({ ...stop })),
+    stops: stops.map((stop) => {
+      const copy = { ...stop };
+      delete copy.path;
+      return copy;
+    }),
   };
 }
 

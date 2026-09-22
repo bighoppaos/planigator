@@ -325,7 +325,9 @@ export class TruckerHOSClock {
       if (isAnytimeStart(this.startMinutes)) return false;
       if (isAnytimeEnd(this.endMinutes)) return false;
       if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
-      if (isPastDailyEnd(this.now, this.startMinutes, this.endMinutes)) return false;
+      // A 10-hour rest is only after driving. Before the first mile, wait
+      // until the next start time even if the day already ended.
+      if (this.drivenToday > 0.01 || drivenSinceRest > 0.01) return false;
       const start = nextWorkStart(this.startMinutes, this.now);
       if (start <= this.now + 60 * 1000) return false;
       flushDrive();
