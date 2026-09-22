@@ -1646,7 +1646,7 @@ async function installApp() {
     return;
   }
   state.installHint = phoneKind() === "ios"
-    ? "Tap the Share button, then Add to Home Screen."
+    ? "Tap the Share button, then “Add to Home Screen.”"
     : "Open the browser menu, then tap Install app or Add to Home screen.";
   render();
 }
