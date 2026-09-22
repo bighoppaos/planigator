@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, suggestAddresses, truckRoute, startCheckout, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -130,13 +130,17 @@ function defaultState() {
     estimating: false,
     looking: "",
     buying: false,
+    savingCard: false,
     credits: null,
     signedIn: false,
     email: "",
     checkoutReady: false,
     googleClientId: "",
-    appleClientId: "",
-    packPriceCents: 1399,
+    cardOnFile: false,
+    cardBrand: "",
+    cardLast4: "",
+    cardNote: "",
+    packPriceCents: 149,
     copiedText: "",
   };
 }
@@ -368,8 +372,10 @@ function applyShareFromLocation() {
 }
 
 async function calculate({ silent = false, skipHash = false } = {}) {
-  if (!silent && !state.signedIn) {
-    state.error = "Sign in to calculate.";
+  if (!silent && state.credits === 0) {
+    state.error = state.cardOnFile
+      ? "You are out of credits. Buy a pack of 124."
+      : "Save a card for 12 free credits. A new browser does not get another pile.";
     render();
     return;
   }
@@ -609,7 +615,11 @@ function newTrip() {
     email: state.email,
     checkoutReady: state.checkoutReady,
     googleClientId: state.googleClientId,
-    appleClientId: state.appleClientId,
+    cardOnFile: state.cardOnFile,
+    cardBrand: state.cardBrand,
+    cardLast4: state.cardLast4,
+    cardNote: state.cardNote,
+    savingCard: state.savingCard,
     packPriceCents: state.packPriceCents,
   };
   Object.assign(state, defaultState());
@@ -773,8 +783,11 @@ function applyAccount(me) {
   state.email = me.email || "";
   state.checkoutReady = Boolean(me.checkoutReady);
   state.googleClientId = me.googleClientId || "";
-  state.appleClientId = me.appleClientId || "";
-  state.packPriceCents = me.packPriceCents || 1399;
+  state.cardOnFile = Boolean(me.cardOnFile);
+  state.cardBrand = me.cardBrand || "";
+  state.cardLast4 = me.cardLast4 || "";
+  state.cardNote = me.cardNote || "";
+  state.packPriceCents = me.packPriceCents || 149;
 }
 
 async function refreshCredits() {
@@ -878,6 +891,21 @@ async function fillHereLegs() {
   persist();
 }
 
+async function saveCard() {
+  state.savingCard = true;
+  state.error = "";
+  state.notice = "Opening the card form…";
+  render();
+  try {
+    const { url } = await startCardSetup();
+    location.href = url;
+  } catch (error) {
+    state.error = error.message || "Card setup is not ready.";
+    state.savingCard = false;
+    render();
+  }
+}
+
 async function buyPack() {
   state.buying = true;
   state.error = "";
@@ -936,30 +964,6 @@ function mountAuth() {
       render();
     });
   }
-  document.getElementById("appleSignIn")?.addEventListener("click", async () => {
-    try {
-      if (!window.AppleID?.auth) {
-        await loadScript("https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js");
-      }
-      window.AppleID.auth.init({
-        clientId: state.appleClientId,
-        scope: "name email",
-        redirectURI: "https://bighoppaos.github.io/planigator/",
-        usePopup: true,
-      });
-      const result = await window.AppleID.auth.signIn();
-      const idToken = result?.authorization?.id_token;
-      if (!idToken) throw new Error("Apple did not return a sign-in token.");
-      applyAccount(await loginWith("apple", idToken));
-      await pullAccountTrips();
-      state.notice = "Signed in with Apple.";
-      render();
-    } catch (error) {
-      if (error?.error === "popup_closed_by_user") return;
-      state.error = error.message || "Apple sign-in failed.";
-      render();
-    }
-  });
 }
 
 function currentShareUrl() {
@@ -1141,18 +1145,15 @@ function hosSummary() {
 }
 
 function authBlock() {
-  if (state.signedIn) {
-    return `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}.</p>`;
-  }
-  if (!state.googleClientId && !state.appleClientId) {
-    return `<p class="fine">Sign in with Apple or Google for 12 free credits.</p>`;
-  }
-  return `
-    <div class="auth-row">
-      ${state.googleClientId ? `<div id="googleBtn"></div>` : ""}
-      ${state.appleClientId ? `<button type="button" class="secondary" id="appleSignIn">Sign in with Apple</button>` : ""}
-    </div>
-  `;
+  const google = state.signedIn
+    ? `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p>`
+    : state.googleClientId
+      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Google keeps your trips. It does not give free credits.</p></div>`
+      : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
+  const card = state.cardOnFile
+    ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
+    : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 12 free credits"}</button>`;
+  return `${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}`;
 }
 
 export function initPlanner(el) {
@@ -1160,6 +1161,9 @@ export function initPlanner(el) {
   const paid = new URLSearchParams(location.search).get("paid");
   if (paid === "1") state.notice = "Payment received. Credits update in a few seconds.";
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
+  const card = new URLSearchParams(location.search).get("card");
+  if (card === "1") state.notice = "Card saved. Free credits show up after Stripe confirms that card has not been used.";
+  if (card === "0") state.notice = "Card setup canceled. No free credits were added.";
   applyShareFromLocation();
   render();
   refreshCredits().then(async () => {
@@ -1258,10 +1262,10 @@ function render() {
       </label>
       ${authBlock()}
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating || !state.signedIn ? "disabled" : ""}>${calculateButtonLabel()}</button>
-        ${state.signedIn ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
+        <button type="button" class="primary" id="calculate" ${state.estimating || state.credits === 0 ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
       </div>
-      <p class="fine">${state.signedIn ? `${state.credits ?? 0} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.credits == null ? "" : `${state.credits} credit${state.credits === 1 ? "" : "s"} left. `}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 are once per debit or credit card. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
@@ -1377,6 +1381,7 @@ function bind() {
   });
   mountAuth();
   $("#calculate")?.addEventListener("click", () => calculate());
+  $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
