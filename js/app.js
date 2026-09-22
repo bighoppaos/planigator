@@ -137,6 +137,7 @@ function defaultState() {
     signedIn: false,
     unlimited: false,
     email: "",
+    emailRevealed: false,
     checkoutReady: false,
     googleClientId: "",
     cardOnFile: false,
@@ -1590,9 +1591,16 @@ function hosSummary() {
   return `${speed} · ${s.hoursOfEleven} of 11 · 30 after ${s.hoursBeforeThirty} hr · ${window}`;
 }
 
+function maskEmail(email) {
+  const text = String(email || "");
+  if (text.length <= 2) return text;
+  return `${text[0]}${"*".repeat(text.length - 2)}${text[text.length - 1]}`;
+}
+
 function authBlock() {
+  const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
   const google = state.signedIn
-    ? `<div class="auth-row"><p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p><button type="button" class="secondary" id="logout">Log out</button></div>`
+    ? `<div class="auth-row"><p class="fine">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="secondary" id="logout">Log out</button></div>`
     : state.googleClientId
       ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p></div>`
       : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
@@ -1853,6 +1861,10 @@ function bind() {
   mountAuth();
   syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
+  $("#revealEmail")?.addEventListener("click", () => {
+    state.emailRevealed = !state.emailRevealed;
+    render();
+  });
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
   mountMap();
