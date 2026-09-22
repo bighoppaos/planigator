@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Planigator location check</title>
+  <link rel="stylesheet" href="./styles.css?v=15">
+  <style>
+    body { padding: 16px; font-size: 17px; }
+    h1 { font-size: 20px; }
+    #start { font-size: 20px; padding: 18px; width: 100%; margin-bottom: 16px; }
+    .row { padding: 10px 0; border-bottom: 1px solid rgba(128,128,128,.35); }
+    .name { font-weight: 700; }
+    .good { color: #1f8a62; }
+    .bad { color: #c0392b; }
+  </style>
+</head>
+<body class="app">
+  <h1>Planigator location check</h1>
+  <button id="start" type="button">Tap to run the location check</button>
+  <div id="facts"></div>
+  <div id="out"></div>
+
+  <script>
+    var out = document.getElementById("out");
+    var facts = document.getElementById("facts");
+
+    // The page is opened from a plain static server, so there is nothing to POST to.
+    // A logged GET is the only channel back to whoever is reading the server output.
+    function report(name, detail) {
+      var img = new Image();
+      img.src = "/report?probe=" + encodeURIComponent(name) + "&r=" + encodeURIComponent(detail) + "&n=" + Date.now();
+    }
+
+    function line(name, detail, ok) {
+      var div = document.createElement("div");
+      div.className = "row";
+      div.innerHTML = '<span class="name">' + name + "</span><br><span class=\"" + (ok ? "good" : "bad") + '">' + detail + "</span>";
+      out.appendChild(div);
+      report(name, detail);
+    }
+
+    function describe(error) {
+      var names = { 1: "DENIED", 2: "POSITION_UNAVAILABLE", 3: "TIMEOUT" };
+      return "error " + error.code + " " + (names[error.code] || "?") + " — " + (error.message || "no message");
+    }
+
+    function probe(name, options) {
+      return new Promise(function (resolve) {
+        var t0 = Date.now();
+        navigator.geolocation.getCurrentPosition(
+          function (p) {
+            line(name, "OK " + p.coords.latitude.toFixed(4) + ", " + p.coords.longitude.toFixed(4)
+              + " acc " + Math.round(p.coords.accuracy) + "m in " + (Date.now() - t0) + "ms", true);
+            resolve(true);
+          },
+          function (e) {
+            line(name, describe(e) + " in " + (Date.now() - t0) + "ms", false);
+            resolve(false);
+          },
+          options
+        );
+      });
+    }
+
+    function watchProbe(name, options, ms) {
+      return new Promise(function (resolve) {
+        var t0 = Date.now();
+        var done = false;
+        var id = navigator.geolocation.watchPosition(
+          function (p) {
+            if (done) return;
+            done = true;
+            navigator.geolocation.clearWatch(id);
+            line(name, "OK " + p.coords.latitude.toFixed(4) + ", " + p.coords.longitude.toFixed(4)
+              + " in " + (Date.now() - t0) + "ms", true);
+            resolve(true);
+          },
+          function (e) {
+            if (done || e.code !== 1) return;
+            done = true;
+            navigator.geolocation.clearWatch(id);
+            line(name, describe(e) + " in " + (Date.now() - t0) + "ms", false);
+            resolve(false);
+          },
+          options
+        );
+        setTimeout(function () {
+          if (done) return;
+          done = true;
+          navigator.geolocation.clearWatch(id);
+          line(name, "no fix within " + ms + "ms", false);
+          resolve(false);
+        }, ms);
+      });
+    }
+
+    async function run() {
+      out.innerHTML = "";
+      var standalone = (window.navigator.standalone === true)
+        || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+      var state = "unsupported";
+      try {
+        state = (await navigator.permissions.query({ name: "geolocation" })).state;
+      } catch (e) {
+        state = "query failed";
+      }
+      var summary = "secure=" + window.isSecureContext
+        + " geolocation=" + ("geolocation" in navigator)
+        + " permission=" + state
+        + " homescreen=" + standalone;
+      facts.innerHTML = '<div class="row">' + summary + "</div>";
+      report("facts", summary);
+
+      await probe("A cached Wi-Fi fix allowed (what Planigator now uses)",
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
+      await probe("B fresh fix required",
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 });
+      await probe("C high accuracy, fresh fix required",
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+      await watchProbe("D watch, cached fix allowed",
+        { enableHighAccuracy: false, timeout: 25000, maximumAge: 120000 }, 25000);
+
+      line("done", "All four checks finished. Screenshot this page.", true);
+    }
+
+    document.getElementById("start").addEventListener("click", run);
+    if (location.search.indexOf("auto") !== -1) setTimeout(run, 400);
+  </script>
+</body>
+</html>

@@ -26,8 +26,7 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>page 48</p>
-    <p id="locate-live"></p>
+    <p>page 49</p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -39,21 +38,6 @@
       });
     }
   </script>
-  <script>
-    function planigatorLocate(){
-      var el = document.getElementById('locate-live');
-      if (el) el.textContent = 'Asking Safari…';
-      navigator.geolocation.getCurrentPosition(function(p){
-        var line = 'Got your location. ' + p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5);
-        if (el) el.textContent = line;
-        if (window.planigatorLocateSuccess) window.planigatorLocateSuccess(p);
-      }, function(e){
-        var line = 'Safari error ' + e.code + ': ' + (e.message || (e.code===2?'no position':e.code===3?'timed out':'denied'));
-        if (el) el.textContent = line;
-        if (window.planigatorLocateError) window.planigatorLocateError(e);
-      }, { enableHighAccuracy: false, timeout: 90000 });
-    }
-  </script>
-  <script type="module" src="./js/app.js?v=48"></script>
+  <script type="module" src="./js/app.js?v=49"></script>
 </body>
 </html>

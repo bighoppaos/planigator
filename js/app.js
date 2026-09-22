@@ -622,9 +622,42 @@ function newTrip() {
   render();
 }
 
-function applyLocatedOrigin(lat, lon, notice) {
-  state.origin = { lat, lon };
-  if (state.origin && !state.stops[0]?.useCurrentLocation) {
+// A laptop has no GPS chip. enableHighAccuracy makes Core Location hold out for one
+// and fail, and maximumAge 0 forbids the Wi-Fi fix it is already holding.
+const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 };
+const LOCATE_WATCH_OPTIONS = { enableHighAccuracy: false, timeout: 25000, maximumAge: 120000 };
+
+let locateWatchId = null;
+let locateWatchTimer = null;
+
+function endLocateWatch() {
+  if (locateWatchId !== null) {
+    navigator.geolocation.clearWatch(locateWatchId);
+    locateWatchId = null;
+  }
+  if (locateWatchTimer !== null) {
+    clearTimeout(locateWatchTimer);
+    locateWatchTimer = null;
+  }
+}
+
+function locateMessage(code) {
+  if (code === 1) {
+    return "Location is turned off for this site. Allow it for Planigator, then tap again. On iPhone check Settings, Privacy & Security, Location Services, Safari Websites.";
+  }
+  if (code === 2) {
+    return "Your device could not work out where it is (error 2). That is the device, not this page. A laptop needs Wi-Fi networks it recognises nearby, so a hotspot or a quiet street will not do it. Type an address instead.";
+  }
+  if (code === 3) {
+    return "Location took too long (error 3). Tap Use my location again, or type an address.";
+  }
+  return "This page did not get a location. Tap Use my location again, or type an address.";
+}
+
+function locateSucceeded(pos) {
+  endLocateWatch();
+  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  if (!state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
       name: "Current location",
@@ -634,41 +667,74 @@ function applyLocatedOrigin(lat, lon, notice) {
   }
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = notice;
+  state.locationNotice = "Got your location.";
   persist();
   render();
 }
 
-function showLocateError(error) {
+function locateFailed(error) {
+  endLocateWatch();
   state.locating = false;
   state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-  const code = error?.code ?? "?";
-  let message = error?.message ?? "";
-  if (!message) {
-    if (code === 2) message = "no position";
-    else if (code === 3) message = "timed out";
-  }
-  state.locationError = `Safari error ${code}: ${message}`;
+  state.locationError = locateMessage(error?.code);
   render();
 }
 
-window.planigatorLocateStarted = function () {
+// WebKit answers a cold first ask with error 2 or 3 while Core Location is still
+// warming up. A watch started after that error keeps the same granted permission
+// and picks up the fix when it lands. A denial is final, so it is not retried.
+function locateRetry(firstError) {
+  if (firstError?.code === 1 || locateWatchId !== null) {
+    locateFailed(firstError);
+    return;
+  }
+  showLocateProgress("Still looking…");
+  locateWatchId = navigator.geolocation.watchPosition(
+    (pos) => locateSucceeded(pos),
+    (watchError) => { if (watchError?.code === 1) locateFailed(watchError); },
+    LOCATE_WATCH_OPTIONS,
+  );
+  locateWatchTimer = setTimeout(() => locateFailed(firstError), LOCATE_WATCH_OPTIONS.timeout);
+}
+
+// Painted by hand rather than through render(). Replacing the button that was just
+// tapped can dismiss Safari's permission sheet before the driver answers it.
+function showLocateProgress(notice) {
+  const button = document.getElementById("locate");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Waiting for permission…";
+  }
+  const status = document.getElementById("locate-status");
+  if (status) {
+    status.className = "ok";
+    status.textContent = notice;
+  }
+}
+
+function locate() {
+  if (!window.isSecureContext) {
+    state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
+    state.locationNotice = "";
+    render();
+    return;
+  }
+  if (!navigator.geolocation) {
+    state.locationError = "This browser cannot share a location. Type an address instead.";
+    state.locationNotice = "";
+    render();
+    return;
+  }
+  endLocateWatch();
+  // First thing in the tap. Anything ahead of it can spend the user gesture that
+  // Safari requires before it will prompt.
+  navigator.geolocation.getCurrentPosition(locateSucceeded, locateRetry, LOCATE_OPTIONS);
   state.locating = true;
   state.locationError = "";
-  state.locationNotice = "";
-  render();
-};
-
-window.planigatorLocateSuccess = function (pos) {
-  const lat = pos.coords.latitude;
-  const lon = pos.coords.longitude;
-  applyLocatedOrigin(lat, lon, `Got your location. ${lat}, ${lon}`);
-};
-
-window.planigatorLocateError = function (error) {
-  showLocateError(error);
-};
+  state.locationNotice = "Asking for your location…";
+  showLocateProgress(state.locationNotice);
+}
 
 function applyAccount(me) {
   if (!me) return;
@@ -1144,7 +1210,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" onclick="planigatorLocate()" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1284,6 +1350,7 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
+  $("#locate")?.addEventListener("click", () => locate());
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());
