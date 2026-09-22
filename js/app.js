@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, fetchCalls, networkWhere, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -665,8 +665,6 @@ function locateMessage(code) {
     return "Location is turned off for this site. Allow it for Planigator, then tap again. On iPhone check Settings, Privacy & Security, Location Services, Safari Websites.";
   }
   if (code === 2) {
-    const mac = /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
-    if (mac) return "This Mac did not return a position (error 2). The phone can. Type an address on the Mac.";
     return "This page did not get a position (error 2). Tap Use my location again, or type an address.";
   }
   if (code === 3) {
@@ -698,8 +696,39 @@ function locateSucceeded(pos, attempt) {
   render();
 }
 
+function isMac() {
+  return /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
+}
+
+let networkFixTried = false;
+
+async function locateFromNetwork(attempt) {
+  try {
+    const where = await networkWhere();
+    const lat = Number(where.lat);
+    const lon = Number(where.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("none");
+    if (attempt !== locateAttempt) return;
+    locateSucceeded({ coords: { latitude: lat, longitude: lon } }, attempt);
+    state.locationNotice = where.label
+      ? `Using the network location near ${where.label}. This Mac did not share a precise position.`
+      : "Using the network location. This Mac did not share a precise position.";
+    render();
+  } catch {
+    if (attempt !== locateAttempt) return;
+    locateFailed({ code: 2 }, attempt);
+  }
+}
+
 function locateFailed(error, attempt) {
   if (attempt !== locateAttempt) return;
+  if (isMac() && error?.code === 2 && !networkFixTried) {
+    networkFixTried = true;
+    state.locationNotice = "The Mac did not share a position. Asking the network…";
+    showLocateProgress("Still looking…", state.locationNotice);
+    locateFromNetwork(attempt);
+    return;
+  }
   locateAttempt += 1;
   endLocateWatch();
   state.locating = false;
@@ -758,6 +787,7 @@ function locate() {
     return;
   }
   const attempt = ++locateAttempt;
+  networkFixTried = false;
   endLocateWatch();
   // First thing in the tap. Anything ahead of it can spend the user gesture that
   // Safari requires before it will prompt. Phone GPS first. If that misses,
@@ -1201,6 +1231,7 @@ function render() {
   const maps = directionsUrl();
   root.innerHTML = `
     <section class="hero card hero-mark">
+      <div class="hero-copy">
       <h1>Planigator</h1>
       <ul class="pitch">
         <li>Get a HERE<sup>©</sup> truck-legal route</li>
@@ -1209,6 +1240,7 @@ function render() {
         <li>Know when to take your 30 and your 10</li>
         <li>Share the trip link with anyone</li>
       </ul>
+      </div>
     </section>
 
     <section class="card hos">

@@ -546,7 +546,7 @@ header .brand img {
   margin: 0 0 0.35em;
   color: #fffdf8;
   text-align: center;
-  font-size: 7.4cqi;
+  font-size: 6.2cqi;
   line-height: 1.05;
 }
 
@@ -556,9 +556,17 @@ header .brand img {
   text-align: left;
 }
 
+.hero-copy {
+  width: 100%;
+  padding: 12px 14px 14px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.62);
+  color: #fffdf8;
+}
+
 .hero-mark .pitch {
   width: 100%;
-  font-size: 5.6cqi;
+  font-size: 4.7cqi;
   line-height: 1.32;
 }
 
