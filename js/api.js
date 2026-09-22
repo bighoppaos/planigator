@@ -20,6 +20,10 @@ export function removeSavedCard() {
   return api("/v1/delete-card", { method: "POST", body: "{}" });
 }
 
+export function clearPackWelcome() {
+  return api("/v1/pack-seen", { method: "POST", body: "{}" }).catch(() => {});
+}
+
 export function clearCardWelcome() {
   return api("/v1/card-seen", { method: "POST", body: "{}" }).catch(() => {});
 }

@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, removeSavedCard } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -955,6 +955,29 @@ function locate() {
 }
 
 let cardCelebrated = false;
+let packCelebrated = false;
+
+function maybeCelebratePack() {
+  if (packCelebrated || !state.signedIn || !state.packCredits) return false;
+  packCelebrated = true;
+  state.signupNote = "124 credits are yours.";
+  state.notice = "";
+  state.packCredits = 0;
+  popConfetti();
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  clearPackWelcome();
+  return true;
+}
+
+async function watchPackGrant() {
+  for (let i = 0; i < 8; i += 1) {
+    if (packCelebrated) return;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await refreshCredits();
+    if (maybeCelebratePack()) return;
+  }
+}
 
 function maybeCelebrateCard() {
   if (cardCelebrated || !state.signedIn || !state.cardCredits) return false;
@@ -992,6 +1015,7 @@ function applyAccount(me) {
   state.cardLast4 = me.cardLast4 || "";
   state.cardNote = me.cardNote || "";
   state.cardCredits = Number(me.cardCredits) || 0;
+  state.packCredits = Number(me.packCredits) || 0;
   state.cardGrantUsed = Boolean(me.cardGrantUsed);
   state.packPriceCents = me.packPriceCents || 149;
 }
@@ -1618,7 +1642,7 @@ function authBlock() {
 export function initPlanner(el) {
   plannerRoot = el;
   const paid = new URLSearchParams(location.search).get("paid");
-  if (paid === "1") state.notice = "Payment received. Credits update in a few seconds.";
+  if (paid === "1") state.notice = "";
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
   const card = new URLSearchParams(location.search).get("card");
   if (card === "1") state.cardSavedNote = true;
@@ -1631,11 +1655,12 @@ export function initPlanner(el) {
       state.notice = "Signed out after an hour away.";
       resetEditor();
       persist();
-    } else if (!maybeCelebrateCard() && state.signedIn) {
+    } else if (!maybeCelebratePack() && !maybeCelebrateCard() && state.signedIn) {
       pulseActivity();
     }
     await pullAccountTrips();
     if (!state.locating) render();
+    if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
   });
   const mark = () => { if (state.signedIn) pulseActivity(); };
@@ -1653,7 +1678,7 @@ export function initPlanner(el) {
 async function watchSignIn() {
   const was = state.signedIn;
   await refreshCredits();
-  if (maybeCelebrateCard()) return;
+  if (maybeCelebratePack() || maybeCelebrateCard()) return;
   if (was && !state.signedIn) {
     state.calls = [];
     state.notice = state.idleSignOut ? "Signed out after an hour away." : "Signed out.";
