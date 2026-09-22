@@ -1655,8 +1655,19 @@ async function installApp() {
     render();
     return;
   }
+  if (phoneKind() === "ios" && navigator.share) {
+    try {
+      await navigator.share({
+        title: "Planigator",
+        url: `${location.origin}${location.pathname}`,
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
   state.installHint = phoneKind() === "ios"
-    ? "Tap the Share button, then Add to Home Screen."
+    ? "Tap the Share button in Safari, then Add to Home Screen."
     : "Open the browser menu, then tap Install app or Add to Home screen.";
   render();
 }
