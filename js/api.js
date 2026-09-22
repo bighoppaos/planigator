@@ -2,9 +2,11 @@ const API_BASE = location.hostname === "planigator.help" || location.hostname ==
   ? ""
   : "https://planigator.bighoppaos.workers.dev";
 const SESSION_KEY = "planigator.web.session";
+const AUTH_KEY = "planigator.web.auth";
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(AUTH_KEY);
 }
 
 export const STARTER_CREDITS = 12;
@@ -14,6 +16,8 @@ export async function api(path, options = {}) {
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
   const session = localStorage.getItem(SESSION_KEY);
   if (session) headers.Authorization = `Bearer ${session}`;
+  const nonce = localStorage.getItem(AUTH_KEY);
+  if (nonce) headers["X-Planigator-Auth"] = nonce;
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   let data = {};
   try {
@@ -22,6 +26,8 @@ export async function api(path, options = {}) {
     data = {};
   }
   if (data.session) localStorage.setItem(SESSION_KEY, data.session);
+  if (data.loginNonce) localStorage.setItem(AUTH_KEY, data.loginNonce);
+  if (data.signedIn === false) localStorage.removeItem(AUTH_KEY);
   if (!response.ok) {
     const error = new Error(data.error || "Could not reach Planigator credits.");
     error.status = response.status;
@@ -69,6 +75,19 @@ export function startCardSetup() {
 
 export function loginWith(provider, idToken) {
   return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken }) });
+}
+
+export async function logoutRemote() {
+  const session = localStorage.getItem(SESSION_KEY);
+  if (!session) return;
+  const headers = { Authorization: `Bearer ${session}` };
+  const nonce = localStorage.getItem(AUTH_KEY);
+  if (nonce) headers["X-Planigator-Auth"] = nonce;
+  try {
+    await fetch(`${API_BASE}/v1/logout`, { method: "POST", headers });
+  } catch {
+    // Still sign out this browser if the request fails.
+  }
 }
 
 export function fetchTrips() {

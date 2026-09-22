@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -1093,6 +1093,7 @@ function loadScript(src) {
 }
 
 async function logout() {
+  await logoutRemote();
   clearSession();
   try {
     window.google?.accounts?.id?.disableAutoSelect();
@@ -1438,6 +1439,25 @@ export function initPlanner(el) {
     await pullAccountTrips();
     if (!state.locating) render();
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") watchSignIn();
+  });
+  setInterval(() => {
+    if (state.signedIn) watchSignIn();
+  }, 15000);
+}
+
+async function watchSignIn() {
+  const was = state.signedIn;
+  await refreshCredits();
+  if (was && !state.signedIn) {
+    state.trips = [];
+    state.activeTripId = null;
+    state.calls = [];
+    state.notice = "Signed out.";
+    persist();
+    render();
+  }
 }
 
 function render() {
