@@ -399,21 +399,52 @@ function applySharedTrip(data, { notice } = {}) {
   calculate({ silent: true, skipHash: true });
 }
 
+function hasRouteLine(stops) {
+  return (stops || []).some((stop) => Array.isArray(stop.path) && stop.path.length > 1);
+}
+
+function shareTokenFor(trip) {
+  return encodeTripShare({
+    settings: trip?.settings || {},
+    stops: trip?.stops || [],
+    tripName: trip?.tripName || "",
+  });
+}
+
+function copyRouteLine(onto, fromStops) {
+  if (!Array.isArray(onto) || !hasRouteLine(fromStops)) return onto;
+  return onto.map((stop, index) => {
+    if (hasRouteLine([stop])) return stop;
+    const from = fromStops.find((item) => item.id === stop.id) || fromStops[index];
+    if (!from?.path) return stop;
+    return { ...stop, path: from.path };
+  });
+}
+
 function applyShareFromLocation() {
   const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
   if (!raw.startsWith("t=")) return false;
   const token = raw.slice(2);
+  let shared;
   try {
-    if (state.plan && state.activeTripId && shareToken() === token) return false;
-    applySharedTrip(decodeTripShare(token), {
-      notice: "Opened a shared trip. Calculate again after you change anything.",
-    });
-    return true;
+    shared = decodeTripShare(token);
   } catch {
     state.error = "That share link could not be read.";
     render();
     return false;
   }
+  const saved = state.trips.find((trip) => {
+    try { return shareTokenFor(trip) === token; } catch { return false; }
+  });
+  if (saved && (saved.plan || hasRouteLine(saved.stops))) {
+    if (state.activeTripId !== saved.id || !hasRouteLine(state.stops)) loadTrip(saved.id);
+    return true;
+  }
+  if (state.plan && state.activeTripId && shareToken() === token) return false;
+  applySharedTrip(shared, {
+    notice: "Opened a shared trip. Calculate again after you change anything.",
+  });
+  return true;
 }
 
 async function calculate({ silent = false, skipHash = false } = {}) {
@@ -562,7 +593,11 @@ async function pullAccountTrips() {
       if (!trip?.id) continue;
       const local = state.trips.find((item) => item.id === trip.id);
       if (local && (local.savedAt || 0) > (trip.savedAt || 0)) byId.set(trip.id, { ...local, pendingUpload: true });
-      else byId.set(trip.id, { ...trip, pendingUpload: false });
+      else {
+        const kept = { ...trip, pendingUpload: false };
+        kept.stops = copyRouteLine(kept.stops, local?.stops);
+        byId.set(trip.id, kept);
+      }
     }
     for (const trip of state.trips) {
       if (!trip?.id || remoteIds.has(trip.id)) continue;
@@ -570,6 +605,11 @@ async function pullAccountTrips() {
     }
     state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
     if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
+    const donor = state.trips.find((trip) => trip.id === state.activeTripId) || state.trips.find((trip) => hasRouteLine(trip.stops));
+    if (donor && !hasRouteLine(state.stops)) {
+      state.stops = copyRouteLine(state.stops, donor.stops);
+      if (!state.activeTripId) state.activeTripId = donor.id;
+    }
     persist();
     if (state.trips.some((trip) => trip.pendingUpload)) {
       await putTrips(state.trips);
