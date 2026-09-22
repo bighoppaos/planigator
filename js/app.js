@@ -1298,7 +1298,6 @@ function hostedOnPlanigator() {
 
 function googleNeedsFullPageRedirect() {
   if (!hostedOnPlanigator()) return false;
-  if (window.hoppOSBrowser) return true;
   if (window.navigator.standalone === true) return true;
   try {
     if (window.matchMedia("(display-mode: standalone)").matches) return true;
