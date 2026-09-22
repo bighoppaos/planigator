@@ -624,7 +624,7 @@ function newTrip() {
 
 function applyLocatedOrigin(lat, lon, notice) {
   state.origin = { lat, lon };
-  if (!state.stops[0]?.useCurrentLocation) {
+  if (state.origin && !state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
       name: "Current location",
@@ -643,7 +643,9 @@ function showLocateError(error) {
   state.locating = false;
   state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-  state.locationError = `error ${error?.code ?? "?"}`;
+  const code = error?.code ?? "?";
+  const message = error?.message ?? "";
+  state.locationError = `Safari error ${code}: ${message}`;
   render();
 }
 
@@ -655,7 +657,9 @@ window.planigatorLocateStarted = function () {
 };
 
 window.planigatorLocateSuccess = function (pos) {
-  applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+  applyLocatedOrigin(lat, lon, `Got your location. ${lat}, ${lon}`);
 };
 
 window.planigatorLocateError = function (error) {
@@ -1140,8 +1144,7 @@ function render() {
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
-      ${state.locationError ? `<p class="error">${escapeAttr(state.locationError)}</p>` : ""}
-      ${state.locationNotice ? `<p class="ok">${escapeAttr(state.locationNotice)}</p>` : ""}
+      <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
     <section class="card stops">

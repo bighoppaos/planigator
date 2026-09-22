@@ -26,7 +26,7 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>page 42</p>
+    <p>page 43</p>
   </footer>
   <script>
     if ("serviceWorker" in navigator) {
@@ -40,32 +40,63 @@
   </script>
   <script>
     (function () {
-      function clearLeftoverWatch() {
-        if (window.planigatorLocateWatchId == null) return;
-        navigator.geolocation.clearWatch(window.planigatorLocateWatchId);
-        window.planigatorLocateWatchId = null;
+      function paintOk(lat, lon) {
+        var el = document.getElementById("locate-status");
+        if (!el) return;
+        el.textContent = "Got your location. " + lat + ", " + lon;
+        el.className = "ok";
       }
 
-      function success(pos) {
-        clearLeftoverWatch();
-        if (typeof window.planigatorLocateSuccess === "function") {
-          window.planigatorLocateSuccess(pos);
-        }
+      function paintErr(error) {
+        var el = document.getElementById("locate-status");
+        if (!el) return;
+        var code = error && error.code != null ? error.code : "?";
+        var message = error && error.message ? error.message : "";
+        el.textContent = "Safari error " + code + ": " + message;
+        el.className = "error";
       }
 
-      function onError(error) {
-        clearLeftoverWatch();
-        if (typeof window.planigatorLocateError === "function") {
-          window.planigatorLocateError(error || { code: "?" });
+      function onOk(pos) {
+        var lat = pos.coords.latitude;
+        var lon = pos.coords.longitude;
+        paintOk(lat, lon);
+        try {
+          if (typeof window.planigatorLocateSuccess === "function") {
+            window.planigatorLocateSuccess(pos);
+          }
+        } catch (e) {}
+      }
+
+      function fail(error) {
+        paintErr(error);
+        try {
+          if (typeof window.planigatorLocateError === "function") {
+            window.planigatorLocateError(error || { code: "?" });
+          }
+        } catch (e) {}
+      }
+
+      function onErr(error) {
+        var code = error && error.code;
+        if (code === 2 || code === 3) {
+          navigator.geolocation.getCurrentPosition(onOk, fail, {
+            enableHighAccuracy: false,
+            timeout: 8000,
+            maximumAge: 120000
+          });
+          return;
         }
+        fail(error);
       }
 
       window.planigatorLocate = function () {
-        clearLeftoverWatch();
-        navigator.geolocation.getCurrentPosition(success, onError, { enableHighAccuracy: true, timeout: 12000 });
+        navigator.geolocation.getCurrentPosition(onOk, onErr, {
+          enableHighAccuracy: true,
+          timeout: 12000
+        });
       };
     })();
   </script>
-  <script type="module" src="./js/app.js?v=42"></script>
+  <script type="module" src="./js/app.js?v=43"></script>
 </body>
 </html>
