@@ -729,6 +729,32 @@ function addStartBefore() {
   render();
 }
 
+function resetEditor() {
+  const keep = {
+    settings: { ...state.settings },
+    credits: state.credits,
+    calls: state.calls,
+    signedIn: state.signedIn,
+    unlimited: state.unlimited,
+    email: state.email,
+    checkoutReady: state.checkoutReady,
+    googleClientId: state.googleClientId,
+    cardOnFile: state.cardOnFile,
+    cardBrand: state.cardBrand,
+    cardLast4: state.cardLast4,
+    cardNote: state.cardNote,
+    savingCard: state.savingCard,
+    buying: state.buying,
+    packPriceCents: state.packPriceCents,
+    notice: state.notice,
+  };
+  Object.assign(state, defaultState());
+  Object.assign(state, keep);
+  writingHash = true;
+  history.replaceState(null, "", location.pathname + location.search);
+  queueMicrotask(() => { writingHash = false; });
+}
+
 function newTrip() {
   const keep = {
     trips: state.trips,
@@ -1110,9 +1136,8 @@ async function logout() {
   state.cardNote = "";
   state.credits = null;
   state.calls = [];
-  state.trips = [];
-  state.activeTripId = null;
   state.notice = "Signed out.";
+  resetEditor();
   persist();
   await refreshCredits();
   render();
@@ -1471,10 +1496,9 @@ async function watchSignIn() {
   const was = state.signedIn;
   await refreshCredits();
   if (was && !state.signedIn) {
-    state.trips = [];
-    state.activeTripId = null;
     state.calls = [];
     state.notice = "Signed out.";
+    resetEditor();
     persist();
     render();
   }
