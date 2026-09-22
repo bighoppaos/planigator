@@ -25,10 +25,6 @@ export async function api(path, options = {}) {
   return data;
 }
 
-export function networkWhere() {
-  return api("/v1/where");
-}
-
 export function creditsMe() {
   return api("/v1/me");
 }

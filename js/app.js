@@ -24,7 +24,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, networkWhere, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -696,39 +696,8 @@ function locateSucceeded(pos, attempt) {
   render();
 }
 
-function isMac() {
-  return /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
-}
-
-let networkFixTried = false;
-
-async function locateFromNetwork(attempt) {
-  try {
-    const where = await networkWhere();
-    const lat = Number(where.lat);
-    const lon = Number(where.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("none");
-    if (attempt !== locateAttempt) return;
-    locateSucceeded({ coords: { latitude: lat, longitude: lon } }, attempt);
-    state.locationNotice = where.label
-      ? `Using the network location near ${where.label}. This Mac did not share a precise position.`
-      : "Using the network location. This Mac did not share a precise position.";
-    render();
-  } catch {
-    if (attempt !== locateAttempt) return;
-    locateFailed({ code: 2 }, attempt);
-  }
-}
-
 function locateFailed(error, attempt) {
   if (attempt !== locateAttempt) return;
-  if (isMac() && error?.code === 2 && !networkFixTried) {
-    networkFixTried = true;
-    state.locationNotice = "The Mac did not share a position. Asking the network…";
-    showLocateProgress("Still looking…", state.locationNotice);
-    locateFromNetwork(attempt);
-    return;
-  }
   locateAttempt += 1;
   endLocateWatch();
   state.locating = false;
@@ -787,7 +756,6 @@ function locate() {
     return;
   }
   const attempt = ++locateAttempt;
-  networkFixTried = false;
   endLocateWatch();
   // First thing in the tap. Anything ahead of it can spend the user gesture that
   // Safari requires before it will prompt. Phone GPS first. If that misses,
@@ -837,11 +805,14 @@ async function refreshCredits() {
   } catch {
     if (state.credits == null) state.credits = null;
   }
-  try {
-    const data = await fetchCalls();
-    state.calls = Array.isArray(data.calls) ? data.calls : [];
-  } catch {
-    state.calls = state.calls || [];
+  state.calls = [];
+  if (state.signedIn) {
+    try {
+      const data = await fetchCalls();
+      state.calls = Array.isArray(data.calls) ? data.calls : [];
+    } catch {
+      state.calls = [];
+    }
   }
 }
 
@@ -1315,8 +1286,7 @@ function render() {
         <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
       </div>
       <p class="fine">${state.credits == null ? "" : `${state.credits} credit${state.credits === 1 ? "" : "s"} left. `}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 are once per debit or credit card. Truck only — not car, bike, or walk.</p>
-      <h2>HERE calls from this browser</h2>
-      ${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">Calls from here on are saved. The two already spent were not.</p>`}
+      ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
