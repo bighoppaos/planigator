@@ -280,23 +280,15 @@ function pointReady(stop) {
   return Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon));
 }
 
-function calculateCreditCount() {
-  let legs = 0;
-  for (let i = 1; i < state.stops.length; i += 1) {
-    if (pointReady(state.stops[i - 1]) && pointReady(state.stops[i])) legs += 1;
-  }
-  return legs;
-}
-
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = calculateCreditCount();
+  const count = Math.max(0, state.stops.length - 1);
+  const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
-    ? "unlimited"
+    ? "unlimited credits left"
     : (state.signedIn || state.cardOnFile) && state.credits != null
       ? `${state.credits} left`
       : "";
-  const use = count > 0 ? `uses ${count} credit${count === 1 ? "" : "s"}` : "";
   return ["Calculate", use, left].filter(Boolean).join(" · ");
 }
 
@@ -378,7 +370,7 @@ function applyShareFromLocation() {
 }
 
 async function calculate({ silent = false, skipHash = false } = {}) {
-  if (!silent && state.credits === 0) {
+  if (!silent && !state.unlimited && state.credits === 0) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
       : state.signedIn
