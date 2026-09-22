@@ -1170,10 +1170,7 @@ function hereLeg(stop) {
   if (miles > 0.05 || hours > 0.0001) {
     return `<p class="here-leg">${escapeAttr(formatMiles(miles))} · ${escapeAttr(hoursLabel(hours))} from HERE<sup>©</sup></p>`;
   }
-  const first = state.stops[0];
-  const fromHere = first?.useCurrentLocation || (first?.name || "").trim().toLowerCase() === "start";
-  if (fromHere) return "";
-  return `<p class="fine">Miles and drive time come from HERE<sup>©</sup> when you Calculate.</p>`;
+  return "";
 }
 
 function hosSummary() {
