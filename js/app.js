@@ -634,10 +634,8 @@ function newTrip() {
   render();
 }
 
-// A laptop has no GPS chip. enableHighAccuracy makes Core Location hold out for one
-// and fail, and maximumAge 0 forbids the Wi-Fi fix it is already holding.
-const LOCATE_OPTIONS = { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 };
-const LOCATE_WATCH_OPTIONS = { enableHighAccuracy: false, timeout: 25000, maximumAge: 120000 };
+const LOCATE_PRECISE = { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 };
+const LOCATE_COARSE = { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 };
 
 let locateWatchId = null;
 let locateWatchTimer = null;
@@ -667,7 +665,9 @@ function locateMessage(code) {
     return "Location is turned off for this site. Allow it for Planigator, then tap again. On iPhone check Settings, Privacy & Security, Location Services, Safari Websites.";
   }
   if (code === 2) {
-    return "This browser could not get a location (error 2). On iPhone, turn Location Services on for Safari, then tap again. Or type an address.";
+    const mac = /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
+    if (mac) return "This Mac did not return a position (error 2). The phone can. Type an address on the Mac.";
+    return "This page did not get a position (error 2). Tap Use my location again, or type an address.";
   }
   if (code === 3) {
     return "Location took too long (error 3). Tap Use my location again, or type an address.";
@@ -724,9 +724,9 @@ function locateRetry(firstError, attempt) {
   locateWatchId = navigator.geolocation.watchPosition(
     (pos) => locateSucceeded(pos, attempt),
     (watchError) => { if (watchError?.code === 1) locateFailed(watchError, attempt); },
-    LOCATE_WATCH_OPTIONS,
+    LOCATE_COARSE,
   );
-  locateWatchTimer = setTimeout(() => locateFailed(firstError, attempt), LOCATE_WATCH_OPTIONS.timeout);
+  locateWatchTimer = setTimeout(() => locateFailed(firstError, attempt), LOCATE_COARSE.timeout);
 }
 
 // Painted by hand rather than through render(). Replacing the button that was just
@@ -760,12 +760,21 @@ function locate() {
   const attempt = ++locateAttempt;
   endLocateWatch();
   // First thing in the tap. Anything ahead of it can spend the user gesture that
-  // Safari requires before it will prompt.
-  navigator.geolocation.getCurrentPosition(
-    (pos) => locateSucceeded(pos, attempt),
-    (error) => locateRetry(error, attempt),
-    LOCATE_OPTIONS,
-  );
+  // Safari requires before it will prompt. Phone GPS first. If that misses,
+  // the same tap asks again for a coarser fix before showing an error.
+  const ask = (options, coarseNext) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => locateSucceeded(pos, attempt),
+      (error) => {
+        if (attempt !== locateAttempt) return;
+        if (error?.code === 1 || !coarseNext) locateRetry(error, attempt);
+        else ask(LOCATE_COARSE, false);
+      },
+      options,
+    );
+  };
+  const mac = /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
+  ask(mac ? LOCATE_COARSE : LOCATE_PRECISE, !mac);
   state.locating = true;
   state.locationError = "";
   state.locationNotice = "Asking for your location…";

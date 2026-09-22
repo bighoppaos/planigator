@@ -525,12 +525,14 @@ header .brand img {
   width: min(100%, 640px);
   margin-left: auto;
   margin-right: auto;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   text-align: center;
   color: #fffdf8;
+  padding: 8% 5%;
   background-color: #071525;
   background-image:
     linear-gradient(rgb(8 16 28 / 0.28), rgb(8 16 28 / 0.4)),
@@ -541,18 +543,29 @@ header .brand img {
 }
 
 .hero-mark h1 {
-  margin: 8px 0 16px;
+  margin: 0 0 0.35em;
   color: #fffdf8;
   text-align: center;
+  font-size: 7.4cqi;
+  line-height: 1.05;
 }
 
 .pitch {
   margin: 0;
-  padding-left: 1.2em;
+  padding-left: 1.15em;
   text-align: left;
 }
 
-.hero-mark .pitch li { margin: 8px 0; }
+.hero-mark .pitch {
+  width: 100%;
+  font-size: 5.6cqi;
+  line-height: 1.32;
+}
+
+.hero-mark .pitch li {
+  margin: 0.22em 0;
+  white-space: nowrap;
+}
 
 button.suggest {
   display: block;
