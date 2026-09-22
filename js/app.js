@@ -647,6 +647,14 @@ function showLocateError(error) {
   render();
 }
 
+window.planigatorLocateSuccess = function (pos) {
+  applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
+};
+
+window.planigatorLocateError = function (error) {
+  showLocateError(error);
+};
+
 function applyAccount(me) {
   if (!me) return;
   state.credits = me.credits;
@@ -1121,7 +1129,7 @@ function render() {
           ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
           : ""}
       <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
+        <button type="button" class="secondary" id="locate" onclick="planigatorLocate()" ${state.locating ? "disabled" : ""}>${state.locating ? "Getting your location…" : "Use my location"}</button>
         <button type="button" class="secondary" id="fromAddress">Start from an address</button>
         <button type="button" class="secondary" id="newTrip">New trip</button>
       </div>
@@ -1262,25 +1270,6 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
-  $("#locate")?.addEventListener("click", () => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        applyLocatedOrigin(pos.coords.latitude, pos.coords.longitude, "Got your location.");
-      },
-      (error) => {
-        showLocateError(error);
-      },
-      { enableHighAccuracy: false, timeout: 60000, maximumAge: 60000 }
-    );
-    state.locating = true;
-    state.locationError = "";
-    state.locationNotice = "";
-    const button = $("#locate");
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Getting your location…";
-    }
-  });
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
   $("#addStop")?.addEventListener("click", () => addStop());
