@@ -1623,6 +1623,34 @@ function maskEmail(email) {
   return `${text[0]}${"*".repeat(text.length - 2)}${text[text.length - 1]}`;
 }
 
+let installEvent = null;
+
+function phoneKind() {
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "";
+}
+
+function showInstallButton() {
+  return Boolean(phoneKind() || installEvent);
+}
+
+async function installApp() {
+  if (installEvent) {
+    installEvent.prompt();
+    const choice = await installEvent.userChoice;
+    installEvent = null;
+    state.installHint = choice?.outcome === "accepted" ? "Planigator is on your home screen." : "";
+    render();
+    return;
+  }
+  state.installHint = phoneKind() === "ios"
+    ? "Tap the Share button, then Add to Home Screen."
+    : "Open the browser menu, then tap Install app or Add to Home screen.";
+  render();
+}
+
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
   const google = state.signedIn
@@ -1634,7 +1662,9 @@ function authBlock() {
     ? ""
     : state.cardOnFile
       ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p><button type="button" class="secondary" id="deleteCard">Delete card</button>`
-      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : state.cardGrantUsed ? "Save a card" : "Save a card for 10 more free credits"}</button><p class="fine">${state.cardGrantUsed ? "Adding another card does not add another 10. " : ""}We do not charge that card when the free credits run out.</p>`;
+      : state.unlimited
+        ? ""
+        : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : state.cardGrantUsed ? "Save a card" : "Save a card for 10 more free credits"}</button><p class="fine">${state.cardGrantUsed ? "Adding another card does not add another 10. " : ""}We do not charge that card when the free credits run out.</p>`;
   const cardSaved = state.cardSavedNote
     ? `<p class="fine">Card saved. Free credits show up after Stripe confirms that card has not been used.</p>`
     : "";
@@ -1642,6 +1672,16 @@ function authBlock() {
 }
 
 export function initPlanner(el) {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    installEvent = event;
+    render();
+  });
+  window.addEventListener("appinstalled", () => {
+    installEvent = null;
+    state.installHint = "Planigator is on your home screen.";
+    render();
+  });
   plannerRoot = el;
   const paid = new URLSearchParams(location.search).get("paid");
   if (paid === "1") state.notice = "";
@@ -1787,8 +1827,10 @@ function render() {
       <div class="stack">
         <button type="button" class="primary" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
         ${plan ? `<button type="button" class="secondary" id="shareTrip">Share trip link</button>` : ""}
+        ${plan && showInstallButton() ? `<button type="button" class="secondary" id="installApp">Add Planigator to your home screen</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
+      ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
@@ -1899,6 +1941,7 @@ function bind() {
   $("#deleteCard")?.addEventListener("click", () => deleteCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
+  $("#installApp")?.addEventListener("click", () => installApp());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => locate());
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
