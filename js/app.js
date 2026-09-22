@@ -119,6 +119,7 @@ function defaultState() {
     plan: null,
     error: "",
     notice: "",
+    signupNote: "",
     locationError: "",
     locationNotice: "",
     lookupMessage: "",
@@ -1235,12 +1236,15 @@ function mountAuth() {
             pulseActivity();
             await pullAccountTrips();
             if (me.signupCredits) {
-              state.notice = `Signed in. ${me.signupCredits} free credits are yours.`;
+              state.signupNote = "5 free credits are yours.";
+              state.notice = "";
               popConfetti();
             } else {
+              state.signupNote = "";
               state.notice = "Signed in with Google.";
             }
             render();
+            if (me.signupCredits) window.scrollTo({ top: 0, behavior: "smooth" });
           } catch (error) {
             state.error = error.message || "Google sign-in failed.";
             render();
@@ -1611,6 +1615,7 @@ function render() {
     .join("");
   const plan = state.plan;
   root.innerHTML = `
+    ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
     <section class="hero card hero-mark">
       <div class="hero-copy">
       <h1>Planigator.help</h1>
