@@ -134,6 +134,7 @@ function defaultState() {
     credits: null,
     calls: [],
     signedIn: false,
+    unlimited: false,
     email: "",
     checkoutReady: false,
     googleClientId: "",
@@ -290,7 +291,11 @@ function calculateCreditCount() {
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
   const count = calculateCreditCount();
-  const left = state.cardOnFile && state.credits != null ? `${state.credits} left` : "";
+  const left = state.unlimited
+    ? "unlimited"
+    : (state.signedIn || state.cardOnFile) && state.credits != null
+      ? `${state.credits} left`
+      : "";
   const use = count > 0 ? `uses ${count} credit${count === 1 ? "" : "s"}` : "";
   return ["Calculate", use, left].filter(Boolean).join(" · ");
 }
@@ -376,7 +381,9 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   if (!silent && state.credits === 0) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
-      : "Save a card for 12 free credits. That card is not charged when the free credits run out.";
+      : state.signedIn
+        ? "Those 3 free credits are used. Save a card for 9 more. That card is not charged when they run out."
+        : "Sign in with Google for 3 free credits. Save a card for 9 more. That card is not charged when they run out.";
     render();
     return;
   }
@@ -577,6 +584,9 @@ function updateStop(id, patch) {
 }
 
 function startFromAddress() {
+  state.origin = null;
+  state.locationError = "";
+  state.locationNotice = "";
   if (state.stops[0]?.useCurrentLocation) {
     state.stops[0] = defaultStop({
       name: "Start",
@@ -584,14 +594,17 @@ function startFromAddress() {
       start: Date.now(),
       end: Date.now(),
     });
+  } else if ((state.stops[0]?.name || "").trim().toLowerCase() !== "start") {
+    state.stops.unshift(defaultStop({
+      name: "Start",
+      anytime: true,
+      start: Date.now(),
+      end: Date.now(),
+    }));
   }
-  state.origin = null;
-  state.locationError = "";
-  state.locationNotice = "";
-  state.notice = "First stop is the yard or wherever you roll from. Miles on the next stop are from here.";
+  state.notice = "First card is where you roll from. Pickup below now has miles and a be-there-by.";
   persist();
-  if (state.plan) calculate({ silent: true });
-  else render();
+  render();
 }
 
 function addStartBefore() {
@@ -614,6 +627,7 @@ function newTrip() {
     credits: state.credits,
     calls: state.calls,
     signedIn: state.signedIn,
+    unlimited: state.unlimited,
     email: state.email,
     checkoutReady: state.checkoutReady,
     googleClientId: state.googleClientId,
@@ -789,6 +803,7 @@ function applyAccount(me) {
   if (!me) return;
   state.credits = me.credits;
   state.signedIn = Boolean(me.signedIn);
+  state.unlimited = Boolean(me.unlimited);
   state.email = me.email || "";
   state.checkoutReady = Boolean(me.checkoutReady);
   state.googleClientId = me.googleClientId || "";
@@ -1111,9 +1126,7 @@ function stopCard(stop, index) {
         ? `<p class="here-leg">Using this address.</p>`
         : ""}
       ${originStop ? `<p class="fine">This is where you roll from. HERE<sup>©</sup> fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
-      ${originStop && (stop.name || "").trim().toLowerCase() !== "start" ? `
-        <button type="button" class="add-inline" data-act="start-before">Drive here from somewhere else</button>
-      ` : originStop ? "" : `
+      ${originStop ? "" : `
       <label class="setting">
         <span>Anytime</span>
         <input type="checkbox" data-field="anytime" ${stop.anytime ? "checked" : ""}>
@@ -1166,12 +1179,14 @@ function authBlock() {
   const google = state.signedIn
     ? `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p>`
     : state.googleClientId
-      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Google keeps your trips. It does not give free credits.</p></div>`
+      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 3 free credits, enough to try a trip.</p></div>`
       : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
-  const card = state.cardOnFile
-    ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
-    : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 12 free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
-  return `${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}`;
+  const card = !state.signedIn
+    ? ""
+    : state.cardOnFile
+      ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
+      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 9 more free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
+  return `<div class="auth-block">${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
 }
 
 export function initPlanner(el) {
@@ -1277,15 +1292,15 @@ function render() {
     </section>
 
     <section class="card actions" id="actions">
+      ${authBlock()}
       <label>Trip name
         <input id="tripName" value="${escapeAttr(state.tripName)}" placeholder="Optional — Dallas to Atlanta">
       </label>
-      ${authBlock()}
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating || !state.cardOnFile || state.credits === 0 ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        <button type="button" class="primary" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      <p class="fine">${state.cardOnFile && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 start after a card is saved. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. Google sign-in gives 3. A saved card gives 9 more. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
@@ -1451,7 +1466,6 @@ function bind() {
     card.querySelector("[data-act=up]")?.addEventListener("click", () => moveStop(id, -1));
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
     card.querySelector("[data-act=remove]")?.addEventListener("click", () => removeStop(id));
-    card.querySelector("[data-act=start-before]")?.addEventListener("click", () => addStartBefore());
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
     card.querySelectorAll("[data-pick]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-pick"))));
