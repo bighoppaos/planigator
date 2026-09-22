@@ -1173,7 +1173,7 @@ function savedTripsBlock() {
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
           <span>${formatShort(trip.savedAt)}</span>
         </button>
-        <button type="button" class="secondary" data-delete="${escapeAttr(trip.id)}">Delete</button>
+        <button type="button" class="secondary" data-delete="${escapeAttr(trip.id)}">${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>
   </section>`;
@@ -1579,7 +1579,16 @@ function bind() {
     button.addEventListener("click", () => loadTrip(button.getAttribute("data-load")));
   });
   document.querySelectorAll("[data-delete]").forEach((button) => {
-    button.addEventListener("click", () => deleteTrip(button.getAttribute("data-delete")));
+    button.addEventListener("click", () => {
+      const id = button.getAttribute("data-delete");
+      if (state.confirmDeleteId !== id) {
+        state.confirmDeleteId = id;
+        render();
+        return;
+      }
+      state.confirmDeleteId = null;
+      deleteTrip(id);
+    });
   });
   document.querySelectorAll(".stop-card").forEach((card) => {
     const id = card.getAttribute("data-stop");
