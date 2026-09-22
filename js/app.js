@@ -715,7 +715,7 @@ function locateSucceeded(pos, attempt) {
   }
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = "Got your location.";
+  state.locationNotice = "";
   persist();
   render();
 }
