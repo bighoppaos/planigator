@@ -25,9 +25,13 @@
     var out = document.getElementById("out");
     var facts = document.getElementById("facts");
 
-    // The page is opened from a plain static server, so there is nothing to POST to.
-    // A logged GET is the only channel back to whoever is reading the server output.
+    // On a local test server there is nothing to POST to, so a logged GET is the only
+    // channel back to whoever is reading the server output. Off localhost the results
+    // are read off the screen instead, and the request would only 404.
+    var localOnly = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+
     function report(name, detail) {
+      if (!localOnly) return;
       var img = new Image();
       img.src = "/report?probe=" + encodeURIComponent(name) + "&r=" + encodeURIComponent(detail) + "&n=" + Date.now();
     }

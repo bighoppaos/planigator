@@ -629,6 +629,7 @@ const LOCATE_WATCH_OPTIONS = { enableHighAccuracy: false, timeout: 25000, maximu
 
 let locateWatchId = null;
 let locateWatchTimer = null;
+let locateAnswerTimer = null;
 
 function endLocateWatch() {
   if (locateWatchId !== null) {
@@ -638,6 +639,10 @@ function endLocateWatch() {
   if (locateWatchTimer !== null) {
     clearTimeout(locateWatchTimer);
     locateWatchTimer = null;
+  }
+  if (locateAnswerTimer !== null) {
+    clearTimeout(locateAnswerTimer);
+    locateAnswerTimer = null;
   }
 }
 
@@ -650,6 +655,9 @@ function locateMessage(code) {
   }
   if (code === 3) {
     return "Location took too long (error 3). Tap Use my location again, or type an address.";
+  }
+  if (code === 4) {
+    return "No answer to the location prompt. Tap Use my location again and choose Allow, or type an address.";
   }
   return "This page did not get a location. Tap Use my location again, or type an address.";
 }
@@ -689,7 +697,9 @@ function locateRetry(firstError) {
     locateFailed(firstError);
     return;
   }
-  showLocateProgress("Still looking…");
+  clearTimeout(locateAnswerTimer);
+  locateAnswerTimer = null;
+  showLocateProgress("Still looking…", "Still looking…");
   locateWatchId = navigator.geolocation.watchPosition(
     (pos) => locateSucceeded(pos),
     (watchError) => { if (watchError?.code === 1) locateFailed(watchError); },
@@ -700,11 +710,11 @@ function locateRetry(firstError) {
 
 // Painted by hand rather than through render(). Replacing the button that was just
 // tapped can dismiss Safari's permission sheet before the driver answers it.
-function showLocateProgress(notice) {
+function showLocateProgress(label, notice) {
   const button = document.getElementById("locate");
   if (button) {
     button.disabled = true;
-    button.textContent = "Waiting for permission…";
+    button.textContent = label;
   }
   const status = document.getElementById("locate-status");
   if (status) {
@@ -733,7 +743,13 @@ function locate() {
   state.locating = true;
   state.locationError = "";
   state.locationNotice = "Asking for your location…";
-  showLocateProgress(state.locationNotice);
+  showLocateProgress("Waiting for permission…", state.locationNotice);
+  // The spec only starts the timeout clock once the permission sheet is answered.
+  // Left alone, an ignored sheet disables the button until the page is reloaded.
+  locateAnswerTimer = setTimeout(() => {
+    locateAnswerTimer = null;
+    locateFailed({ code: 4 });
+  }, 60000);
 }
 
 function applyAccount(me) {
