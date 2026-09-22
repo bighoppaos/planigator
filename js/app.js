@@ -679,21 +679,31 @@ function locateMessage(code) {
     return "Location is turned off for this site. Allow it for Planigator, then tap again. On iPhone check Settings, Privacy & Security, Location Services, Safari Websites.";
   }
   if (code === 2) {
-    return "This page did not get a position (error 2). Tap Use my location again, or type an address.";
+    return "This page did not get a position (error 2). Tap Start from my location again, or type an address.";
   }
   if (code === 3) {
-    return "Location took too long (error 3). Tap Use my location again, or type an address.";
+    return "Location took too long (error 3). Tap Start from my location again, or type an address.";
   }
   if (code === 4) {
-    return "No answer to the location prompt. Tap Use my location again and choose Allow, or type an address.";
+    return "No answer to the location prompt. Tap Start from my location again and choose Allow, or type an address.";
   }
-  return "This page did not get a location. Tap Use my location again, or type an address.";
+  return "This page did not get a location. Tap Start from my location again, or type an address.";
+}
+
+function dropAddressStart() {
+  const first = state.stops[0];
+  if (!first || first.useCurrentLocation) return false;
+  if ((first.name || "").trim().toLowerCase() !== "start") return false;
+  state.stops.shift();
+  persist();
+  return true;
 }
 
 function locateSucceeded(pos, attempt) {
   if (attempt !== locateAttempt) return;
   locateAttempt += 1;
   endLocateWatch();
+  dropAddressStart();
   state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
   if (!state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
@@ -787,6 +797,7 @@ function locate() {
   };
   const mac = /Macintosh/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
   ask(mac ? LOCATE_COARSE : LOCATE_PRECISE, !mac);
+  if (dropAddressStart()) document.querySelector(".stops .stop-card")?.remove();
   state.locating = true;
   state.locationError = "";
   state.locationNotice = "Asking for your location…";
@@ -1271,21 +1282,17 @@ function render() {
           <span>Kilometers</span>
           <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
         </label>
-    </section>
-
-    <section class="card origin">
-      <h2>Start Location</h2>
-      ${origin && state.origin
-        ? `<p>Routing from ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}</p>`
-        : origin
-          ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
-          : ""}
-      <div class="stack">
-        <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Use my location"}</button>
-        <button type="button" class="secondary" id="fromAddress">Start from an address</button>
-        <button type="button" class="secondary" id="newTrip">New trip</button>
-      </div>
-      <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
+        ${origin && state.origin
+          ? `<p>Routing from ${state.origin.lat.toFixed(4)}, ${state.origin.lon.toFixed(4)}</p>`
+          : origin
+            ? `<p>Waiting for location. Allow Planigator, or type an address.</p>`
+            : ""}
+        <div class="stack">
+          <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+          <button type="button" class="secondary" id="fromAddress">Start from an address</button>
+          <button type="button" class="secondary" id="newTrip">New/clear trip</button>
+        </div>
+        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
     <section class="card stops">
