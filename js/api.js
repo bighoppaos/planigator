@@ -3,6 +3,10 @@ const API_BASE = location.hostname === "planigator.help" || location.hostname ==
   : "https://planigator.bighoppaos.workers.dev";
 const SESSION_KEY = "planigator.web.session";
 
+export function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
 export const STARTER_CREDITS = 12;
 
 export async function api(path, options = {}) {

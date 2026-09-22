@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -1092,6 +1092,30 @@ function loadScript(src) {
   });
 }
 
+async function logout() {
+  clearSession();
+  try {
+    window.google?.accounts?.id?.disableAutoSelect();
+  } catch {
+    // Google's script may not be loaded yet.
+  }
+  state.signedIn = false;
+  state.unlimited = false;
+  state.email = "";
+  state.cardOnFile = false;
+  state.cardBrand = "";
+  state.cardLast4 = "";
+  state.cardNote = "";
+  state.credits = null;
+  state.calls = [];
+  state.trips = [];
+  state.activeTripId = null;
+  state.notice = "Signed out.";
+  persist();
+  await refreshCredits();
+  render();
+}
+
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
   if (googleBox && state.googleClientId) {
@@ -1388,7 +1412,7 @@ function hosSummary() {
 
 function authBlock() {
   const google = state.signedIn
-    ? `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p>`
+    ? `<div class="auth-row"><p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p><button type="button" class="secondary" id="logout">Log out</button></div>`
     : state.googleClientId
       ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p></div>`
       : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
@@ -1611,6 +1635,7 @@ function bind() {
     });
   });
   mountAuth();
+  $("#logout")?.addEventListener("click", () => logout());
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
   mountMap();
