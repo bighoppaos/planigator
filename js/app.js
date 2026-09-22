@@ -462,6 +462,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   if (state.signedIn) {
     try {
       await putTrips(state.trips);
+      markTripsUploaded();
       if (!silent) state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
     } catch (error) {
       if (!silent) state.notice = error.message || "Saved on this device. The account copy did not update.";
@@ -500,6 +501,7 @@ function saveTrip() {
       rollAt: state.plan.rollAt,
       arriveAt: state.plan.arriveAt,
     },
+    pendingUpload: true,
   };
   state.trips = [trip, ...state.trips.filter((item) => item.id !== id)].slice(0, 40);
   state.activeTripId = id;
@@ -533,6 +535,8 @@ async function deleteTrip(id) {
   if (state.signedIn) {
     try {
       await putTrips(state.trips);
+      markTripsUploaded();
+      persist();
     } catch (error) {
       state.error = error.message || "Removed here. The account copy did not update.";
     }
@@ -540,20 +544,35 @@ async function deleteTrip(id) {
   render();
 }
 
+function markTripsUploaded() {
+  state.trips = state.trips.map((trip) => ({ ...trip, pendingUpload: false }));
+}
+
 async function pullAccountTrips() {
   if (!state.signedIn) return;
   try {
     const data = await fetchTrips();
     const remote = Array.isArray(data.trips) ? data.trips : [];
+    const remoteIds = new Set(remote.map((trip) => trip?.id).filter(Boolean));
     const byId = new Map();
-    for (const trip of [...remote, ...state.trips]) {
+    for (const trip of remote) {
       if (!trip?.id) continue;
-      const prev = byId.get(trip.id);
-      if (!prev || (trip.savedAt || 0) >= (prev.savedAt || 0)) byId.set(trip.id, trip);
+      const local = state.trips.find((item) => item.id === trip.id);
+      if (local && (local.savedAt || 0) > (trip.savedAt || 0)) byId.set(trip.id, { ...local, pendingUpload: true });
+      else byId.set(trip.id, { ...trip, pendingUpload: false });
+    }
+    for (const trip of state.trips) {
+      if (!trip?.id || remoteIds.has(trip.id)) continue;
+      if (trip.pendingUpload) byId.set(trip.id, trip);
     }
     state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
+    if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
     persist();
-    await putTrips(state.trips);
+    if (state.trips.some((trip) => trip.pendingUpload)) {
+      await putTrips(state.trips);
+      markTripsUploaded();
+      persist();
+    }
   } catch {
     // Keep the trips already on this device.
   }
