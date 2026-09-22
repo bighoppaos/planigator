@@ -1309,9 +1309,10 @@ function render() {
       </label>
       <div class="stack">
         <button type="button" class="primary" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        ${plan ? `<button type="button" class="secondary" id="shareTrip">Share trip link</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 3. A saved card gives 9 more. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 3. The first saved card gives 9 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
@@ -1329,7 +1330,6 @@ function render() {
         </dl>
         <p class="muted">Total clock including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
         <div class="row">
-          <button type="button" class="primary" id="shareTrip">Share trip link</button>
           <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
           ${maps ? `<a class="secondary" id="openMaps" href="${escapeAttr(maps)}" target="_blank" rel="noopener">Open truck directions</a>` : ""}
         </div>
