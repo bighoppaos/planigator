@@ -120,6 +120,7 @@ function defaultState() {
     error: "",
     notice: "",
     signupNote: "",
+    idleNote: "",
     locationError: "",
     locationNotice: "",
     lookupMessage: "",
@@ -1310,6 +1311,7 @@ function googleNeedsFullPageRedirect() {
 
 async function completeGoogleCredential(credential) {
   const me = await loginWith("google", credential);
+  state.idleNote = "";
   applyAccount(me);
   if (me.signupCredits) {
     state.signupNote = "5 free credits are yours.";
@@ -1695,7 +1697,8 @@ function authBlock() {
   const cardSaved = state.cardSavedNote
     ? `<p class="fine">Card saved. Free credits show up after Stripe confirms that card has not been used.</p>`
     : "";
-  return `<div class="auth-block">${google}${card}${cardSaved}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
+  const idle = state.idleNote ? `<p class="ok">${escapeAttr(state.idleNote)}</p>` : "";
+  return `<div class="auth-block">${idle}${google}${card}${cardSaved}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
 }
 
 export function initPlanner(el) {
@@ -1729,14 +1732,16 @@ export function initPlanner(el) {
     }
     if (state.idleSignOut) {
       state.calls = [];
-      state.notice = "Signed out after an hour away.";
+      state.notice = "";
       resetEditor();
+      state.idleNote = "Signed out after an hour away.";
       persist();
     } else if (!maybeCelebratePack() && !maybeCelebrateCard() && state.signedIn) {
       pulseActivity();
     }
     await pullAccountTrips();
     if (!state.locating) render();
+    if (state.idleNote) document.querySelector(".auth-block")?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
   });
@@ -1758,10 +1763,12 @@ async function watchSignIn() {
   if (maybeCelebratePack() || maybeCelebrateCard()) return;
   if (was && !state.signedIn) {
     state.calls = [];
-    state.notice = state.idleSignOut ? "Signed out after an hour away." : "Signed out.";
+    state.notice = state.idleSignOut ? "" : "Signed out.";
     resetEditor();
+    if (state.idleSignOut) state.idleNote = "Signed out after an hour away.";
     persist();
     render();
+    if (state.idleNote) document.querySelector(".auth-block")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
