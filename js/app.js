@@ -374,8 +374,8 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
       : state.signedIn
-        ? "Those 3 free credits are used. Save a card for 9 more. That card is not charged when they run out."
-        : "Sign in with Google for 3 free credits. Save a card for 9 more. That card is not charged when they run out.";
+        ? "Those 5 free credits are used. Save a card for 10 more. That card is not charged when they run out."
+        : "Sign in with Google for 5 free credits. Save a card for 10 more. That card is not charged when they run out.";
     render();
     return;
   }
@@ -1182,13 +1182,13 @@ function authBlock() {
   const google = state.signedIn
     ? `<p class="fine">Signed in${state.email ? ` as ${escapeAttr(state.email)}` : ""}. Trips save to this account.</p>`
     : state.googleClientId
-      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 3 free credits, enough to try a trip.</p></div>`
+      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p></div>`
       : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
   const card = !state.signedIn
     ? ""
     : state.cardOnFile
       ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
-      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 9 more free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
+      : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 10 more free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
   return `<div class="auth-block">${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
 }
 
@@ -1301,7 +1301,7 @@ function render() {
         ${plan ? `<button type="button" class="secondary" id="shareTrip">Share trip link</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 3. The first saved card gives 9 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
