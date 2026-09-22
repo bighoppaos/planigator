@@ -371,6 +371,28 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-size: 16px;
 }
 
+.call-log-box summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.call-log-box summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid currentColor;
+}
+
+.call-log-box[open] summary::before {
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid currentColor;
+  border-bottom: 0;
+}
+
 .call-log {
   list-style: none;
   padding: 0;
