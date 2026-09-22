@@ -1042,6 +1042,7 @@ async function fillHereLegs() {
     state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
     state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
     state.stops[i].path = Array.isArray(leg.points) ? leg.points : [];
+    state.stops[i].directions = Array.isArray(leg.directions) ? leg.directions : [];
     if (leg.credits != null) state.credits = leg.credits;
   }
   persist();
@@ -1247,11 +1248,30 @@ function savedTripsBlock() {
   </section>`;
 }
 
+function directionsBlock() {
+  const groups = [];
+  for (const stop of state.stops) {
+    if (!Array.isArray(stop.directions) || !stop.directions.length) continue;
+    const title = stop.useCurrentLocation ? "Current location" : (stop.name || "Stop");
+    groups.push({ title, steps: stop.directions });
+  }
+  if (!groups.length) return "";
+  const items = groups.map((group) => `
+    <li class="dir-leg">${escapeAttr(group.title)}</li>
+    ${group.steps.map((step) => `<li>${escapeAttr(step.text)}${Number(step.miles) > 0.05 ? ` <span>${formatMiles(step.miles)}</span>` : ""}</li>`).join("")}
+  `).join("");
+  return `<details class="directions call-log-box">
+    <summary>Directions</summary>
+    <ol>${items}</ol>
+  </details>`;
+}
+
 function planBox() {
   const plan = state.plan;
   if (!plan) return "";
   return `<section class="card result">
     <div id="routeMap" class="route-map"></div>
+    ${directionsBlock()}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <dl>
       <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>

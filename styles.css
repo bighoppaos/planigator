@@ -402,6 +402,19 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .call-log li { margin: 8px 0; }
 .call-log span { color: var(--muted); }
 
+.directions { margin-top: 12px; }
+.directions ol {
+  margin: 10px 0 0;
+  padding-left: 1.2em;
+}
+.directions li { margin: 6px 0; }
+.directions li span { color: var(--muted); }
+.directions .dir-leg {
+  list-style: none;
+  margin-left: -1.2em;
+  font-weight: 700;
+}
+
 .here-leg {
   margin: 8px 0 4px;
   font-size: 14px;

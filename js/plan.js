@@ -465,6 +465,7 @@ export function tripSharePayload({ settings, stops, tripName }) {
     stops: stops.map((stop) => {
       const copy = { ...stop };
       delete copy.path;
+      delete copy.directions;
       return copy;
     }),
   };
