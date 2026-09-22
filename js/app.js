@@ -402,8 +402,10 @@ function applySharedTrip(data, { notice } = {}) {
 function applyShareFromLocation() {
   const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
   if (!raw.startsWith("t=")) return false;
+  const token = raw.slice(2);
   try {
-    applySharedTrip(decodeTripShare(raw.slice(2)), {
+    if (state.plan && state.activeTripId && shareToken() === token) return false;
+    applySharedTrip(decodeTripShare(token), {
       notice: "Opened a shared trip. Calculate again after you change anything.",
     });
     return true;
@@ -459,8 +461,8 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   }
   state.plan = result;
   state.error = "";
-  saveTrip();
-  if (state.signedIn) {
+  if (!skipHash) saveTrip();
+  if (state.signedIn && !skipHash) {
     try {
       await putTrips(state.trips);
       markTripsUploaded();
