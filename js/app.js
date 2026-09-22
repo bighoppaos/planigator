@@ -1229,6 +1229,8 @@ function render() {
       </div>
     </section>
 
+    ${authBlock()}
+
     <section class="card hos">
       <h2>Trip Settings</h2>
         <div class="setting">
@@ -1292,7 +1294,6 @@ function render() {
     </section>
 
     <section class="card actions" id="actions">
-      ${authBlock()}
       <label>Trip name
         <input id="tripName" value="${escapeAttr(state.tripName)}" placeholder="Optional — Dallas to Atlanta">
       </label>
