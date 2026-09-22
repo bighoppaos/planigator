@@ -1159,34 +1159,56 @@ function savedTripsBlock() {
   </section>`;
 }
 
+function planBox() {
+  const plan = state.plan;
+  if (!plan) return "";
+  return `<section class="card result">
+    <h2>Plan</h2>
+    <div id="routeMap" class="route-map"></div>
+    ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
+    <dl>
+      <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>
+      <div><dt>Arrive</dt><dd>${formatTime(plan.arriveAt)}</dd></div>
+      <div><dt>Driving</dt><dd>${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}</dd></div>
+      <div><dt>HOS on this path</dt><dd>${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</dd></div>
+    </dl>
+    <p class="muted">Total trip-time including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
+    <div class="row">
+      <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
+    </div>
+    ${state.copiedText ? `<textarea id="copiedPlan" readonly rows="14">${escapeAttr(state.copiedText)}</textarea>` : ""}
+  </section>`;
+}
+
 function mountMap() {
   const el = document.getElementById("routeMap");
-  const leaflet = window.L;
-  if (!el || !leaflet) return;
+  const maplibre = window.maplibregl;
+  if (!el || !maplibre) return;
   const line = routePoints();
   if (line.length < 2) {
     el.hidden = true;
     return;
   }
-  const map = leaflet.map(el, { zoomControl: true });
-  leaflet.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    attribution: "&copy; OpenStreetMap &copy; CARTO",
-    maxZoom: 16,
-    subdomains: "abcd",
-  }).addTo(map);
-  const drawn = leaflet.polyline(line, { color: "#1f8a62", weight: 5 }).addTo(map);
-  line.forEach((pair, index) => {
-    if (index !== 0 && index !== line.length - 1) return;
-    leaflet.circleMarker(pair, {
-      radius: 6,
-      color: "#14201c",
-      fillColor: index === 0 ? "#1f8a62" : "#f4f1ea",
-      fillOpacity: 1,
-      weight: 2,
-    }).addTo(map);
+  const map = new maplibre.Map({
+    container: el,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    attributionControl: true,
   });
-  map.fitBounds(drawn.getBounds(), { padding: [18, 18] });
-  setTimeout(() => map.invalidateSize(), 0);
+  map.on("load", () => {
+    const coordinates = line.map(([lat, lon]) => [lon, lat]);
+    map.addSource("route", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+    });
+    map.addLayer({
+      id: "route",
+      type: "line",
+      source: "route",
+      paint: { "line-color": "#1f8a62", "line-width": 4 },
+    });
+    const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
+    map.fitBounds(bounds, { padding: 28, maxZoom: 8 });
+  });
 }
 
 function chip(event) {
@@ -1411,6 +1433,8 @@ function render() {
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
+    ${planBox()}
+
     <section class="card stops">
       ${destCards}
       <button type="button" class="add" id="addStop">Add a stop</button>
@@ -1432,25 +1456,6 @@ function render() {
     </section>
 
     ${savedTripsBlock()}
-
-    ${plan ? `
-      <section class="card result">
-        <h2>Plan</h2>
-        <div id="routeMap" class="route-map"></div>
-        ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
-        <dl>
-          <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>
-          <div><dt>Arrive</dt><dd>${formatTime(plan.arriveAt)}</dd></div>
-          <div><dt>Driving</dt><dd>${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}</dd></div>
-          <div><dt>HOS on this path</dt><dd>${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</dd></div>
-        </dl>
-        <p class="muted">Total clock including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
-        <div class="row">
-          <button type="button" class="secondary" id="copyPlan">Copy plan text</button>
-        </div>
-        ${state.copiedText ? `<textarea id="copiedPlan" readonly rows="14">${escapeAttr(state.copiedText)}</textarea>` : ""}
-      </section>
-    ` : ""}
 
   `;
   bind();
