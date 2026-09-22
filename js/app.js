@@ -1290,7 +1290,7 @@ function render() {
         <div class="stack">
           <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="secondary" id="fromAddress">Start from an address</button>
-          <button type="button" class="secondary" id="newTrip">New/clear trip</button>
+          <button type="button" class="secondary" id="newTrip">new/clear trip</button>
         </div>
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
