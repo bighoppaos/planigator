@@ -1303,18 +1303,20 @@ function mountAuth() {
           try {
             const me = await loginWith("google", credential);
             applyAccount(me);
-            pulseActivity();
-            await pullAccountTrips();
             if (me.signupCredits) {
               state.signupNote = "5 free credits are yours.";
               state.notice = "";
               popConfetti();
-            } else {
+              render();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            } else if (!maybeCelebratePack() && !maybeCelebrateCard()) {
               state.signupNote = "";
               state.notice = "Signed in with Google.";
+              render();
             }
-            render();
-            if (me.signupCredits) window.scrollTo({ top: 0, behavior: "smooth" });
+            pulseActivity();
+            await pullAccountTrips();
+            if (!state.locating) render();
           } catch (error) {
             state.error = error.message || "Google sign-in failed.";
             render();
