@@ -290,7 +290,7 @@ function calculateCreditCount() {
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
   const count = calculateCreditCount();
-  const left = state.credits == null ? "" : `${state.credits} left`;
+  const left = state.cardOnFile && state.credits != null ? `${state.credits} left` : "";
   const use = count > 0 ? `uses ${count} credit${count === 1 ? "" : "s"}` : "";
   return ["Calculate", use, left].filter(Boolean).join(" · ");
 }
@@ -375,8 +375,8 @@ function applyShareFromLocation() {
 async function calculate({ silent = false, skipHash = false } = {}) {
   if (!silent && state.credits === 0) {
     state.error = state.cardOnFile
-      ? "You are out of credits. Buy a pack of 124."
-      : "Save a card for 12 free credits. A new browser does not get another pile.";
+      ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
+      : "Save a card for 12 free credits. That card is not charged when the free credits run out.";
     render();
     return;
   }
@@ -1170,7 +1170,7 @@ function authBlock() {
       : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
   const card = state.cardOnFile
     ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p>`
-    : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 12 free credits"}</button>`;
+    : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : "Save a card for 12 free credits"}</button><p class="fine">We do not charge that card when the free credits run out.</p>`;
   return `${google}${card}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}`;
 }
 
@@ -1282,10 +1282,10 @@ function render() {
       </label>
       ${authBlock()}
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating || state.credits === 0 ? "disabled" : ""}>${calculateButtonLabel()}</button>
-        <button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>
+        <button type="button" class="primary" id="calculate" ${state.estimating || !state.cardOnFile || state.credits === 0 ? "disabled" : ""}>${calculateButtonLabel()}</button>
+        ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      <p class="fine">${state.credits == null ? "" : `${state.credits} credit${state.credits === 1 ? "" : "s"} left. `}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 are once per debit or credit card. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.cardOnFile && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and hours. Each address and each leg uses 1 credit. The free 12 start after a card is saved. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
