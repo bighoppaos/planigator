@@ -2,6 +2,7 @@ import { api, creditsMe } from "./api.js";
 
 const status = document.getElementById("status");
 const rows = document.getElementById("rows");
+const list = document.getElementById("list");
 
 function cell(value) {
   const td = document.createElement("td");
@@ -22,6 +23,7 @@ function render(accounts) {
     return;
   }
   status.textContent = `${accounts.length} signed in.`;
+  list.hidden = false;
   for (const account of accounts) {
     const tr = document.createElement("tr");
     tr.append(
