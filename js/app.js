@@ -1137,7 +1137,7 @@ function stopCard(stop, index) {
         ? `<p class="here-leg">Using this address.</p>`
         : ""}
       ${originStop ? `<p class="fine">This is where you roll from. HERE<sup>©</sup> fills miles on the next stop when you Calculate.</p>` : hereLeg(stop)}
-      ${originStop ? "" : `
+      ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
       <label class="setting">
         <span>Anytime</span>
         <input type="checkbox" data-field="anytime" ${stop.anytime ? "checked" : ""}>
