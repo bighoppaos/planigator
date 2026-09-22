@@ -538,8 +538,6 @@ input.compact {
 .chip-arrive.late, .error { color: #b42318; font-weight: 700; }
 .ok { color: var(--mint); font-weight: 600; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
-.install-app { margin-top: 14px; }
-.install-app .secondary { width: 100%; }
 .fine { font-size: 13px; color: var(--muted); }
 button.text-button {
   background: none;
