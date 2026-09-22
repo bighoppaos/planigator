@@ -602,7 +602,7 @@ function startFromAddress() {
       end: Date.now(),
     }));
   }
-  state.notice = "First card is where you roll from. Pickup below now has miles and a be-there-by.";
+  state.notice = "";
   persist();
   render();
 }
@@ -615,7 +615,7 @@ function addStartBefore() {
     start: Date.now(),
     end: Date.now(),
   }));
-  state.notice = "First card is where you roll from. Pickup below now has miles and a be-there-by.";
+  state.notice = "";
   persist();
   render();
 }
