@@ -2152,12 +2152,10 @@ function render() {
       </div>
       <h2>Trip Settings</h2>
         <div class="settings-grid action-grid">
-          <span class="route-from">
-            <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
-            ${routeFrom ? `<span class="when-arrow" aria-hidden="true"></span>${routeFrom}` : ""}
-          </span>
+          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
+          ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
         </div>
         <div class="settings-pairs">
           <div class="set-pair">
