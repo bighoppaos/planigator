@@ -122,6 +122,7 @@ function defaultState() {
     picker: "",
     pickerTarget: null,
     confirmRemoveId: null,
+    confirmDeleteId: null,
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -1649,17 +1650,17 @@ function directionsBlock() {
 function planBox() {
   const plan = state.plan;
   if (!plan) return "";
-  return `<section class="card result">
+  return `<section class="result">
     <div id="routeMap" class="route-map"></div>
     ${directionsBlock()}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
-    <dl>
-      <div><dt>Leave by</dt><dd>${formatTime(plan.rollAt)}</dd></div>
-      <div><dt>Arrive</dt><dd>${formatTime(plan.arriveAt)}</dd></div>
-      <div><dt>Driving</dt><dd>${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}</dd></div>
-      <div><dt>HOS on this path</dt><dd>${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</dd></div>
-    </dl>
-    <p class="muted">Total trip-time including 10's and 30's: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.</p>
+    <div class="result-lines">
+      <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
+      <p class="flag-box">Arrive ${escapeAttr(formatTime(plan.arriveAt))}</p>
+      <p class="flag-box">Driving ${escapeAttr(hoursLabel(plan.driveHours))} · ${escapeAttr(formatMiles(plan.miles))}</p>
+      <p class="flag-box">HOS on this path ${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</p>
+      <p class="flag-box">Total trip-time including 10's and 30's: ${escapeAttr(durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000))}.</p>
+    </div>
   </section>`;
 }
 
@@ -2129,7 +2130,7 @@ function render() {
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
         </div>
-        ${state.plan ? `<div class="stack"><button type="button" class="secondary" id="updateTimes">Update times</button></div>` : ""}
+        ${state.plan ? `<button type="button" class="flag-box" id="updateTimes">Update times</button>` : ""}
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
@@ -2455,6 +2456,46 @@ function applyWhen(wrap) {
   updateStop(id, patch);
 }
 
+let removeArmTimer = 0;
+let deleteArmTimer = 0;
+
+function paintRemoveArm(id, armed) {
+  const button = document.querySelector(`[data-stop="${id}"] [data-act="remove"]`);
+  if (!button) return;
+  button.classList.toggle("armed", armed);
+  button.textContent = armed ? "Remove" : "−";
+}
+
+function paintDeleteArm(id, armed) {
+  const button = document.querySelector(`[data-delete="${id}"]`);
+  if (!button) return;
+  button.textContent = armed ? "Confirm delete" : "Delete";
+}
+
+function armRemove(id) {
+  if (state.confirmRemoveId && state.confirmRemoveId !== id) paintRemoveArm(state.confirmRemoveId, false);
+  state.confirmRemoveId = id;
+  paintRemoveArm(id, true);
+  window.clearTimeout(removeArmTimer);
+  removeArmTimer = window.setTimeout(() => {
+    if (state.confirmRemoveId !== id) return;
+    state.confirmRemoveId = null;
+    paintRemoveArm(id, false);
+  }, 1000);
+}
+
+function armDelete(id) {
+  if (state.confirmDeleteId && state.confirmDeleteId !== id) paintDeleteArm(state.confirmDeleteId, false);
+  state.confirmDeleteId = id;
+  paintDeleteArm(id, true);
+  window.clearTimeout(deleteArmTimer);
+  deleteArmTimer = window.setTimeout(() => {
+    if (state.confirmDeleteId !== id) return;
+    state.confirmDeleteId = null;
+    paintDeleteArm(id, false);
+  }, 1000);
+}
+
 function bind() {
   bindSettings();
   document.querySelectorAll("[data-clock]").forEach((wrap) => {
@@ -2505,10 +2546,10 @@ function bind() {
     button.addEventListener("click", () => {
       const id = button.getAttribute("data-delete");
       if (state.confirmDeleteId !== id) {
-        state.confirmDeleteId = id;
-        render();
+        armDelete(id);
         return;
       }
+      window.clearTimeout(deleteArmTimer);
       state.confirmDeleteId = null;
       deleteTrip(id);
     });
@@ -2549,10 +2590,10 @@ function bind() {
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
     card.querySelector("[data-act=remove]")?.addEventListener("click", () => {
       if (state.confirmRemoveId !== id) {
-        state.confirmRemoveId = id;
-        render();
+        armRemove(id);
         return;
       }
+      window.clearTimeout(removeArmTimer);
       state.confirmRemoveId = null;
       poofBox(card);
       removeStop(id);
