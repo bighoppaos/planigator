@@ -410,10 +410,37 @@ export class TruckerHOSClock {
       const dayEnd = isAnytimeEnd(this.endMinutes) ? target : nextDailyEnd(this.endMinutes, this.now);
       const latestFinish = Math.min(target, dayEnd);
       if (latestFinish <= probe.now + 60 * 1000) return false;
+      const arrivalFrom = (startMs) => {
+        const trial = this.clone();
+        trial.notBeforeArrival = 0;
+        if (startMs > trial.now + 60 * 1000) trial.waitUntil(startMs);
+        trial.driveReporting(availableDrive(), cap, [0], [0]);
+        return trial.now;
+      };
       const startAt = this.now + (latestFinish - probe.now);
       if (!isInsideDriveWindow(startAt, this.startMinutes, this.endMinutes)) return false;
+      let slipTo = startAt;
+      // A 10-hour rest that ends before the morning start snaps forward.
+      // Shifting the departure by the whole gap can jump that snap and
+      // arrive after the deadline. Keep the latest start that still makes it.
+      if (arrivalFrom(startAt) > latestFinish + 60 * 1000) {
+        let lo = this.now;
+        let hi = startAt;
+        let best = this.now;
+        for (let i = 0; i < 24 && hi - lo > 1000; i += 1) {
+          const mid = Math.floor(lo + (hi - lo) / 2);
+          if (!isInsideDriveWindow(mid, this.startMinutes, this.endMinutes) || arrivalFrom(mid) > latestFinish + 60 * 1000) {
+            hi = mid;
+          } else {
+            best = mid;
+            lo = mid;
+          }
+        }
+        if (best <= this.now + 60 * 1000) return false;
+        slipTo = best;
+      }
       flushDrive();
-      this.waitUntil(startAt);
+      this.waitUntil(slipTo);
       driveStart = this.now;
       return true;
     };
