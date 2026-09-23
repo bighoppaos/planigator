@@ -335,6 +335,39 @@ button.ghost.armed {
   border-left: 5px solid currentColor;
 }
 
+.poof {
+  position: fixed;
+  z-index: 40;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgb(255 253 248 / 0.95), rgb(130 128 122 / 0.55) 46%, transparent 72%);
+  animation: poof-core 340ms ease-out forwards;
+}
+
+.poof i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: rgb(168 164 156 / 0.8);
+  animation: poof-bit 340ms ease-out forwards;
+}
+
+@keyframes poof-core {
+  to { opacity: 0; transform: scale(2.2); }
+}
+
+@keyframes poof-bit {
+  to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.35); }
+}
+
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card, .chip {

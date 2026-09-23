@@ -1340,6 +1340,28 @@ async function logout() {
   render();
 }
 
+function poofBox(el) {
+  if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return;
+  const node = document.createElement("span");
+  node.className = "poof";
+  node.setAttribute("aria-hidden", "true");
+  node.style.left = `${rect.left + rect.width / 2}px`;
+  node.style.top = `${rect.top + rect.height / 2}px`;
+  const reach = Math.max(12, Math.min(22, Math.min(rect.width, rect.height) * 0.45));
+  for (let i = 0; i < 6; i += 1) {
+    const bit = document.createElement("i");
+    const angle = (Math.PI * 2 * i) / 6;
+    bit.style.setProperty("--dx", `${Math.cos(angle) * reach}px`);
+    bit.style.setProperty("--dy", `${Math.sin(angle) * reach}px`);
+    node.append(bit);
+  }
+  document.body.append(node);
+  el.remove();
+  window.setTimeout(() => node.remove(), 400);
+}
+
 function popConfetti() {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const canvas = document.createElement("canvas");
@@ -2343,9 +2365,18 @@ function bindSettings() {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-toggle");
       if (id === "governed") state.settings.governed = !state.settings.governed;
-      if (id === "leaveNow") state.settings.leaveNow = !state.settings.leaveNow;
-      if (id === "startAnytime") state.settings.startAnytime = !state.settings.startAnytime;
-      if (id === "endAnytime") state.settings.endAnytime = !state.settings.endAnytime;
+      if (id === "leaveNow") {
+        if (!state.settings.leaveNow) poofBox(document.querySelector('[data-pick="leaveAt"]'));
+        state.settings.leaveNow = !state.settings.leaveNow;
+      }
+      if (id === "startAnytime") {
+        if (!state.settings.startAnytime) poofBox(document.querySelector('[data-pick="startTime"]'));
+        state.settings.startAnytime = !state.settings.startAnytime;
+      }
+      if (id === "endAnytime") {
+        if (!state.settings.endAnytime) poofBox(document.querySelector('[data-pick="endTime"]'));
+        state.settings.endAnytime = !state.settings.endAnytime;
+      }
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
       if (id === "arrival") state.settings.arrival = state.settings.arrival === "latest" ? "earliest" : "latest";
@@ -2522,6 +2553,7 @@ function bind() {
         return;
       }
       state.confirmRemoveId = null;
+      poofBox(card);
       removeStop(id);
     });
     card.querySelectorAll("[data-stop-when]").forEach((button) => {
@@ -2538,11 +2570,16 @@ function bind() {
         if (!stop) return;
         if (field === "anytime") {
           const anytime = !stop.anytime;
+          if (anytime) card.querySelectorAll(".when-row").forEach((row) => poofBox(row));
           updateStop(id, anytime ? { anytime: true, window: false } : { anytime: false });
           return;
         }
         if (field === "window") {
           const open = !stop.window;
+          if (!open) {
+            const opens = [...card.querySelectorAll(".when-row")].find((row) => row.querySelector(".flag-box")?.textContent === "Opens");
+            poofBox(opens);
+          }
           updateStop(id, open ? { window: true, anytime: false } : { window: false });
         }
       });
