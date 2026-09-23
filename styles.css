@@ -701,13 +701,16 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .action-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   margin: 0 0 4px;
 }
 
 .action-grid > * { min-width: 0; }
 
-.action-grid .set-box { width: 100%; }
+.action-grid > .set-box {
+  width: 100%;
+  height: 100%;
+}
 
 .settings-pairs {
   display: flex;
