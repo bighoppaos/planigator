@@ -427,7 +427,7 @@ function applySharedTrip(data, { notice } = {}) {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
-  state.notice = notice || "Opened a shared trip. Nothing was uploaded.";
+  state.notice = notice || "Opened a shared trip. It is not saved to an account.";
   persist();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else render();
