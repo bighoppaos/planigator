@@ -696,7 +696,36 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-top: 1px solid var(--line);
 }
 
-.action-grid { margin-top: 4px; }
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  margin: 0 0 4px;
+}
+
+.action-grid > * { min-width: 0; }
+
+.action-grid .set-box { width: 100%; }
+
+.settings-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.set-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+  align-items: stretch;
+}
+
+.set-pair > .set-box {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
 
 .picker-title {
   margin: 0;
