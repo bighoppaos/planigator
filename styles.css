@@ -40,6 +40,18 @@ html, body {
   font: 18px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.build-line {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 720px;
+  padding: calc(12px + env(safe-area-inset-top)) 20px 4px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+}
+
 header, main, footer {
   width: 100%;
   max-width: 720px;

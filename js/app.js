@@ -844,11 +844,20 @@ function dropAddressStart() {
   return true;
 }
 
+function movedEnough(origin, coords) {
+  if (!origin) return false;
+  const dlat = coords.latitude - origin.lat;
+  const dlon = coords.longitude - origin.lon;
+  return Math.hypot(dlat, dlon) > 0.00015;
+}
+
 function locateSucceeded(pos, attempt) {
   if (attempt !== locateAttempt) return;
   locateAttempt += 1;
   endLocateWatch();
   dropAddressStart();
+  const hadOrigin = Boolean(state.origin);
+  const moved = movedEnough(state.origin, pos.coords);
   state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
   if (!state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
@@ -861,7 +870,11 @@ function locateSucceeded(pos, attempt) {
   rememberOrigin();
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = "";
+  state.locationNotice = !hadOrigin
+    ? ""
+    : moved
+      ? (state.plan ? "Location updated. Calculate again to move the route line." : "Location updated.")
+      : "That's still the latest location.";
   persist();
   render();
 }
@@ -927,9 +940,48 @@ function locate() {
   }
   const attempt = ++locateAttempt;
   endLocateWatch();
+  const refreshing = Boolean(originPoint());
   // First thing in the tap. Anything ahead of it can spend the user gesture that
   // Safari requires before it will prompt. Phone GPS first. If that misses,
   // the same tap asks again for a coarser fix before showing an error.
+  // A second tap must not reuse the cached fix.
+  if (refreshing) {
+    const started = Date.now();
+    const previous = { ...state.origin };
+    let last = null;
+    const options = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+    locateWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (attempt !== locateAttempt) return;
+        last = pos;
+        const age = Date.now() - Number(pos.timestamp || 0);
+        if (age < 4000 || movedEnough(previous, pos.coords) || Date.now() - started > 8000) {
+          locateSucceeded(pos, attempt);
+        }
+      },
+      (error) => {
+        if (attempt !== locateAttempt) return;
+        if (error?.code === 1) locateFailed(error, attempt);
+      },
+      options,
+    );
+    locateWatchTimer = setTimeout(() => {
+      if (attempt !== locateAttempt) return;
+      if (last) locateSucceeded(last, attempt);
+      else locateFailed({ code: 3 }, attempt);
+    }, 12000);
+    state.locating = true;
+    state.locationError = "";
+    state.locationNotice = "Updating your location…";
+    showLocateProgress("Updating location…", state.locationNotice);
+    locateAnswerTimer = setTimeout(() => {
+      locateAnswerTimer = null;
+      if (attempt !== locateAttempt) return;
+      if (last) locateSucceeded(last, attempt);
+      else locateFailed({ code: 4 }, attempt);
+    }, 60000);
+    return;
+  }
   const ask = (options, coarseNext) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => locateSucceeded(pos, attempt),
