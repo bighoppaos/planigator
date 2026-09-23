@@ -1702,8 +1702,8 @@ function stopCard(stop, index) {
       `}`}
     </article>
     ${around.following.map(chip).join("")}
-    ${around.after.map(chip).join("")}
     ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="add-inline" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
+    ${around.after.map(chip).join("")}
   `;
 }
 
