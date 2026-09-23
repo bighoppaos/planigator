@@ -328,9 +328,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .stops {
+  margin: 8px -12px 16px;
+  padding: 0;
+  background: none;
+  border: 0;
   min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
+  max-width: none;
 }
 
 .field {
@@ -1048,12 +1051,13 @@ body.app main { padding-top: 16px; }
 }
 .trips li.active button[data-load] { outline: 2px solid var(--mint); }
 
-.hos h2, .origin h2, .actions h2, .result h2, .trips h2, .card h2 {
+.hos h2, .stops h2, .origin h2, .actions h2, .result h2, .trips h2, .card h2 {
   margin-top: 0;
 }
 
-.card.stops > :first-child { margin-top: 0; }
-.card.stops > :last-child { margin-bottom: 0; }
+.hos h2, .stops h2 { text-align: center; }
+
+.stops > :last-child { margin-bottom: 0; }
 
 @media (max-width: 640px) {
   html, body { font-size: 16px; }

@@ -2104,7 +2104,8 @@ function render() {
     ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
     ${planBox()}
 
-    <section class="card stops">
+    <section class="stops">
+      <h2>Trip Itinerary</h2>
       ${destCards}
       <button type="button" class="add" id="addStop">Add a stop</button>
     </section>
