@@ -876,7 +876,7 @@ input.compact {
 .icon-row { flex-shrink: 0; }
 
 .chip {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   margin: 4px 0;
   padding: 1px 4px;
