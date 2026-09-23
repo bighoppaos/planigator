@@ -243,15 +243,24 @@ export class TruckerHOSClock {
     if (open - earlyArrive > 1000) this.notBeforeArrival = open;
   }
 
-  /** Latest departure that still arrives at or before `deadline`. */
+  /** Latest departure that still arrives at or before `deadline`.
+   *  If that lands before the deadline, the fresh driving day slips so the
+   *  drive finishes at the deadline or at the end of the driving day,
+   *  whichever is earlier. A 7:30 PM appointment after a 5:30 PM day end
+   *  means arrive at 5:30 and wait, not finish the 9 hours at 3:00. */
   holdToArriveBy(deadline, driveHours, hoursOfEleven) {
     const arrivalIfLeaveAt = (startMs) => {
       const probe = this.clone();
+      probe.notBeforeArrival = 0;
       if (startMs > probe.now + 60 * 1000) probe.waitUntil(startMs);
       probe.driveReporting(driveHours, hoursOfEleven, [0], [0]);
       return probe.now;
     };
-    if (arrivalIfLeaveAt(this.now) > deadline + 60 * 1000) return;
+    const natural = arrivalIfLeaveAt(this.now);
+    if (natural > deadline + 60 * 1000) {
+      this.notBeforeArrival = 0;
+      return;
+    }
     let lo = this.now;
     let hi = deadline;
     let best = this.now;
@@ -264,7 +273,13 @@ export class TruckerHOSClock {
         hi = mid;
       }
     }
+    const arrive = arrivalIfLeaveAt(best);
+    if (arrive > deadline + 60 * 1000) {
+      this.notBeforeArrival = 0;
+      return;
+    }
     if (best > this.now + 60 * 1000) this.waitUntil(best);
+    this.notBeforeArrival = deadline - arrive > 1000 ? deadline : 0;
   }
 
   drive(hours, hoursOfEleven, sitHours = 0, delayHours = 0) {
