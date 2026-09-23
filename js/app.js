@@ -1533,6 +1533,20 @@ function lookupMapSheet() {
 
 let lookupMaps = [];
 
+const lookupSatelliteStyle = {
+  version: 8,
+  sources: {
+    satellite: {
+      type: "raster",
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    },
+  },
+  layers: [{ id: "satellite", type: "raster", source: "satellite" }],
+};
+
 function mountLookupMaps() {
   lookupMaps.forEach((map) => map.remove());
   lookupMaps = [];
@@ -1545,10 +1559,11 @@ function mountLookupMaps() {
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
       container: el,
-      style: "https://tiles.openfreemap.org/styles/liberty",
-      attributionControl: live,
+      style: lookupSatelliteStyle,
+      attributionControl: false,
       interactive: live,
     });
+    map.addControl(new maplibre.AttributionControl({ compact: !live }), "bottom-right");
     if (!live) {
       map.dragPan.disable();
       map.scrollZoom.disable();

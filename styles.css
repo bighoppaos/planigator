@@ -750,6 +750,8 @@ body.app main { padding-top: 16px; }
 
 .lookup-preview { position: relative; margin-top: 10px; }
 .lookup-map { height: 168px; border-radius: 10px; overflow: hidden; }
+.lookup-map .maplibregl-ctrl-attrib { font-size: 10px; background: rgba(0, 0, 0, 0.55); }
+.lookup-map .maplibregl-ctrl-attrib, .lookup-map .maplibregl-ctrl-attrib a { color: #fff; }
 .lookup-map.is-live { height: auto; flex: 1; border-radius: 0; }
 .lookup-open {
   position: absolute;
