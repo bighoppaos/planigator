@@ -123,6 +123,7 @@ function defaultState() {
     pickerTarget: null,
     confirmRemoveId: null,
     confirmDeleteId: null,
+    speedNote: "",
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -365,6 +366,11 @@ function pointReady(stop) {
   return Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon));
 }
 
+function markGovernedStale() {
+  if (!state.plan) return;
+  state.speedNote = "Recalculate to update the HERE miles for this governed speed.";
+}
+
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
   const count = Math.max(0, state.stops.length - 1);
@@ -562,6 +568,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   }
   state.plan = result;
   state.error = "";
+  if (!silent) state.speedNote = "";
   if (!skipHash) saveTrip();
   if (state.signedIn && !skipHash) {
     try {
@@ -2149,6 +2156,7 @@ function render() {
           ${settingToggle("military", "Military time", s.military)}
           ${settingToggle("kilometers", "Kilometers", s.kilometers)}
         </div>
+        ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
         <div class="settings-grid action-grid">
           <span class="route-from">
             <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
@@ -2342,7 +2350,11 @@ function commitPicker() {
     state.pickerTarget = null;
     return;
   }
-  if (id === "mph") state.settings.governedMph = Number(chosenWheel("mph")) || DEFAULT_MPH;
+  if (id === "mph") {
+    const next = Number(chosenWheel("mph")) || DEFAULT_MPH;
+    if (next !== Number(state.settings.governedMph)) markGovernedStale();
+    state.settings.governedMph = next;
+  }
   if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
   if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
   if (id === "startTime") state.settings.startMinutes = minutesFromSheet();
@@ -2394,7 +2406,10 @@ function bindSettings() {
   document.querySelectorAll("[data-toggle]").forEach((el) => {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-toggle");
-      if (id === "governed") state.settings.governed = !state.settings.governed;
+      if (id === "governed") {
+        state.settings.governed = !state.settings.governed;
+        markGovernedStale();
+      }
       if (id === "leaveNow") {
         if (!state.settings.leaveNow) poofBox(document.querySelector('[data-pick="leaveAt"]'));
         state.settings.leaveNow = !state.settings.leaveNow;
@@ -2419,7 +2434,11 @@ function bindSettings() {
   document.querySelectorAll("[data-pick]").forEach((el) => {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-pick");
-      if (id === "mph") state.settings.governed = true;
+      if (id === "mph") {
+        const wasOn = state.settings.governed;
+        state.settings.governed = true;
+        if (!wasOn) markGovernedStale();
+      }
       state.picker = id;
       render();
     });

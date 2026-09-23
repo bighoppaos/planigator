@@ -868,6 +868,7 @@ input.compact {
 .shared-note { margin: 16px 0 0; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
 .fine { font-size: 13px; color: var(--muted); }
+.speed-note { margin: 4px 0 0; }
 button.text-button {
   background: none;
   border: 0;
