@@ -1614,15 +1614,15 @@ function routePoints() {
 
 function savedTripsBlock() {
   if (!state.trips.length) return "";
-  return `<section class="card trips">
+  return `<section class="trips">
     <h2>Saved trips</h2>
     <ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
-        <button type="button" data-load="${escapeAttr(trip.id)}">
+        <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}">
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
           <span>${formatShort(trip.savedAt)}</span>
         </button>
-        <button type="button" class="secondary" data-delete="${escapeAttr(trip.id)}">${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
+        <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}">${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>
   </section>`;
@@ -2142,12 +2142,12 @@ function render() {
       <button type="button" class="flag-box" id="addStop">Add a stop</button>
     </section>
 
-    <section class="card actions" id="actions">
-      <label>Trip name
+    <section class="actions" id="actions">
+      <label class="flag-box trip-name">Trip name
         <input id="tripName" value="${escapeAttr(state.tripName)}" placeholder="Optional — Dallas to Atlanta">
       </label>
+      <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
-        <button type="button" class="primary" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
         ${plan ? `<button type="button" class="secondary" id="shareTrip">Share trip link</button>` : ""}
         ${plan && showInstallButton() ? `<button type="button" class="secondary" id="installApp">Add Planigator to your home screen</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
