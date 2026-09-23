@@ -549,6 +549,7 @@ input.compact {
 .chip-arrive { margin-top: 6px; font-weight: 700; }
 .chip-arrive.late, .error { color: #b42318; font-weight: 700; }
 .ok { color: var(--mint); font-weight: 600; }
+.shared-note { margin: 16px 0 0; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
 .fine { font-size: 13px; color: var(--muted); }
 button.text-button {

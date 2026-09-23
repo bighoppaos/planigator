@@ -2118,6 +2118,7 @@ function render() {
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
+    ${state.notice === "Opened a shared trip." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
     ${planBox()}
 
     <section class="card stops">
@@ -2139,7 +2140,7 @@ function render() {
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+      ${state.notice && state.notice !== "Opened a shared trip." ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
 
     ${savedTripsBlock()}
