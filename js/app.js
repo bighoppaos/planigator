@@ -1888,7 +1888,7 @@ function stopCard(stop, index) {
       `}`}
     </article>
     ${around.following.map(chip).join("")}
-    ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="add-inline" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
+    ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
     ${around.after.map(chip).join("")}
   `;
 }
@@ -2112,7 +2112,7 @@ function render() {
     <section class="stops">
       <h2>Trip Itinerary</h2>
       ${destCards}
-      <button type="button" class="add" id="addStop">Add a stop</button>
+      <button type="button" class="flag-box" id="addStop">Add a stop</button>
     </section>
 
     <section class="card actions" id="actions">
