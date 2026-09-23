@@ -120,6 +120,7 @@ function defaultState() {
     error: "",
     notice: "",
     picker: "",
+    pickerTarget: null,
     confirmRemoveId: null,
     signupNote: "",
     idleNote: "",
@@ -333,6 +334,10 @@ function clockFields(minutes, disabled = false) {
     <select data-part="hour" aria-label="Hour"${dis}>${hourOptions}</select>
     <select data-part="minute" aria-label="Minute"${dis}>${minuteOptions}</select>
     ${ampm}`;
+}
+
+function whenBox(stop, field, ms) {
+  return `<button type="button" class="flag-box" data-stop-when="${escapeAttr(stop.id)}" data-stop-field="${field}">${escapeAttr(formatShort(ms))}</button>`;
 }
 
 function dateChip({ id = "", field = "", ms, disabled = false }) {
@@ -1878,8 +1883,8 @@ function stopCard(stop, index) {
         <button type="button" class="flag-box${stop.window ? " on" : ""}" data-toggle-field="window">Window</button>
       </div>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<div class="when-row"><span class="flag-box">Opens</span>${dateChip({ field: "start", ms: stop.start })}</div>` : ""}
-        <div class="when-row"><span class="flag-box">Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</div>
+        ${stop.window ? `<div class="when-row"><span class="flag-box">Opens</span>${whenBox(stop, "start", stop.start)}</div>` : ""}
+        <div class="when-row"><span class="flag-box">Be there by</span>${whenBox(stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}</div>
       `}`}
     </article>
     ${around.following.map(chip).join("")}
@@ -2157,6 +2162,23 @@ function clockWheels(totalMinutes) {
     ${state.settings.military ? "" : `<div class="time-col">${pickerOptions(["AM", "PM"], ap, "ampm")}</div>`}`;
 }
 
+function pickerStop() {
+  const id = state.pickerTarget?.id;
+  return state.stops.find((stop) => stop.id === id);
+}
+
+function pickerStopMs() {
+  const stop = pickerStop();
+  if (!stop) return Date.now();
+  return state.pickerTarget.field === "end" ? stop.end : stop.start;
+}
+
+function stopWhenTitle() {
+  const stop = pickerStop();
+  if (state.pickerTarget?.field === "start" && stop?.window) return "Opens";
+  return "Be there by";
+}
+
 function leaveDateValue(ms) {
   const date = new Date(ms);
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -2178,24 +2200,26 @@ function pickerSheet() {
   } else if (id === "hoursBeforeThirty") {
     title = "Hours into driving before 30-minute break";
     wheels = `<div class="time-col">${pickerOptions(HOS_THIRTY, state.settings.hoursBeforeThirty, "hoursBeforeThirty", thirtyLabel)}</div>`;
-  } else if (id === "leaveAt") {
-    title = "Leave at";
+  } else if (id === "leaveAt" || id === "stopDate") {
+    title = id === "stopDate" ? stopWhenTitle() : "Leave at";
     step = "Date";
     action = "Set the time";
-  } else if (id === "leaveAtTime" || id === "startTime" || id === "endTime") {
-    title = id === "leaveAtTime" ? "Leave at" : id === "startTime" ? "Day start" : "Day end";
-    step = id === "leaveAtTime" ? "Time" : "";
+  } else if (id === "leaveAtTime" || id === "stopTime" || id === "startTime" || id === "endTime") {
+    title = id === "leaveAtTime" ? "Leave at" : id === "stopTime" ? stopWhenTitle() : id === "startTime" ? "Day start" : "Day end";
+    step = id === "leaveAtTime" || id === "stopTime" ? "Time" : "";
     const minutes = id === "leaveAtTime"
       ? new Date(state.settings.leaveAt).getHours() * 60 + new Date(state.settings.leaveAt).getMinutes()
-      : id === "startTime" ? state.settings.startMinutes : state.settings.endMinutes;
+      : id === "stopTime"
+        ? new Date(pickerStopMs()).getHours() * 60 + new Date(pickerStopMs()).getMinutes()
+        : id === "startTime" ? state.settings.startMinutes : state.settings.endMinutes;
     wheels = clockWheels(minutes);
   }
   return `<div class="time-sheet" id="pickerSheet">
     <div class="time-sheet-card">
       <p class="picker-title">${escapeAttr(title)}</p>
       ${step ? `<p class="fine picker-step">${escapeAttr(step)}</p>` : ""}
-      ${id === "leaveAt"
-        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(state.settings.leaveAt)}" aria-label="Date">`
+      ${id === "leaveAt" || id === "stopDate"
+        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt)}" aria-label="Date">`
         : `<div class="time-wheels">${wheels}</div>`}
       <button type="button" class="primary" id="pickerDone">${escapeAttr(action)}</button>
     </div>
@@ -2216,12 +2240,25 @@ function minutesFromSheet() {
   return h * 60 + minute;
 }
 
-function readLeaveDate() {
+function readDatedMs(previousMs) {
   const date = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
   const [year, month, day] = date.split("-").map((part) => Number(part));
-  const prev = new Date(state.settings.leaveAt);
-  if (!year || !month || !day) return state.settings.leaveAt;
+  const prev = new Date(previousMs);
+  if (!year || !month || !day) return previousMs;
   return new Date(year, month - 1, day, prev.getHours(), prev.getMinutes()).getTime();
+}
+
+function readLeaveDate() {
+  return readDatedMs(state.settings.leaveAt);
+}
+
+function writeStopWhen(ms) {
+  const target = state.pickerTarget;
+  const stop = pickerStop();
+  if (!target || !stop) return;
+  const patch = { [target.field]: ms };
+  if (target.field === "start" && !stop.window) patch.end = ms;
+  updateStop(target.id, patch);
 }
 
 function commitPicker() {
@@ -2232,6 +2269,21 @@ function commitPicker() {
     persist();
     saveActiveTripSettings();
     render();
+    return;
+  }
+  if (id === "stopDate") {
+    const ms = readDatedMs(pickerStopMs());
+    state.picker = "stopTime";
+    writeStopWhen(ms);
+    return;
+  }
+  if (id === "stopTime") {
+    const date = new Date(pickerStopMs());
+    const minutes = minutesFromSheet();
+    const ms = new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.trunc(minutes / 60), minutes % 60).getTime();
+    state.picker = "";
+    writeStopWhen(ms);
+    state.pickerTarget = null;
     return;
   }
   if (id === "mph") state.settings.governedMph = Number(chosenWheel("mph")) || DEFAULT_MPH;
@@ -2321,6 +2373,7 @@ function bindSettings() {
   document.getElementById("pickerSheet")?.addEventListener("click", (event) => {
     if (event.target.id !== "pickerSheet") return;
     state.picker = "";
+    state.pickerTarget = null;
     render();
   });
 }
@@ -2466,6 +2519,13 @@ function bind() {
       }
       state.confirmRemoveId = null;
       removeStop(id);
+    });
+    card.querySelectorAll("[data-stop-when]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.pickerTarget = { id, field: button.getAttribute("data-stop-field") };
+        state.picker = "stopDate";
+        render();
+      });
     });
     card.querySelectorAll("[data-toggle-field]").forEach((button) => {
       button.addEventListener("click", () => {
