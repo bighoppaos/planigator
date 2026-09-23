@@ -320,8 +320,21 @@ p.flag-box {
   color: #fff;
 }
 
-.stop-card .lookup {
+.lookup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
   margin-top: 4px;
+}
+
+.lookup-row .flag-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.stop-card .lookup {
+  margin-top: 0;
 }
 
 .when-row {
@@ -586,6 +599,18 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .directions button.dir-step.on .dir-link { text-decoration: none; }
 .directions button.dir-step.on span { color: #fff; }
+.dir-scroll {
+  width: fit-content;
+  max-width: 100%;
+  max-height: 200px;
+  margin-top: 4px;
+  padding: 1px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+}
+.dir-scroll ol { margin: 0; }
 
 .here-leg {
   display: flex;
@@ -1300,6 +1325,7 @@ body.app main { padding-top: 2px; }
 .when-row.window-when button.flag-box,
 #calculate,
 button.lookup,
+button[data-act="paste"],
 #addStop,
 button[data-after],
 #shareTrip,

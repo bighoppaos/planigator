@@ -1245,6 +1245,32 @@ async function lookupAddress(id) {
   render();
 }
 
+async function pasteAddress(id) {
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop) return;
+  if (!navigator.clipboard?.readText) {
+    setLookupMessage(id, "Paste is not available in this browser.");
+    render();
+    return;
+  }
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    setLookupMessage(id, "Allow paste, then try Paste an address again.");
+    render();
+    return;
+  }
+  const address = String(text || "").replace(/\s+/g, " ").trim();
+  if (!address) {
+    setLookupMessage(id, "Copy an address first.");
+    render();
+    return;
+  }
+  if (address === String(stop.address || "").trim()) return;
+  updateStop(id, { address });
+}
+
 function chooseSuggestion(id, index) {
   const stop = state.stops.find((item) => item.id === id);
   const item = stop?.suggestions?.[index];
@@ -1768,7 +1794,9 @@ function directionsBlock() {
   `).join("");
   return `<details class="directions call-log-box">
     <summary>auto zooming directions</summary>
-    <ol>${items}</ol>
+    <div class="dir-scroll">
+      <ol>${items}</ol>
+    </div>
   </details>`;
 }
 
@@ -1936,13 +1964,24 @@ function markDirection(stopId, index) {
   button.setAttribute("aria-pressed", "true");
 }
 
+function revealDirection(button) {
+  const list = button?.closest(".dir-scroll");
+  if (!list) return;
+  const listBox = list.getBoundingClientRect();
+  const buttonBox = button.getBoundingClientRect();
+  if (buttonBox.top < listBox.top) list.scrollTop -= listBox.top - buttonBox.top;
+  else if (buttonBox.bottom > listBox.bottom) list.scrollTop += buttonBox.bottom - listBox.bottom;
+}
+
 function zoomToDirection(stopId, index) {
   const stop = state.stops.find((item) => item.id === stopId);
   const focus = directionFocus(stop, Number(index));
   if (!focus) return;
   markDirection(stopId, index);
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.getElementById("routeMap")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
+    item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
+  ));
+  revealDirection(button);
   if (!routeMap) return;
   if (routeMapReady) applyTurnZoom(routeMap, focus);
   else pendingTurn = focus;
@@ -2120,7 +2159,10 @@ function stopCard(stop, index) {
         </div>
       </div>
       <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
-      <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+      <div class="lookup-row">
+        <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+        <button type="button" class="flag-box" data-act="paste">Paste an address</button>
+      </div>
       ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-suggest="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${state.lookupStopId === stop.id && state.lookupMessage
@@ -2929,6 +2971,7 @@ function bind() {
       });
     });
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
+    card.querySelector("[data-act=paste]")?.addEventListener("click", () => pasteAddress(id));
     card.querySelectorAll("[data-suggest]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-suggest"))));
     });
