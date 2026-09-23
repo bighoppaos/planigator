@@ -664,8 +664,39 @@ function loadTrip(id) {
   }
 }
 
+function exampleWeeksAhead(now = Date.now()) {
+  const anchor = new Date(2026, 8, 24);
+  anchor.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  if (today < anchor) return 0;
+  const days = Math.round((today.getTime() - anchor.getTime()) / 86400000);
+  return Math.max(0, Math.floor(days / 7));
+}
+
+function addLocalDays(ms, days) {
+  const date = new Date(ms);
+  date.setDate(date.getDate() + days);
+  return date.getTime();
+}
+
+const EXAMPLE_STAMP_KEYS = new Set(["leaveAt", "start", "end", "rollAt", "arriveAt", "earliestArrive"]);
+
+function shiftExampleStamps(value, days) {
+  if (!days) return value;
+  if (Array.isArray(value)) return value.map((item) => shiftExampleStamps(item, days));
+  if (!value || typeof value !== "object") return value;
+  const copy = {};
+  for (const [key, item] of Object.entries(value)) {
+    const stamp = Number(item);
+    if (EXAMPLE_STAMP_KEYS.has(key) && Number.isFinite(stamp) && stamp > 1e11) copy[key] = addLocalDays(stamp, days);
+    else copy[key] = shiftExampleStamps(item, days);
+  }
+  return copy;
+}
+
 function loadExample() {
-  const trip = JSON.parse(JSON.stringify(EXAMPLE_TRIP));
+  const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
   state.settings = { ...state.settings, ...(trip.settings || {}) };
   delete state.settings.sleepHours;
   delete state.settings.readyMinutes;
