@@ -1837,11 +1837,23 @@ function routePins() {
   return pins;
 }
 
+function leewayDays(hours) {
+  const totalMinutes = Math.max(0, Math.round(Number(hours) * 60));
+  const days = Math.trunc(totalMinutes / (24 * 60));
+  const rest = totalMinutes % (24 * 60);
+  const h = Math.trunc(rest / 60);
+  const m = rest % 60;
+  const dayLabel = days === 1 ? "1 day" : `${days} days`;
+  return `${dayLabel} ${h} hr ${m} min`;
+}
+
 function chip(event) {
   const ink = stopInk(event.rgb);
   const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
   const hours = event.tripHours != null ? hoursLabel(event.tripHours) : "";
-  const middle = [hours, miles].filter(Boolean).join(" · ");
+  const middle = event.kind === "leeway" && hours
+    ? `${hours} / ${leewayDays(event.tripHours)}`
+    : [hours, miles].filter(Boolean).join(" · ");
   const span = event.end && event.end !== event.start
     ? `${formatShort(event.start)} – ${formatShort(event.end)}`
     : formatShort(event.start);
