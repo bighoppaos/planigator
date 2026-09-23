@@ -2141,11 +2141,6 @@ function stopCard(stop, index) {
   const canRemove = !originStop && dests.length > 1;
   const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
-    ${leewayInto(stop.id).map(chip).join("")}
-    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
-    ${around.before.map(chip).join("")}
-    ${around.self ? chip(around.self) : ""}
-    ${laterStop ? "" : around.after.map(chip).join("")}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
       <div class="stop-head">
         <label>
@@ -2182,6 +2177,11 @@ function stopCard(stop, index) {
         ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
     </article>
+    ${leewayInto(stop.id).map(chip).join("")}
+    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
+    ${around.before.map(chip).join("")}
+    ${around.self ? chip(around.self) : ""}
+    ${laterStop ? "" : around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
     ${index < state.stops.length - 1 ? `<button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
   `;
