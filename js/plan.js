@@ -9,7 +9,7 @@ import {
   clampedMaxHours,
   clampedHoursBeforeThirty,
   TruckerHOSClock,
-} from "./hos.js";
+} from "./hos.js?v=116";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],

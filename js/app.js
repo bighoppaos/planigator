@@ -9,7 +9,7 @@ import {
   stamp,
   shortStamp,
   resolvedLeaveAt,
-} from "./hos.js";
+} from "./hos.js?v=116";
 import {
   newId,
   cardTitle,
@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js";
+} from "./plan.js?v=116";
 import { TRUCK_PROFILE } from "./here.js";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
 

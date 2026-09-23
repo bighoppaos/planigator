@@ -184,6 +184,7 @@ export class TruckerHOSClock {
     copy.onDutyToday = this.onDutyToday;
     copy.breakCount = this.breakCount;
     copy.restCount = this.restCount;
+    copy.notBeforeArrival = this.notBeforeArrival || 0;
     return copy;
   }
 
@@ -216,13 +217,30 @@ export class TruckerHOSClock {
   }
 
   holdForArrival(open, driveHours, hoursOfEleven) {
-    for (let i = 0; i < 12; i += 1) {
+    const arrivalIfLeaveAt = (startMs) => {
       const probe = this.clone();
+      probe.notBeforeArrival = 0;
+      if (startMs > probe.now + 60 * 1000) probe.waitUntil(startMs);
       probe.driveReporting(driveHours, hoursOfEleven, [0], [0]);
-      const early = open - probe.now;
-      if (early <= 60 * 1000) return;
-      this.waitUntil(this.now + early);
+      return probe.now;
+    };
+    if (arrivalIfLeaveAt(this.now) >= open - 60 * 1000) return;
+    let lo = this.now;
+    let hi = open;
+    let best = this.now;
+    for (let i = 0; i < 28 && hi - lo > 1000; i += 1) {
+      const mid = Math.floor(lo + (hi - lo) / 2);
+      if (arrivalIfLeaveAt(mid) <= open) {
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
     }
+    const earlyArrive = arrivalIfLeaveAt(best);
+    if (earlyArrive > open + 60 * 1000) return;
+    if (best > this.now + 60 * 1000) this.waitUntil(best);
+    if (open - earlyArrive > 1000) this.notBeforeArrival = open;
   }
 
   /** Latest departure that still arrives at or before `deadline`. */
@@ -365,8 +383,29 @@ export class TruckerHOSClock {
       return events;
     }
 
+    const slipTowardOpen = () => {
+      const target = this.notBeforeArrival;
+      if (!target || target <= this.now + 60 * 1000) return false;
+      if (this.drivenToday > 0.01) return false;
+      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
+      const probe = this.clone();
+      probe.notBeforeArrival = 0;
+      probe.driveReporting(availableDrive(), cap, [0], [0]);
+      if (probe.now >= target - 60 * 1000) return false;
+      const dayEnd = isAnytimeEnd(this.endMinutes) ? target : nextDailyEnd(this.endMinutes, this.now);
+      const latestFinish = Math.min(target, dayEnd);
+      if (latestFinish <= probe.now + 60 * 1000) return false;
+      const startAt = this.now + (latestFinish - probe.now);
+      if (!isInsideDriveWindow(startAt, this.startMinutes, this.endMinutes)) return false;
+      flushDrive();
+      this.waitUntil(startAt);
+      driveStart = this.now;
+      return true;
+    };
+
     while (availableDrive() > 0.01 && restPasses < 24) {
       if (waitForDailyStartIfNeeded()) continue;
+      if (slipTowardOpen()) continue;
       const untilEnd = hoursUntilEnd();
       if (this.drivenToday >= cap - 0.01 || this.onDutyToday >= onDutyCap - 0.01 || untilEnd <= 0.01) {
         if (!parkForTen()) break;
