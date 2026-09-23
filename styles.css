@@ -41,15 +41,18 @@ html, body {
 }
 
 .build-line {
-  margin: 0 auto;
-  width: 100%;
-  max-width: 720px;
-  padding: calc(12px + env(safe-area-inset-top)) 20px 4px;
-  padding-left: max(20px, env(safe-area-inset-left));
-  padding-right: max(20px, env(safe-area-inset-right));
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  margin: calc(6px + env(safe-area-inset-top)) auto 0;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
   text-align: center;
-  color: var(--muted);
-  font-size: 15px;
 }
 
 header, main, footer {
@@ -487,7 +490,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-weight: 600;
 }
 
-.hero.card { margin-bottom: 4px; }
+.hero.card { margin-top: 0; margin-bottom: 4px; }
 
 .auth-block,
 .auth-row {
@@ -889,7 +892,7 @@ button.suggest {
   text-align: center;
 }
 
-body.app main { padding-top: 16px; }
+body.app main { padding-top: 2px; }
 
 .time-sheet {
   position: fixed;
