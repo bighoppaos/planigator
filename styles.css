@@ -561,6 +561,31 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-left: -1.2em;
   font-weight: 700;
 }
+.directions button.dir-step {
+  display: inline;
+  width: auto;
+  max-width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.directions button.dir-step .dir-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.directions button.dir-step.on {
+  background: #1f8a62;
+  color: #fff;
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+.directions button.dir-step.on .dir-link { text-decoration: none; }
+.directions button.dir-step.on span { color: #fff; }
 
 .here-leg {
   display: flex;
@@ -1165,6 +1190,16 @@ body.app main { padding-top: 2px; }
   border-radius: 12px;
   overflow: hidden;
   background: #d7e2ea;
+  scroll-margin-top: 12px;
+}
+.turn-pin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #1f8a62;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
 }
 
 .route-map img { max-width: none; }

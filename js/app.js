@@ -1664,17 +1664,106 @@ function savedTripsBlock() {
   </section>`;
 }
 
+function metersBetween(a, b) {
+  const lat = ((a[0] + b[0]) / 2) * Math.PI / 180;
+  const y = (b[0] - a[0]) * 111320;
+  const x = (b[1] - a[1]) * 111320 * Math.cos(lat);
+  return Math.hypot(x, y);
+}
+
+function polylineMeters(path) {
+  let walked = 0;
+  for (let i = 1; i < path.length; i += 1) walked += metersBetween(path[i - 1], path[i]);
+  return walked;
+}
+
+function stepLengthMeters(step) {
+  const text = String(step?.text || "");
+  const feet = text.match(/Go for\s+([0-9][0-9,]*(?:\.[0-9]+)?)\s*ft\b/i);
+  if (feet) return Number(feet[1].replace(/,/g, "")) * 0.3048;
+  const miles = Number(step?.miles);
+  if (Number.isFinite(miles) && miles > 0) return miles * 1609.344;
+  const spoken = text.match(/Go for\s+([0-9][0-9,]*(?:\.[0-9]+)?)\s*mi\b/i);
+  if (spoken) return Number(spoken[1].replace(/,/g, "")) * 1609.344;
+  return 0;
+}
+
+function pointAlong(path, meters) {
+  if (!path.length) return null;
+  if (meters <= 0) return { lat: path[0][0], lon: path[0][1] };
+  let walked = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    const seg = metersBetween(path[i - 1], path[i]);
+    if (walked + seg >= meters || i === path.length - 1) {
+      const t = seg > 0 ? Math.min(1, Math.max(0, (meters - walked) / seg)) : 1;
+      return {
+        lat: path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t,
+        lon: path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t,
+      };
+    }
+    walked += seg;
+  }
+  const last = path[path.length - 1];
+  return { lat: last[0], lon: last[1] };
+}
+
+function directionFocus(stop, index) {
+  const steps = Array.isArray(stop?.directions) ? stop.directions : [];
+  const step = steps[index];
+  if (!step) return null;
+  const storedLat = Number(step.lat);
+  const storedLon = Number(step.lon);
+  if (Number.isFinite(storedLat) && Number.isFinite(storedLon)) {
+    return { lat: storedLat, lon: storedLon, coords: [[storedLat, storedLon]] };
+  }
+  const path = (Array.isArray(stop?.path) ? stop.path : [])
+    .map((pair) => [Number(pair?.[0]), Number(pair?.[1])])
+    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+  if (path.length < 2) return null;
+  const lengths = steps.map(stepLengthMeters);
+  const sum = lengths.reduce((total, length) => total + length, 0);
+  const total = polylineMeters(path);
+  const scale = sum > 1 ? total / sum : 1;
+  let along = 0;
+  for (let i = 0; i < index; i += 1) along += lengths[i] * scale;
+  if (lengths[index] === 0 && index === steps.length - 1) along = total;
+  const at = pointAlong(path, along);
+  if (!at) return null;
+  const start = Math.max(0, along - 150);
+  const end = along + 450;
+  const coords = [];
+  const add = (lat, lon) => {
+    const prev = coords[coords.length - 1];
+    if (prev && Math.abs(prev[0] - lat) < 1e-7 && Math.abs(prev[1] - lon) < 1e-7) return;
+    coords.push([lat, lon]);
+  };
+  const from = pointAlong(path, start);
+  const to = pointAlong(path, end);
+  if (from) add(from.lat, from.lon);
+  let walked = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    const seg = metersBetween(path[i - 1], path[i]);
+    const next = walked + seg;
+    if (next >= start && walked <= end) add(path[i][0], path[i][1]);
+    walked = next;
+    if (walked > end) break;
+  }
+  add(at.lat, at.lon);
+  if (to) add(to.lat, to.lon);
+  return { lat: at.lat, lon: at.lon, coords };
+}
+
 function directionsBlock() {
   const groups = [];
   for (const stop of state.stops) {
     if (!Array.isArray(stop.directions) || !stop.directions.length) continue;
     const title = stop.useCurrentLocation ? "Current location" : (stop.name || "Stop");
-    groups.push({ title, steps: stop.directions });
+    groups.push({ id: stop.id, title, steps: stop.directions });
   }
   if (!groups.length) return "";
   const items = groups.map((group) => `
     <li class="dir-leg">${escapeAttr(group.title)}</li>
-    ${group.steps.map((step) => `<li>${escapeAttr(step.text)}${Number(step.miles) > 0.05 ? ` <span>${formatMiles(step.miles)}</span>` : ""}</li>`).join("")}
+    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span>${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
   `).join("");
   return `<details class="directions call-log-box">
     <summary>Directions</summary>
@@ -1796,7 +1885,70 @@ function pinLabel(label) {
   return text.length > 28 ? `${text.slice(0, 28)}…` : text;
 }
 
+let routeMap = null;
+let routeMapReady = false;
+let turnMarker = null;
+let pendingTurn = null;
+
+function clearRouteMap() {
+  pendingTurn = null;
+  routeMapReady = false;
+  if (turnMarker) {
+    turnMarker.remove();
+    turnMarker = null;
+  }
+  if (routeMap) {
+    routeMap.remove();
+    routeMap = null;
+  }
+}
+
+function applyTurnZoom(map, focus) {
+  const maplibre = window.maplibregl;
+  if (!map || !maplibre || !focus) return;
+  if (turnMarker) turnMarker.remove();
+  const pin = document.createElement("span");
+  pin.className = "turn-pin";
+  turnMarker = new maplibre.Marker({ element: pin, anchor: "center" })
+    .setLngLat([focus.lon, focus.lat])
+    .addTo(map);
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const coords = focus.coords?.length ? focus.coords : [[focus.lat, focus.lon]];
+  const bounds = coords.reduce(
+    (box, pair) => box.extend([pair[1], pair[0]]),
+    new maplibre.LngLatBounds([coords[0][1], coords[0][0]], [coords[0][1], coords[0][0]]),
+  );
+  map.fitBounds(bounds, { padding: 64, maxZoom: 16, animate: !reduce, duration: reduce ? 0 : 800 });
+  pendingTurn = null;
+}
+
+function markDirection(stopId, index) {
+  document.querySelectorAll(".dir-step.on").forEach((button) => {
+    button.classList.remove("on");
+    button.removeAttribute("aria-pressed");
+  });
+  const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
+    item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
+  ));
+  if (!button) return;
+  button.classList.add("on");
+  button.setAttribute("aria-pressed", "true");
+}
+
+function zoomToDirection(stopId, index) {
+  const stop = state.stops.find((item) => item.id === stopId);
+  const focus = directionFocus(stop, Number(index));
+  if (!focus) return;
+  markDirection(stopId, index);
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.getElementById("routeMap")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  if (!routeMap) return;
+  if (routeMapReady) applyTurnZoom(routeMap, focus);
+  else pendingTurn = focus;
+}
+
 function mountMap() {
+  clearRouteMap();
   const el = document.getElementById("routeMap");
   const maplibre = window.maplibregl;
   if (!el || !maplibre) return;
@@ -1805,58 +1957,63 @@ function mountMap() {
     el.hidden = true;
     return;
   }
-    const map = new maplibre.Map({
-      container: el,
-      style: satelliteStyle,
-      attributionControl: false,
+  const map = new maplibre.Map({
+    container: el,
+    style: satelliteStyle,
+    attributionControl: false,
+  });
+  routeMap = map;
+  map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
+  map.on("load", () => {
+    if (routeMap !== map) return;
+    const coordinates = line.map(([lat, lon]) => [lon, lat]);
+    map.addSource("route", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
     });
-    map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
-    map.on("load", () => {
-      const coordinates = line.map(([lat, lon]) => [lon, lat]);
-      map.addSource("route", {
-        type: "geojson",
-        data: { type: "Feature", geometry: { type: "LineString", coordinates } },
-      });
-      map.addLayer({
-        id: "route-casing",
-        type: "line",
-        source: "route",
-        paint: { "line-color": "#ffffff", "line-width": 7 },
-      });
-      map.addLayer({
-        id: "route",
-        type: "line",
-        source: "route",
-        paint: { "line-color": "#1f8a62", "line-width": 4 },
-      });
-      const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
-      const markers = routePins().map((pin) => {
-        const ink = stopInk(pin.rgb);
-        const button = document.createElement("span");
-        button.className = "route-pin";
-        button.textContent = pin.label;
-        button.style.background = cssRGB(pin.rgb);
-        button.style.color = ink.color;
-        const marker = new maplibre.Marker({ element: button, anchor: "bottom" })
-          .setLngLat([pin.lon, pin.lat])
-          .addTo(map);
-        bounds.extend([pin.lon, pin.lat]);
-        return marker;
-      });
-      map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
-      map.once("idle", () => {
-        const placed = [];
-        markers.forEach((marker) => {
-          const point = map.project(marker.getLngLat());
-          let lift = 0;
-          for (const other of placed) {
-            if (Math.abs(other.x - point.x) < 72 && Math.abs(other.y - (point.y - lift)) < 26) lift += 26;
-          }
-          if (lift) marker.setOffset([0, -lift]);
-          placed.push({ x: point.x, y: point.y - lift });
-        });
+    map.addLayer({
+      id: "route-casing",
+      type: "line",
+      source: "route",
+      paint: { "line-color": "#ffffff", "line-width": 7 },
+    });
+    map.addLayer({
+      id: "route",
+      type: "line",
+      source: "route",
+      paint: { "line-color": "#1f8a62", "line-width": 4 },
+    });
+    const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
+    const markers = routePins().map((pin) => {
+      const ink = stopInk(pin.rgb);
+      const button = document.createElement("span");
+      button.className = "route-pin";
+      button.textContent = pin.label;
+      button.style.background = cssRGB(pin.rgb);
+      button.style.color = ink.color;
+      const marker = new maplibre.Marker({ element: button, anchor: "bottom" })
+        .setLngLat([pin.lon, pin.lat])
+        .addTo(map);
+      bounds.extend([pin.lon, pin.lat]);
+      return marker;
+    });
+    routeMapReady = true;
+    if (pendingTurn) applyTurnZoom(map, pendingTurn);
+    else map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
+    map.once("idle", () => {
+      if (routeMap !== map) return;
+      const placed = [];
+      markers.forEach((marker) => {
+        const point = map.project(marker.getLngLat());
+        let lift = 0;
+        for (const other of placed) {
+          if (Math.abs(other.x - point.x) < 72 && Math.abs(other.y - (point.y - lift)) < 26) lift += 26;
+        }
+        if (lift) marker.setOffset([0, -lift]);
+        placed.push({ x: point.x, y: point.y - lift });
       });
     });
+  });
 }
 
 function routePins() {
@@ -2164,7 +2321,7 @@ function render() {
       <div class="hero-copy">
       <h1>Planigator.help</h1>
       <ul class="pitch">
-        <li>See a HERE<sup>©</sup> truck-legal route and direction list</li>
+        <li>See a HERE<sup>©</sup> truck-legal route and auto-zooming direction list</li>
         <li>See how much leeway time you have</li>
         <li>See when to leave</li>
         <li>See when to take your 30 and your 10</li>
@@ -2657,6 +2814,11 @@ function bind() {
     render();
   });
   mountMap();
+  document.querySelectorAll("[data-dir-stop]").forEach((button) => {
+    button.addEventListener("click", () => {
+      zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
+    });
+  });
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#deleteCard")?.addEventListener("click", () => deleteCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
