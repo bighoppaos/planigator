@@ -487,14 +487,22 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-weight: 600;
 }
 
+.hero.card { margin-bottom: 4px; }
+
 .auth-block,
 .auth-row {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
-  margin: 8px 0;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.signed-note {
+  width: fit-content;
+  max-width: 100%;
+  font-weight: 600;
 }
 
 .auth-block .secondary,
