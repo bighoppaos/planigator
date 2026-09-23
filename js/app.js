@@ -348,7 +348,8 @@ function whenBox(stop, field, ms) {
 }
 
 function whenRow(label, stop, field, ms) {
-  return `<div class="when-row"><span class="flag-box">${escapeAttr(label)}</span><span class="when-arrow" aria-hidden="true"></span>${whenBox(stop, field, ms)}</div>`;
+  const windowWhen = label === "Opens" || label === "Closes" ? " window-when" : "";
+  return `<div class="when-row${windowWhen}"><span class="flag-box">${escapeAttr(label)}</span><span class="when-arrow" aria-hidden="true"></span>${whenBox(stop, field, ms)}</div>`;
 }
 
 function dateChip({ id = "", field = "", ms, disabled = false }) {

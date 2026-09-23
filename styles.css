@@ -1297,6 +1297,7 @@ body.app main { padding-top: 2px; }
 }
 
 .stop-flags .flag-box,
+.when-row.window-when .flag-box,
 #calculate,
 button.lookup,
 #addStop,
