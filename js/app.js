@@ -192,6 +192,19 @@ function loadState() {
 }
 
 const state = loadState();
+settleLoadedStops(state.stops);
+
+function settleLoadedStops(stops) {
+  for (const stop of stops || []) {
+    if (!stop?.id || stop.useCurrentLocation) continue;
+    if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) continue;
+    lookupClosed.add(stop.id);
+    usingDismissed.add(stop.id);
+    const timer = usingTimers.get(stop.id);
+    if (timer) window.clearTimeout(timer);
+    usingTimers.delete(stop.id);
+  }
+}
 
 function settingsForSave() {
   const settings = { ...state.settings };
@@ -468,6 +481,7 @@ function applySharedTrip(data, { notice } = {}) {
   }
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
   state.notice = notice || "This trip was shared with you.";
+  settleLoadedStops(state.stops);
   persist();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else render();
@@ -642,6 +656,7 @@ function loadTrip(id) {
   }
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
   state.notice = `Opened ${trip.name}.`;
+  settleLoadedStops(state.stops);
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else {
     render();
@@ -666,6 +681,7 @@ function loadExample() {
   state.speedNote = "";
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
+  settleLoadedStops(state.stops);
   render();
   persist();
 }
