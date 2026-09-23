@@ -2299,9 +2299,23 @@ async function installApp() {
   render();
 }
 
+function exampleOpenNote() {
+  const text = `Opened ${EXAMPLE_TRIP.name}.`;
+  if (state.notice !== text || state.activeTripId) return "";
+  return `<p class="ok example-note">${escapeAttr(text)}</p>`;
+}
+
+function hereCallsBlock() {
+  if (!state.signedIn) return "";
+  const rows = state.calls.length
+    ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>`
+    : `<p class="fine">No HERE calls on this account yet.</p>`;
+  return `<section class="calls"><details class="call-log-box"><summary>HERE calls</summary>${rows}</details></section>`;
+}
+
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
-  const example = `<p class="fine"><button type="button" class="text-button" id="loadExample">Load an example trip</button></p>`;
+  const example = `<p class="fine"><button type="button" class="text-button" id="loadExample">Load an example trip</button></p>${exampleOpenNote()}`;
   const google = state.signedIn
     ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
     : state.googleClientId
@@ -2428,7 +2442,6 @@ function render() {
         <span class="flag-box">${state.boxFont}</span>
         <button type="button" class="flag-box" id="boxFontUp" ${state.boxFont >= 28 ? "disabled" : ""} aria-label="Bigger boxes">+</button>
       </div>
-      <h2>Trip Settings</h2>
         <div class="settings-grid action-grid">
           <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
@@ -2473,7 +2486,6 @@ function render() {
     ${planBox()}
 
     <section class="stops">
-      <h2>Trip Itinerary</h2>
       ${destCards}
       <button type="button" class="flag-box" id="addStop">Add a stop</button>
     </section>
@@ -2490,12 +2502,12 @@ function render() {
       </div>
       ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
-      ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice && state.notice !== "This trip was shared with you." ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+      ${state.notice && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
 
     ${savedTripsBlock()}
+    ${hereCallsBlock()}
     ${lookupMapSheet()}
     ${pickerSheet()}
 

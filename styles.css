@@ -957,6 +957,7 @@ input.compact {
 .chip-sec.late, .error { color: #b42318; font-weight: 700; }
 .ok { color: var(--mint); font-weight: 600; }
 .shared-note { margin: 16px 0 0; }
+.example-note { margin: 0; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
 .fine { font-size: 13px; color: var(--muted); }
 .speed-note { margin: 4px 0 0; }
@@ -1349,6 +1350,7 @@ button[data-after],
 
 .actions,
 .trips,
+.calls,
 .result {
   margin: 8px -12px 16px;
   padding: 0;
