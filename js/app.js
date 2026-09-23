@@ -1533,7 +1533,7 @@ function lookupMapSheet() {
 
 let lookupMaps = [];
 
-const lookupSatelliteStyle = {
+const satelliteStyle = {
   version: 8,
   sources: {
     satellite: {
@@ -1559,7 +1559,7 @@ function mountLookupMaps() {
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
       container: el,
-      style: lookupSatelliteStyle,
+      style: satelliteStyle,
       attributionControl: false,
       interactive: live,
     });
@@ -1612,23 +1612,30 @@ function mountMap() {
     el.hidden = true;
     return;
   }
-  const map = new maplibre.Map({
-    container: el,
-    style: "https://tiles.openfreemap.org/styles/liberty",
-    attributionControl: true,
-  });
-  map.on("load", () => {
-    const coordinates = line.map(([lat, lon]) => [lon, lat]);
-    map.addSource("route", {
-      type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+    const map = new maplibre.Map({
+      container: el,
+      style: satelliteStyle,
+      attributionControl: false,
     });
-    map.addLayer({
-      id: "route",
-      type: "line",
-      source: "route",
-      paint: { "line-color": "#1f8a62", "line-width": 4 },
-    });
+    map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
+    map.on("load", () => {
+      const coordinates = line.map(([lat, lon]) => [lon, lat]);
+      map.addSource("route", {
+        type: "geojson",
+        data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+      });
+      map.addLayer({
+        id: "route-casing",
+        type: "line",
+        source: "route",
+        paint: { "line-color": "#ffffff", "line-width": 7 },
+      });
+      map.addLayer({
+        id: "route",
+        type: "line",
+        source: "route",
+        paint: { "line-color": "#1f8a62", "line-width": 4 },
+      });
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
     map.fitBounds(bounds, { padding: 28, maxZoom: 8 });
   });

@@ -802,6 +802,8 @@ body.app main { padding-top: 16px; }
 }
 
 .route-map img { max-width: none; }
+.route-map .maplibregl-ctrl-attrib { font-size: 10px; background: rgba(0, 0, 0, 0.55); }
+.route-map .maplibregl-ctrl-attrib, .route-map .maplibregl-ctrl-attrib a { color: #fff; }
 
 .plan-timeline {
   list-style: none;
