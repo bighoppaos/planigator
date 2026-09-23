@@ -2050,7 +2050,7 @@ function render() {
       <div class="hero-copy">
       <h1>Planigator.help</h1>
       <ul class="pitch">
-        <li>Get a HERE<sup>©</sup> truck-legal route and direction list</li>
+        <li>See a HERE<sup>©</sup> truck-legal route and direction list</li>
         <li>See how much leeway time you have</li>
         <li>See when to leave</li>
         <li>See when to take your 30 and your 10</li>
