@@ -309,6 +309,11 @@ button.ghost.armed {
   line-height: 1.1;
 }
 
+p.flag-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
 .flag-box.on {
   background: #1f8a62;
   border-color: #1f8a62;
@@ -556,9 +561,17 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .here-leg {
-  margin: 8px 0 4px;
-  font-size: 14px;
-  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 4px 0 0;
+}
+
+.here-leg .flag-box {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .hero.card { margin-top: 0; margin-bottom: 4px; }

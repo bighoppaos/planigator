@@ -1913,9 +1913,7 @@ function stopCard(stop, index) {
           <button type="button" class="ghost${state.confirmRemoveId === stop.id ? " armed" : ""}" data-act="remove" ${canRemove ? "" : "disabled"} aria-label="Remove ${escapeAttr(title)}">${state.confirmRemoveId === stop.id ? "Remove" : "−"}</button>
         </div>
       </div>
-      <label>Address
-        <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off">
-      </label>
+      <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">
       <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
       ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
@@ -1923,7 +1921,7 @@ function stopCard(stop, index) {
         ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
         : ""}
       ${pointReady(stop) && !(state.lookupStopId === stop.id && state.lookupOk)
-        ? `<p class="here-leg">Using this address.</p>`
+        ? `<p class="flag-box">Using this address.</p>`
         : ""}
       ${originStop ? "" : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
@@ -1954,7 +1952,9 @@ function hereLeg(stop) {
   const miles = Number(stop.miles) || 0;
   const hours = Number(stop.hours) || 0;
   if (miles > 0.05 || hours > 0.0001) {
-    return `<p class="here-leg">${escapeAttr(formatMiles(miles))} · ${escapeAttr(hoursLabel(hours))} from HERE<sup>©</sup></p>`;
+    const milesBox = miles > 0.05 ? `<span class="flag-box">${escapeAttr(formatMiles(miles))}</span>` : "";
+    const timeBox = hours > 0.0001 ? `<span class="flag-box">${escapeAttr(hoursLabel(hours))} from HERE<sup>©</sup></span>` : "";
+    return `<div class="here-leg">${milesBox}${timeBox}</div>`;
   }
   return "";
 }
