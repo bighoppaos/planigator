@@ -2004,7 +2004,6 @@ export function initPlanner(el) {
     }
     await pullAccountTrips();
     if (!state.locating) render();
-    if (state.idleNote) document.querySelector(".auth-block")?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
   });
@@ -2031,7 +2030,6 @@ async function watchSignIn() {
     if (state.idleSignOut) state.idleNote = "Signed out after an hour away.";
     persist();
     render();
-    if (state.idleNote) document.querySelector(".auth-block")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
