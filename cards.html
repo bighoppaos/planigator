@@ -6,19 +6,13 @@
   <title>Planigator cards</title>
   <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
   <style>
-    :root {
-      --ink: #14201c;
-      --muted: #4b5a54;
-      --mint: #1f8a62;
-      --line: #c9c2b6;
-      --paper: #f4f1ea;
-    }
+    :root { --muted: #4b5a54; --line: #c9c2b6; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       background: #fff;
-      color: var(--ink);
-      font: 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #14201c;
+      font: 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     .hint {
       max-width: 8.5in;
@@ -40,60 +34,55 @@
     .card {
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: center;
       min-height: 0;
-      padding: 10px 12px;
+      padding: 8px;
       border: 1px dashed var(--line);
       border-radius: 12px;
-      background: var(--paper);
       overflow: hidden;
+      color: #fffdf8;
+      background-color: #071525;
+      background-image:
+        linear-gradient(rgb(8 16 28 / 0.28), rgb(8 16 28 / 0.4)),
+        url("./icons/icon-512.png");
+      background-repeat: no-repeat;
+      background-position: center, center;
+      background-size: cover, cover;
     }
-    .card img {
-      width: 1.35in;
-      height: 1.35in;
-      object-fit: cover;
-      border-radius: 10px;
-      flex: 0 0 auto;
+    .copy {
+      width: 100%;
+      padding: 6px 8px 7px;
+      border-radius: 8px;
+      background: rgb(0 0 0 / 0.62);
     }
     h1 {
-      margin: 0 0 4px;
-      font-size: 14px;
-      line-height: 1.15;
-      color: var(--mint);
-      letter-spacing: -0.01em;
+      margin: 0 0 3px;
+      font-size: 12px;
+      line-height: 1.1;
+      text-align: center;
+      color: #fffdf8;
     }
-    ul {
-      margin: 0;
-      padding-left: 16px;
-    }
-    li { margin: 1px 0; }
-    @page {
-      size: letter;
-      margin: 0.4in;
-    }
+    ul { margin: 0; padding-left: 14px; }
+    li { margin: 0; }
+    @page { size: letter; margin: 0.4in; }
     @media print {
       .hint { display: none; }
       body { background: #fff; }
-      .sheet {
-        width: 100%;
-        height: 10.2in;
-        margin: 0;
-        padding: 0;
-      }
+      .sheet { width: 100%; height: 10.2in; margin: 0; padding: 0; }
     }
   </style>
 </head>
 <body>
   <p class="hint">Print this page on letter paper. Cut on the dashed lines. Eight cards.</p>
   <main class="sheet">
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
-    <article class="card"><img src="./icons/icon-512.png" alt=""><div><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route</li><li>Know how much leeway time you have</li><li>Know when to leave</li><li>Know when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Choose governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>Get a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
   </main>
 </body>
 </html>
