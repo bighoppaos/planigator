@@ -427,7 +427,7 @@ function applySharedTrip(data, { notice } = {}) {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
-  state.notice = notice || "Opened a shared trip.";
+  state.notice = notice || "This trip was shared with you.";
   persist();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else render();
@@ -436,7 +436,7 @@ function applySharedTrip(data, { notice } = {}) {
 async function loadSharedCode(code) {
   try {
     applySharedTrip(await fetchShare(code), {
-      notice: "Opened a shared trip.",
+      notice: "This trip was shared with you.",
     });
   } catch (error) {
     state.error = error.message || "That share link could not be opened.";
@@ -487,7 +487,7 @@ function applyShareFromLocation() {
   }
   if (state.plan && state.activeTripId && shareToken() === token) return false;
   applySharedTrip(shared, {
-    notice: "Opened a shared trip. Calculate again after you change anything.",
+    notice: "This trip was shared with you. Calculate again after you change anything.",
   });
   return true;
 }
@@ -2118,7 +2118,7 @@ function render() {
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
-    ${state.notice === "Opened a shared trip." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
+    ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
     ${planBox()}
 
     <section class="card stops">
@@ -2140,7 +2140,7 @@ function render() {
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.signedIn ? `<details class="call-log-box"><summary>HERE calls</summary>${state.calls.length ? `<ul class="call-log">${state.calls.map((call) => `<li><span>${escapeAttr(formatShort(call.at))}</span> ${escapeAttr(call.kind)} · ${escapeAttr(call.detail)} ${call.ok ? escapeAttr(call.result || "") : "not charged"}</li>`).join("")}</ul>` : `<p class="fine">No HERE calls on this account yet.</p>`}</details>` : ""}
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice && state.notice !== "Opened a shared trip." ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+      ${state.notice && state.notice !== "This trip was shared with you." ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
 
     ${savedTripsBlock()}
