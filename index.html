@@ -27,9 +27,33 @@
       <a href="./terms.html">Terms</a>
     </nav>
     <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
-    <p>Build#117 9.22.26.</p>
+    <p>Build#118 9.22.26. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
   </footer>
+  <style>
+    .page-refresh { display: none; }
+    html.from-home .page-refresh { display: inline; }
+  </style>
   <script>
+    (function () {
+      var fromHome = window.navigator.standalone === true;
+      try {
+        if (window.matchMedia("(display-mode: standalone)").matches) fromHome = true;
+        if (window.matchMedia("(display-mode: fullscreen)").matches) fromHome = true;
+      } catch (e) {}
+      if (fromHome) document.documentElement.classList.add("from-home");
+      var url = new URL(location.href);
+      if (url.searchParams.has("refresh")) {
+        url.searchParams.delete("refresh");
+        history.replaceState(null, "", url.pathname + url.search + url.hash);
+      }
+      var button = document.getElementById("refreshPage");
+      if (!button) return;
+      button.addEventListener("click", function () {
+        var next = new URL(location.href);
+        next.searchParams.set("refresh", String(Date.now()));
+        location.replace(next.href);
+      });
+    })();
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         return Promise.all(regs.map((reg) => reg.unregister()));
@@ -40,6 +64,6 @@
     }
   </script>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="./js/app.js?v=117"></script>
+  <script type="module" src="./js/app.js?v=118"></script>
 </body>
 </html>
