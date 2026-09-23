@@ -120,6 +120,7 @@ function defaultState() {
     error: "",
     notice: "",
     picker: "",
+    confirmRemoveId: null,
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -1855,7 +1856,7 @@ function stopCard(stop, index) {
         <div class="icon-row">
           <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 ? "disabled" : ""} aria-label="Move stop up">↑</button>
           <button type="button" class="ghost" data-act="down" ${originStop || destIndex >= dests.length - 1 ? "disabled" : ""} aria-label="Move stop down">↓</button>
-          <button type="button" class="ghost" data-act="remove" ${canRemove ? "" : "disabled"} aria-label="Remove ${escapeAttr(title)}">−</button>
+          <button type="button" class="ghost${state.confirmRemoveId === stop.id ? " armed" : ""}" data-act="remove" ${canRemove ? "" : "disabled"} aria-label="Remove ${escapeAttr(title)}">${state.confirmRemoveId === stop.id ? "Remove" : "−"}</button>
         </div>
       </div>
       <label>Address
@@ -1872,15 +1873,11 @@ function stopCard(stop, index) {
         : ""}
       ${originStop ? "" : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
-      <label class="setting">
-        <span>Anytime</span>
-        <input type="checkbox" data-field="anytime" ${stop.anytime ? "checked" : ""}>
-      </label>
+      <div class="stop-flags">
+        <button type="button" class="flag-box${stop.anytime ? " on" : ""}" data-toggle-field="anytime">Anytime</button>
+        <button type="button" class="flag-box${stop.window ? " on" : ""}" data-toggle-field="window">Window</button>
+      </div>
       ${stop.anytime ? "" : `
-        <label class="setting">
-          <span>Window</span>
-          <input type="checkbox" data-field="window" ${stop.window ? "checked" : ""}>
-        </label>
         ${stop.window ? `<label class="setting"><span>Opens</span>${dateChip({ field: "start", ms: stop.start })}</label>` : ""}
         <label class="setting"><span>Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</label>
       `}`}
@@ -2096,8 +2093,8 @@ function render() {
         </div>
         ${routeFromLine(origin)}
         <div class="settings-grid action-grid">
-          <button type="button" class="set-box" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
-          <button type="button" class="set-box" id="fromAddress">Start from an address</button>
+          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+          <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
         </div>
         ${state.plan ? `<div class="stack"><button type="button" class="secondary" id="updateTimes">Update times</button></div>` : ""}
@@ -2460,7 +2457,31 @@ function bind() {
     });
     card.querySelector("[data-act=up]")?.addEventListener("click", () => moveStop(id, -1));
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
-    card.querySelector("[data-act=remove]")?.addEventListener("click", () => removeStop(id));
+    card.querySelector("[data-act=remove]")?.addEventListener("click", () => {
+      if (state.confirmRemoveId !== id) {
+        state.confirmRemoveId = id;
+        render();
+        return;
+      }
+      state.confirmRemoveId = null;
+      removeStop(id);
+    });
+    card.querySelectorAll("[data-toggle-field]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const field = button.getAttribute("data-toggle-field");
+        const stop = state.stops.find((item) => item.id === id);
+        if (!stop) return;
+        if (field === "anytime") {
+          const anytime = !stop.anytime;
+          updateStop(id, anytime ? { anytime: true, window: false } : { anytime: false });
+          return;
+        }
+        if (field === "window") {
+          const open = !stop.window;
+          updateStop(id, open ? { window: true, anytime: false } : { window: false });
+        }
+      });
+    });
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
     card.querySelectorAll("[data-pick]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-pick"))));

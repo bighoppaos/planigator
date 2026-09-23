@@ -36,27 +36,28 @@
       width: 8.5in;
       height: 11in;
       margin: 0 auto;
-      padding: 0.4in;
+      padding: 0;
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: repeat(4, 1fr);
-      justify-items: center;
-      gap: 0.12in;
+      grid-template-columns: repeat(3, 71.5mm);
+      grid-template-rows: repeat(3, 71.5mm);
+      justify-content: center;
+      align-content: center;
+      gap: 0;
       background: #fff;
     }
     .card {
-      aspect-ratio: 1 / 1;
-      height: 100%;
-      width: auto;
-      max-width: 100%;
+      width: 71.5mm;
+      height: 71.5mm;
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 0;
-      padding: 7%;
+      padding: 6%;
       border: 1px dashed var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
       color: #fffdf8;
       background-color: #071525;
       background-image:
@@ -74,25 +75,26 @@
     }
     h1 {
       margin: 0 0 2px;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1.1;
       text-align: center;
       color: #fffdf8;
     }
-    ul { margin: 0; padding-left: 13px; font-size: 9px; line-height: 1.2; }
+    ul { margin: 0; padding-left: 11px; font-size: 8px; line-height: 1.15; }
     li { margin: 0; }
-    @page { size: letter; margin: 0.4in; }
+    @page { size: letter; margin: 0; }
     @media print {
       .hint, .build-line { display: none; }
       body { background: #fff; }
-      .sheet { width: 100%; height: 10.2in; margin: 0; padding: 0; }
+      .sheet { width: 8.5in; height: 11in; margin: 0; padding: 0; }
     }
   </style>
 </head>
 <body>
-  <p class="build-line">Build#149 9.23.26.</p>
-  <p class="hint">Print this page on letter paper. Cut on the dashed lines. Eight cards.</p>
+  <p class="build-line">Build#150 9.23.26.</p>
+  <p class="hint">Print this page on letter paper at 100% with no margins. Cut on the dashed lines. Nine cards. Each square is 2.81 inches, the width of an iPhone 16 Pro.</p>
   <main class="sheet">
+    <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>See a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
     <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>See a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
     <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>See a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
     <article class="card"><div class="copy"><h1>www.planigator.help</h1><ul><li>See a HERE<sup>©</sup> truck-legal route and direction list</li><li>See how much leeway time you have</li><li>See when to leave</li><li>See when to take your 30 and your 10</li><li>Share the trip link with anyone</li><li>Pick governed speed</li><li>And more</li></ul></div></article>
