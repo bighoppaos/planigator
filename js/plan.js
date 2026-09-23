@@ -432,8 +432,18 @@ export function buildPlan({
   const lastDest = destIndexes[destIndexes.length - 1];
   const rollAt = firstDest != null && blocks[firstDest] ? blocks[firstDest].start : leaveAt;
   const lastArrive = lastDest != null && blocks[lastDest] ? blocks[lastDest].end : leaveAt;
-  const lastTimed = [...destIndexes].reverse().map((i) => stops[i]).find((stop) => !stop.anytime);
-  const late = lastTimed ? lastArrive > latestArrive(lastTimed) + 60 * 1000 : false;
+  let lateStop = null;
+  for (const index of destIndexes) {
+    const stop = stops[index];
+    if (stop.anytime) continue;
+    const arrive = blocks[index]?.end;
+    const deadline = latestArrive(stop);
+    if (arrive != null && deadline != null && arrive > deadline + 60 * 1000) {
+      lateStop = stop;
+      break;
+    }
+  }
+  const late = Boolean(lateStop);
   const breakCount = Object.values(blocks).reduce((sum, block) => sum + block.breakCount, 0);
   const restCount = Object.values(blocks).reduce((sum, block) => sum + block.restCount, 0);
   const totalDrive = destIndexes.reduce((sum, i) => sum + driveHours[i], 0);
@@ -444,8 +454,8 @@ export function buildPlan({
     rollAt,
     arriveAt: lastArrive,
     late,
-    lastTimedTitle: lastTimed ? lastTimed.name?.trim() || "the last timed stop" : "",
-    lastDeadline: lastTimed ? latestArrive(lastTimed) : null,
+    lastTimedTitle: lateStop ? lateStop.name?.trim() || "the last timed stop" : "",
+    lastDeadline: lateStop ? latestArrive(lateStop) : null,
     breakCount,
     restCount,
     driveHours: totalDrive,
