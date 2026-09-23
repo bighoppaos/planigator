@@ -448,6 +448,131 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   text-align: center;
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.set-box {
+  min-height: 72px;
+  margin: 0;
+  padding: 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  font: inherit;
+  line-height: 1.15;
+}
+
+.set-box.on {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: #fff;
+}
+
+.set-name, .set-value {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+
+.set-name { font-size: 12px; font-weight: 600; }
+
+.set-box > .set-name {
+  width: 100%;
+  line-height: 1.05;
+}
+
+.set-box > .set-value {
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 2px;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.set-box.on > .set-value {
+  border-top-color: rgb(255 255 255 / 0.75);
+}
+.set-value { font-size: 16px; font-weight: 700; }
+
+.set-fill {
+  padding: 3px 4px;
+  gap: 1px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.set-fill .set-name {
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.set-fill .set-value {
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.action-grid { margin-top: 12px; }
+
+.action-grid .set-box {
+  padding: 3px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.05;
+  min-width: 0;
+}
+
+.picker-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.picker-step {
+  margin: 2px 0 8px;
+  text-align: center;
+}
+
+.picker-date {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 4px 0 8px;
+  padding: 12px 8px;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  font-size: 18px;
+  text-align: center;
+}
+
 .setting {
   display: flex;
   align-items: center;
@@ -712,7 +837,10 @@ body.app main { padding-top: 16px; }
 }
 
 .time-sheet-card {
-  width: min(360px, 100%);
+  width: 100%;
+  max-width: 360px;
+  min-width: 0;
+  overflow: hidden;
   background: var(--card);
   color: var(--ink);
   border: 1px solid var(--line);

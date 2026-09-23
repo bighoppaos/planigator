@@ -119,6 +119,7 @@ function defaultState() {
     plan: null,
     error: "",
     notice: "",
+    picker: "",
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -372,6 +373,19 @@ const MPH_CHOICES = Array.from({ length: 21 }, (_, i) => 55 + i);
 function thirtyLabel(value) {
   const n = Number(value);
   return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
+}
+
+function settingToggle(id, label, on) {
+  return `<button type="button" class="set-box${on ? " on" : ""}" data-toggle="${id}">${escapeAttr(label)}</button>`;
+}
+
+function settingArrival(value) {
+  const label = value === "latest" ? "Latest" : "Earliest";
+  return `<button type="button" class="set-box" data-toggle="arrival"><span class="set-name">Arrival</span><strong class="set-value">${label}</strong></button>`;
+}
+
+function settingValue(id, label, value, fill = false) {
+  return `<button type="button" class="set-box${fill ? " set-fill" : ""}" data-pick="${id}"><span class="set-name">${escapeAttr(label)}</span><strong class="set-value">${escapeAttr(value)}</strong></button>`;
 }
 
 function wheelChip(id, value, values, labelFn = String) {
@@ -2063,58 +2077,30 @@ function render() {
 
     <section class="card hos">
       <h2>Trip Settings</h2>
-        <div class="setting">
-          <label for="governed">Governed</label>
-          <span class="setting-control">
-            <input type="checkbox" id="governed" ${s.governed ? "checked" : ""}>
-            ${s.governed ? wheelChip("mph", s.governedMph, MPH_CHOICES) : ""}
-          </span>
+        <div class="settings-grid">
+          <div class="set-box${s.governed ? " on" : ""}">
+            <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
+            <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
+          </div>
+          ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
+          ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
+          ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
+          ${s.leaveNow ? "" : settingValue("leaveAt", "Leave at", formatShort(s.leaveAt))}
+          ${settingArrival(s.arrival)}
+          ${settingToggle("startAnytime", "Start anytime", s.startAnytime)}
+          ${s.startAnytime ? "" : settingValue("startTime", "Day start", formatClockMinutes(s.startMinutes))}
+          ${settingToggle("endAnytime", "End anytime", s.endAnytime)}
+          ${s.endAnytime ? "" : settingValue("endTime", "Day end", formatClockMinutes(s.endMinutes))}
+          ${settingToggle("military", "Military time", s.military)}
+          ${settingToggle("kilometers", "Kilometers", s.kilometers)}
         </div>
-        <label class="setting">
-          <span>Hours I’ll drive out of the 11</span>
-          ${wheelChip("hoursOfEleven", s.hoursOfEleven, HOS_ELEVEN)}
-        </label>
-        <label class="setting">
-          <span>Hours into driving before 30-minute break</span>
-          ${wheelChip("hoursBeforeThirty", s.hoursBeforeThirty, HOS_THIRTY, thirtyLabel)}
-        </label>
-        ${s.leaveNow ? "" : `<label class="setting"><span>Leave at</span>${dateChip({ id: "leaveAt", ms: s.leaveAt })}</label>`}
-        <label class="setting">
-          <span>Leave now</span>
-          <input type="checkbox" id="leaveNow" ${s.leaveNow ? "checked" : ""}>
-        </label>
-        ${s.startAnytime ? "" : `<label class="setting"><span>Start time each day</span>${timeChip("startTime", s.startMinutes)}</label>`}
-        <label class="setting">
-          <span>Start the day anytime</span>
-          <input type="checkbox" id="startAnytime" ${s.startAnytime ? "checked" : ""}>
-        </label>
-        ${s.endAnytime ? "" : `<label class="setting"><span>End time each day</span>${timeChip("endTime", s.endMinutes)}</label>`}
-        <label class="setting">
-          <span>End the day anytime</span>
-          <input type="checkbox" id="endAnytime" ${s.endAnytime ? "checked" : ""}>
-        </label>
-        <label class="setting">
-          <span>Military time</span>
-          <input type="checkbox" id="military" ${s.military ? "checked" : ""}>
-        </label>
-        <label class="setting">
-          <span>Kilometers</span>
-          <input type="checkbox" id="kilometers" ${s.kilometers ? "checked" : ""}>
-        </label>
-        <label class="setting">
-          <span>Arrival</span>
-          <select id="arrival">
-            <option value="earliest" ${s.arrival === "latest" ? "" : "selected"}>Earliest</option>
-            <option value="latest" ${s.arrival === "latest" ? "selected" : ""}>Latest</option>
-          </select>
-        </label>
         ${routeFromLine(origin)}
-        <div class="stack">
-          <button type="button" class="secondary" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
-          <button type="button" class="secondary" id="fromAddress">Start from an address</button>
-          <button type="button" class="secondary" id="newTrip">new/clear trip</button>
-          ${state.plan ? `<button type="button" class="secondary" id="updateTimes">Update times</button>` : ""}
+        <div class="settings-grid action-grid">
+          <button type="button" class="set-box" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+          <button type="button" class="set-box" id="fromAddress">Start from an address</button>
+          <button type="button" class="set-box" id="newTrip">new/clear trip</button>
         </div>
+        ${state.plan ? `<div class="stack"><button type="button" class="secondary" id="updateTimes">Update times</button></div>` : ""}
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 
@@ -2145,9 +2131,125 @@ function render() {
 
     ${savedTripsBlock()}
     ${lookupMapSheet()}
+    ${pickerSheet()}
 
   `;
   bind();
+}
+
+function pickerOptions(values, current, part, labelFn = String) {
+  return values.map((value) => {
+    const on = String(value) === String(current) ? " on" : "";
+    return `<button type="button" class="time-opt${on}" data-part="${part}" data-value="${escapeAttr(value)}">${escapeAttr(labelFn(value))}</button>`;
+  }).join("");
+}
+
+function clockWheels(totalMinutes) {
+  const minutes = Math.max(0, Number(totalMinutes) || 0);
+  const hour24 = Math.trunc(minutes / 60) % 24;
+  const minute = minutes % 60;
+  const hour = state.settings.military ? hour24 : (hour24 % 12 || 12);
+  const ap = hour24 >= 12 ? "PM" : "AM";
+  const hours = state.settings.military
+    ? Array.from({ length: 24 }, (_, i) => i)
+    : Array.from({ length: 12 }, (_, i) => i + 1);
+  const hourLabel = (value) => state.settings.military ? pad(value) : String(value);
+  return `<div class="time-col">${pickerOptions(hours, hour, "hour", hourLabel)}</div>
+    <div class="time-col">${pickerOptions(Array.from({ length: 60 }, (_, i) => i), minute, "minute", pad)}</div>
+    ${state.settings.military ? "" : `<div class="time-col">${pickerOptions(["AM", "PM"], ap, "ampm")}</div>`}`;
+}
+
+function leaveDateValue(ms) {
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function pickerSheet() {
+  const id = state.picker;
+  if (!id) return "";
+  let title = "Setting";
+  let step = "";
+  let wheels = "";
+  let action = "Done";
+  if (id === "mph") {
+    title = "Governed speed";
+    wheels = `<div class="time-col">${pickerOptions(MPH_CHOICES, state.settings.governedMph, "mph")}</div>`;
+  } else if (id === "hoursOfEleven") {
+    title = "Hours I’ll drive out of the 11";
+    wheels = `<div class="time-col">${pickerOptions(HOS_ELEVEN, state.settings.hoursOfEleven, "hoursOfEleven")}</div>`;
+  } else if (id === "hoursBeforeThirty") {
+    title = "Hours into driving before 30-minute break";
+    wheels = `<div class="time-col">${pickerOptions(HOS_THIRTY, state.settings.hoursBeforeThirty, "hoursBeforeThirty", thirtyLabel)}</div>`;
+  } else if (id === "leaveAt") {
+    title = "Leave at";
+    step = "Date";
+    action = "Set the time";
+  } else if (id === "leaveAtTime" || id === "startTime" || id === "endTime") {
+    title = id === "leaveAtTime" ? "Leave at" : id === "startTime" ? "Day start" : "Day end";
+    step = id === "leaveAtTime" ? "Time" : "";
+    const minutes = id === "leaveAtTime"
+      ? new Date(state.settings.leaveAt).getHours() * 60 + new Date(state.settings.leaveAt).getMinutes()
+      : id === "startTime" ? state.settings.startMinutes : state.settings.endMinutes;
+    wheels = clockWheels(minutes);
+  }
+  return `<div class="time-sheet" id="pickerSheet">
+    <div class="time-sheet-card">
+      <p class="picker-title">${escapeAttr(title)}</p>
+      ${step ? `<p class="fine picker-step">${escapeAttr(step)}</p>` : ""}
+      ${id === "leaveAt"
+        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(state.settings.leaveAt)}" aria-label="Date">`
+        : `<div class="time-wheels">${wheels}</div>`}
+      <button type="button" class="primary" id="pickerDone">${escapeAttr(action)}</button>
+    </div>
+  </div>`;
+}
+
+function chosenWheel(part) {
+  return document.querySelector(`#pickerSheet [data-part="${part}"].on`)?.getAttribute("data-value");
+}
+
+function minutesFromSheet() {
+  const hour = Number(chosenWheel("hour"));
+  const minute = Number(chosenWheel("minute"));
+  const ap = chosenWheel("ampm");
+  if (state.settings.military) return hour * 60 + minute;
+  let h = hour % 12;
+  if (ap === "PM") h += 12;
+  return h * 60 + minute;
+}
+
+function readLeaveDate() {
+  const date = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const prev = new Date(state.settings.leaveAt);
+  if (!year || !month || !day) return state.settings.leaveAt;
+  return new Date(year, month - 1, day, prev.getHours(), prev.getMinutes()).getTime();
+}
+
+function commitPicker() {
+  const id = state.picker;
+  if (id === "leaveAt") {
+    state.settings.leaveAt = readLeaveDate();
+    state.picker = "leaveAtTime";
+    persist();
+    saveActiveTripSettings();
+    render();
+    return;
+  }
+  if (id === "mph") state.settings.governedMph = Number(chosenWheel("mph")) || DEFAULT_MPH;
+  if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
+  if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
+  if (id === "startTime") state.settings.startMinutes = minutesFromSheet();
+  if (id === "endTime") state.settings.endMinutes = minutesFromSheet();
+  if (id === "leaveAtTime") {
+    const date = new Date(state.settings.leaveAt);
+    const minutes = minutesFromSheet();
+    state.settings.leaveAt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.trunc(minutes / 60), minutes % 60).getTime();
+  }
+  state.picker = "";
+  persist();
+  saveActiveTripSettings();
+  render();
 }
 
 function bindSettings() {
@@ -2182,6 +2284,46 @@ function bindSettings() {
         if (id !== "tripName") saveActiveTripSettings();
       });
     }
+  });
+  document.querySelectorAll("[data-toggle]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const id = el.getAttribute("data-toggle");
+      if (id === "governed") state.settings.governed = !state.settings.governed;
+      if (id === "leaveNow") state.settings.leaveNow = !state.settings.leaveNow;
+      if (id === "startAnytime") state.settings.startAnytime = !state.settings.startAnytime;
+      if (id === "endAnytime") state.settings.endAnytime = !state.settings.endAnytime;
+      if (id === "military") state.settings.military = !state.settings.military;
+      if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
+      if (id === "arrival") state.settings.arrival = state.settings.arrival === "latest" ? "earliest" : "latest";
+      persist();
+      saveActiveTripSettings();
+      if (id === "arrival" && state.plan) calculate({ silent: true });
+      else render();
+    });
+  });
+  document.querySelectorAll("[data-pick]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const id = el.getAttribute("data-pick");
+      if (id === "mph") state.settings.governed = true;
+      state.picker = id;
+      render();
+    });
+  });
+  document.querySelectorAll("#pickerSheet .time-opt").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.parentElement.querySelectorAll(".time-opt").forEach((item) => item.classList.remove("on"));
+      button.classList.add("on");
+    });
+  });
+  document.querySelectorAll("#pickerSheet .time-opt.on").forEach((button) => {
+    button.scrollIntoView({ block: "center" });
+  });
+  document.getElementById("pickerDone")?.addEventListener("click", () => commitPicker());
+  document.querySelector("#pickerSheet [data-part=date]")?.addEventListener("change", () => commitPicker());
+  document.getElementById("pickerSheet")?.addEventListener("click", (event) => {
+    if (event.target.id !== "pickerSheet") return;
+    state.picker = "";
+    render();
   });
 }
 
