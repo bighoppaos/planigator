@@ -642,12 +642,12 @@ header .brand img {
 
 .hero-mark .pitch {
   width: 100%;
-  font-size: 4.7cqi;
-  line-height: 1.32;
+  font-size: 4.15cqi;
+  line-height: 1.28;
 }
 
 .hero-mark .pitch li {
-  margin: 0.22em 0;
+  margin: 0.12em 0;
   white-space: nowrap;
 }
 

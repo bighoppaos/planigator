@@ -2055,6 +2055,8 @@ function render() {
         <li>Know when to leave</li>
         <li>Know when to take your 30 and your 10</li>
         <li>Share the trip link with anyone</li>
+        <li>Choose governed speed</li>
+        <li>And more</li>
       </ul>
       </div>
     </section>
