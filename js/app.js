@@ -1845,19 +1845,12 @@ function directionsBlock() {
   </details>`;
 }
 
-function planChips() {
-  const events = state.plan?.events;
-  if (!Array.isArray(events) || !events.length) return "";
-  return events.map(chip).join("");
-}
-
 function planBox() {
   const plan = state.plan;
   if (!plan) return "";
   return `<section class="result">
     <div id="routeMap" class="route-map"></div>
     ${directionsBlock()}
-    ${planChips()}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2161,14 +2154,37 @@ function chip(event) {
   `;
 }
 
+function eventsAround(stopId) {
+  const events = state.plan?.events || [];
+  const self = events.find((event) => event.id === stopId);
+  const mine = events.filter((event) => event.stopID === stopId && event.id !== stopId && event.kind !== "leeway");
+  return {
+    before: mine.filter((event) => !self || event.start < self.start).sort((a, b) => a.start - b.start),
+    self,
+    following: mine.filter((event) => self && event.start >= self.start).sort((a, b) => a.start - b.start),
+    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1),
+    now: events.filter((event) => event.kind === "leeway" && event.after === -1),
+  };
+}
+
+function leewayInto(stopId) {
+  const dests = destinations();
+  const pos = dests.findIndex((item) => item.id === stopId);
+  if (pos <= 0) return [];
+  const prevId = dests[pos - 1].id;
+  return (state.plan?.events || []).filter((event) => event.kind === "leeway" && event.stopID === prevId && event.after !== -1);
+}
+
 function stopCard(stop, index) {
   const dests = destinations();
   const destIndex = dests.findIndex((item) => item.id === stop.id);
   const originStop = isOriginStop(state.stops, index);
   const rgb = stopColor(index, state.stops);
   const ink = stopInk(rgb);
+  const around = eventsAround(stop.id);
   const title = cardTitle(index, state.stops);
   const canRemove = !originStop && dests.length > 1;
+  const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
       <div class="stop-head">
@@ -2206,6 +2222,12 @@ function stopCard(stop, index) {
         ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
     </article>
+    ${leewayInto(stop.id).map(chip).join("")}
+    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
+    ${around.before.map(chip).join("")}
+    ${around.self ? chip(around.self) : ""}
+    ${laterStop ? "" : around.after.map(chip).join("")}
+    ${around.following.map(chip).join("")}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;
 }
