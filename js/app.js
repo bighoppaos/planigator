@@ -1841,15 +1841,24 @@ function chip(event) {
   const ink = stopInk(event.rgb);
   const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
   const hours = event.tripHours != null ? hoursLabel(event.tripHours) : "";
+  const middle = [hours, miles].filter(Boolean).join(" · ");
+  const span = event.end && event.end !== event.start
+    ? `${formatShort(event.start)} – ${formatShort(event.end)}`
+    : formatShort(event.start);
+  const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
+  const label = [event.timePhrase || "", toward].filter(Boolean).join(" · ");
+  const arrive = event.arrivalPhrase && event.earliestArrive
+    ? `${event.arrivalPhrase} ${formatShort(event.earliestArrive)}`
+    : "";
+  const section = (text, extra = "") => text
+    ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
+    : "";
   return `
     <div class="chip ${event.kind}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
-      <div class="chip-top">
-        <strong>${escapeAttr(event.timePhrase || "")}</strong>
-        <span>${escapeAttr(hours)}${miles ? ` · ${escapeAttr(miles)}` : ""}</span>
-      </div>
-      <div class="chip-time">${formatShort(event.start)}${event.end && event.end !== event.start ? ` – ${formatShort(event.end)}` : ""}</div>
-      ${event.arrivalPhrase && event.earliestArrive ? `<div class="chip-arrive ${event.late ? "late" : ""}">${escapeAttr(event.arrivalPhrase)} ${formatShort(event.earliestArrive)}</div>` : ""}
-      ${event.title && event.kind !== "stop" ? `<div class="chip-time">Toward ${escapeAttr(event.title)}</div>` : ""}
+      ${section(label)}
+      ${section(middle)}
+      ${section(span)}
+      ${section(arrive, event.late ? "late" : "")}
     </div>
   `;
 }

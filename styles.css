@@ -395,7 +395,7 @@ button.ghost.armed {
 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.stop-card, .chip {
+.stop-card {
   display: block;
   width: auto;
   max-width: 100%;
@@ -786,7 +786,7 @@ input.compact {
   width: 100%;
 }
 
-.stop-head, .chip-top, .icon-row {
+.stop-head, .icon-row {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -797,9 +797,24 @@ input.compact {
 .stop-head label { flex: 1; margin: 0; min-width: 0; overflow: hidden; }
 .icon-row { flex-shrink: 0; }
 
-.chip { font-size: 15px; }
-.chip-arrive { margin-top: 6px; font-weight: 700; }
-.chip-arrive.late, .error { color: #b42318; font-weight: 700; }
+.chip {
+  width: fit-content;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: break-word;
+}
+.chip-sec + .chip-sec {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid currentColor;
+}
+.chip-sec.late, .error { color: #b42318; font-weight: 700; }
 .ok { color: var(--mint); font-weight: 600; }
 .shared-note { margin: 16px 0 0; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
