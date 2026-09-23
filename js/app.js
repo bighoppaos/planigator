@@ -1902,8 +1902,8 @@ function stopCard(stop, index) {
   return `
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
+    ${around.self ? chip(around.self) : ""}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
-      ${around.self ? chip(around.self) : ""}
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
