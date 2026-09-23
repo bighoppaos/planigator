@@ -1288,17 +1288,19 @@ button[data-after],
 }
 
 .actions .trip-name {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   margin: 0 0 4px;
 }
 
-.actions .trip-name input {
-  width: 26ch;
-  max-width: 100%;
+.actions .trip-name textarea {
+  width: 100%;
+  height: calc(1.3em * 2 + 4px);
+  min-height: calc(1.3em * 2 + 4px);
+  max-height: calc(1.3em * 2 + 4px);
   margin: 2px 0 0;
   padding: 2px 0 0;
   border: 0;
@@ -1308,7 +1310,10 @@ button[data-after],
   color: inherit;
   font-size: 16px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.3;
+  resize: none;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .actions #calculate {

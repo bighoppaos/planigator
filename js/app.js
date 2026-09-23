@@ -1903,6 +1903,14 @@ function eventsAround(stopId) {
   };
 }
 
+function leewayInto(stopId) {
+  const dests = destinations();
+  const pos = dests.findIndex((item) => item.id === stopId);
+  if (pos <= 0) return [];
+  const prevId = dests[pos - 1].id;
+  return (state.plan?.events || []).filter((event) => event.kind === "leeway" && event.stopID === prevId && event.after !== -1);
+}
+
 function stopCard(stop, index) {
   const dests = destinations();
   const destIndex = dests.findIndex((item) => item.id === stop.id);
@@ -1912,11 +1920,13 @@ function stopCard(stop, index) {
   const around = eventsAround(stop.id);
   const title = cardTitle(index, state.stops);
   const canRemove = !originStop && dests.length > 1;
+  const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
+    ${leewayInto(stop.id).map(chip).join("")}
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
     ${around.self ? chip(around.self) : ""}
-    ${around.after.map(chip).join("")}
+    ${laterStop ? "" : around.after.map(chip).join("")}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
       <div class="stop-head">
         <label>
@@ -1932,7 +1942,7 @@ function stopCard(stop, index) {
       <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
       <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
       ${lookupMapPreview(stop)}
-      ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
+      ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-suggest="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${state.lookupStopId === stop.id && state.lookupMessage
         ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
         : ""}
@@ -2202,7 +2212,7 @@ function render() {
 
     <section class="actions" id="actions">
       <label class="flag-box trip-name">Trip name
-        <input id="tripName" value="${escapeAttr(state.tripName)}" placeholder="Optional — Dallas to Atlanta">
+        <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
       </label>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
@@ -2442,6 +2452,12 @@ function bindSettings() {
         apply(el);
         persist();
         if (id !== "tripName") saveActiveTripSettings();
+      });
+    }
+    if (id === "tripName") {
+      el.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
       });
     }
   });
@@ -2726,8 +2742,8 @@ function bind() {
       });
     });
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
-    card.querySelectorAll("[data-pick]").forEach((button) => {
-      button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-pick"))));
+    card.querySelectorAll("[data-suggest]").forEach((button) => {
+      button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-suggest"))));
     });
   });
   document.querySelectorAll("[data-after]").forEach((button) => {
