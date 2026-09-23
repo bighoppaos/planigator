@@ -786,6 +786,12 @@ input.compact {
   width: 100%;
 }
 
+.stack button.flag-box {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+}
+
 .stop-head, .icon-row {
   display: flex;
   gap: 8px;

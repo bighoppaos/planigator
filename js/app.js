@@ -1937,7 +1937,7 @@ function stopCard(stop, index) {
       `}`}
     </article>
     ${around.following.map(chip).join("")}
-    ${destIndex >= 0 && destIndex < dests.length - 1 ? `<button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
+    ${index < state.stops.length - 1 ? `<button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
     ${around.after.map(chip).join("")}
   `;
 }
@@ -2170,8 +2170,8 @@ function render() {
       </label>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
-        ${plan ? `<button type="button" class="secondary" id="shareTrip">Share trip link</button>` : ""}
-        ${plan && showInstallButton() ? `<button type="button" class="secondary" id="installApp">Add Planigator to your home screen</button>` : ""}
+        ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
+        ${plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
       ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
