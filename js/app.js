@@ -1585,8 +1585,8 @@ async function copyPlan() {
 
 function routeFromLine(originStop) {
   const point = originPoint();
-  if (point) return `<p>Routing from ${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}</p>`;
-  if (originStop) return `<p>Waiting for location. Allow Planigator, or type an address.</p>`;
+  if (point) return `<span class="flag-box">Routing from ${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}</span>`;
+  if (originStop) return `<span class="flag-box">Waiting for location. Allow Planigator, or type an address.</span>`;
   return "";
 }
 
@@ -2103,6 +2103,7 @@ function render() {
   if (!root) return;
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
+  const routeFrom = routeFromLine(origin);
   const destCards = state.stops
     .map((stop, index) => (stop.useCurrentLocation ? "" : stopCard(stop, index)))
     .join("");
@@ -2145,9 +2146,11 @@ function render() {
           ${settingToggle("military", "Military time", s.military)}
           ${settingToggle("kilometers", "Kilometers", s.kilometers)}
         </div>
-        ${routeFromLine(origin)}
         <div class="settings-grid action-grid">
-          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+          <span class="route-from">
+            <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+            ${routeFrom ? `<span class="when-arrow" aria-hidden="true"></span>${routeFrom}` : ""}
+          </span>
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
         </div>

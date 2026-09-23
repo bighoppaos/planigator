@@ -335,6 +335,19 @@ button.ghost.armed {
   border-left: 5px solid currentColor;
 }
 
+.route-from {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.route-from .flag-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
 .poof {
   position: fixed;
   z-index: 40;
