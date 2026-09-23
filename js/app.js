@@ -436,7 +436,7 @@ function applySharedTrip(data, { notice } = {}) {
 async function loadSharedCode(code) {
   try {
     applySharedTrip(await fetchShare(code), {
-      notice: "Opened a shared trip. Nothing was uploaded.",
+      notice: "Opened a shared trip. It is not saved to an account.",
     });
   } catch (error) {
     state.error = error.message || "That share link could not be opened.";
