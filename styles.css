@@ -748,6 +748,49 @@ body.app main { padding-top: 16px; }
   margin-top: 12px;
 }
 
+.lookup-preview { position: relative; margin-top: 10px; }
+.lookup-map { height: 168px; border-radius: 10px; overflow: hidden; }
+.lookup-map.is-live { height: auto; flex: 1; border-radius: 0; }
+.lookup-open {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: linear-gradient(transparent 40%, rgba(0, 0, 0, 0.45));
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+.lookup-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.lookup-sheet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.lookup-pin {
+  border: 0;
+  background: var(--mint);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 160px;
+  cursor: pointer;
+}
 .route-map {
   height: 280px;
   margin: 0 0 14px;

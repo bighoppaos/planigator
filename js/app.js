@@ -126,6 +126,7 @@ function defaultState() {
     lookupMessage: "",
     lookupStopId: "",
     lookupOk: false,
+    openLookupStopId: "",
     trips: [],
     origin: null,
     locating: false,
@@ -1075,7 +1076,13 @@ async function lookupAddress(id) {
   try {
     const data = await suggestAddresses(query);
     stop.suggestions = data.items || [];
+    state.openLookupStopId = "";
     if (data.credits != null) state.credits = data.credits;
+    if (stop.suggestions.length) {
+      setLookupMessage(id, stop.suggestions.length === 1
+        ? "Open the map, then tap the pin to use it."
+        : `Showing ${stop.suggestions.length} matches. Open the map, move around, then tap a pin.`, { ok: true });
+    }
   } catch (error) {
     stop.suggestions = [];
     if (error.credits != null) state.credits = error.credits;
@@ -1094,6 +1101,7 @@ function chooseSuggestion(id, index) {
   stop.lat = item.lat;
   stop.lon = item.lon;
   stop.suggestions = [];
+  if (state.openLookupStopId === id) state.openLookupStopId = "";
   stop.miles = "";
   stop.hours = "";
   state.plan = null;
@@ -1498,6 +1506,88 @@ function planBox() {
   </section>`;
 }
 
+function lookupPins(stop) {
+  return (stop?.suggestions || []).filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)));
+}
+
+function lookupMapPreview(stop) {
+  if (!lookupPins(stop).length) return "";
+  return `<div class="lookup-preview">
+    <div class="lookup-map" data-lookup-map="${escapeAttr(stop.id)}"></div>
+    <button type="button" class="lookup-open" data-open-map="${escapeAttr(stop.id)}">Open map</button>
+  </div>`;
+}
+
+function lookupMapSheet() {
+  const stop = state.stops.find((item) => item.id === state.openLookupStopId);
+  if (!stop || !lookupPins(stop).length) return "";
+  return `<div class="lookup-sheet" role="dialog" aria-modal="true" aria-label="Choose a stop">
+    <div class="lookup-sheet-bar">
+      <strong>Choose a stop</strong>
+      <button type="button" class="secondary" id="closeLookupMap">Close</button>
+    </div>
+    <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"></div>
+    <p class="fine">Move around, then tap a pin.</p>
+  </div>`;
+}
+
+let lookupMaps = [];
+
+function mountLookupMaps() {
+  lookupMaps.forEach((map) => map.remove());
+  lookupMaps = [];
+  const maplibre = window.maplibregl;
+  if (!maplibre) return;
+  document.querySelectorAll("[data-lookup-map]").forEach((el) => {
+    const stop = state.stops.find((item) => item.id === el.getAttribute("data-lookup-map"));
+    const pins = lookupPins(stop);
+    if (!pins.length) return;
+    const live = el.getAttribute("data-live") === "1";
+    const map = new maplibre.Map({
+      container: el,
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      attributionControl: live,
+      interactive: live,
+    });
+    if (!live) {
+      map.dragPan.disable();
+      map.scrollZoom.disable();
+      map.boxZoom.disable();
+      map.doubleClickZoom.disable();
+      map.touchZoomRotate.disable();
+      map.keyboard.disable();
+    }
+    map.on("load", () => {
+      const bounds = new maplibre.LngLatBounds();
+      pins.forEach((pin, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "lookup-pin";
+        button.textContent = pinLabel(pin.label);
+        if (live) {
+          button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            chooseSuggestion(stop.id, index);
+          });
+        }
+        new maplibre.Marker({ element: button, anchor: "bottom" })
+          .setLngLat([Number(pin.lon), Number(pin.lat)])
+          .addTo(map);
+        bounds.extend([Number(pin.lon), Number(pin.lat)]);
+      });
+      map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
+      map.resize();
+    });
+    lookupMaps.push(map);
+  });
+}
+
+function pinLabel(label) {
+  const text = String(label || "").split(",")[0].trim();
+  return text.length > 28 ? `${text.slice(0, 28)}…` : text;
+}
+
 function mountMap() {
   const el = document.getElementById("routeMap");
   const maplibre = window.maplibregl;
@@ -1588,6 +1678,7 @@ function stopCard(stop, index) {
         <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off">
       </label>
       <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+      ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${state.lookupStopId === stop.id && state.lookupMessage
         ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
@@ -1880,6 +1971,7 @@ function render() {
     </section>
 
     ${savedTripsBlock()}
+    ${lookupMapSheet()}
 
   `;
   bind();
@@ -1982,6 +2074,17 @@ function bind() {
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#deleteCard")?.addEventListener("click", () => deleteCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
+  document.querySelectorAll("[data-open-map]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.openLookupStopId = button.getAttribute("data-open-map") || "";
+      render();
+    });
+  });
+  document.getElementById("closeLookupMap")?.addEventListener("click", () => {
+    state.openLookupStopId = "";
+    render();
+  });
+  mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   $("#installApp")?.addEventListener("click", () => installApp());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
