@@ -124,6 +124,7 @@ function defaultState() {
     confirmRemoveId: null,
     confirmDeleteId: null,
     speedNote: "",
+    boxFont: 13,
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -178,6 +179,8 @@ function loadState() {
     state.activeTripId = saved.activeTripId || null;
     state.trips = Array.isArray(saved.trips) ? saved.trips : [];
     if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
+    const boxFont = Number(saved.boxFont);
+    if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
   } catch {
     return state;
   }
@@ -224,6 +227,7 @@ function persist() {
     trips: state.trips,
     origin: state.origin,
     plan: slimPlan(state.plan),
+    boxFont: state.boxFont,
   }));
 }
 
@@ -827,6 +831,7 @@ function resetEditor() {
     buying: state.buying,
     packPriceCents: state.packPriceCents,
     notice: state.notice,
+    boxFont: state.boxFont,
   };
   Object.assign(state, defaultState());
   Object.assign(state, keep);
@@ -854,6 +859,7 @@ function newTrip() {
     cardSavedNote: state.cardSavedNote,
     savingCard: state.savingCard,
     packPriceCents: state.packPriceCents,
+    boxFont: state.boxFont,
   };
   Object.assign(state, defaultState());
   Object.assign(state, keep);
@@ -2137,7 +2143,12 @@ function render() {
 
     ${authBlock()}
 
-    <section class="hos">
+    <section class="hos" style="--box-font: ${state.boxFont}px">
+      <div class="box-stepper">
+        <button type="button" class="flag-box" id="boxFontDown" ${state.boxFont <= 13 ? "disabled" : ""} aria-label="Smaller boxes">−</button>
+        <span class="flag-box">${state.boxFont}</span>
+        <button type="button" class="flag-box" id="boxFontUp" ${state.boxFont >= 28 ? "disabled" : ""} aria-label="Bigger boxes">+</button>
+      </div>
       <h2>Trip Settings</h2>
         <div class="settings-grid">
           <div class="set-box${s.governed ? " on" : ""}">
@@ -2564,6 +2575,16 @@ function bind() {
   });
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
+  $("#boxFontDown")?.addEventListener("click", () => {
+    state.boxFont = Math.max(13, state.boxFont - 1);
+    persist();
+    render();
+  });
+  $("#boxFontUp")?.addEventListener("click", () => {
+    state.boxFont = Math.min(28, state.boxFont + 1);
+    persist();
+    render();
+  });
   mountMap();
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#deleteCard")?.addEventListener("click", () => deleteCard());

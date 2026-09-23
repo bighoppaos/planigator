@@ -629,7 +629,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 0;
   text-align: center;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--box-font, 13px);
   font-weight: 700;
   line-height: 1.1;
 }
@@ -650,7 +650,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   text-align: center;
 }
 
-.set-name { font-size: 12px; font-weight: 600; }
+.set-name { font-size: calc(var(--box-font, 13px) * 12 / 13); font-weight: 600; }
 
 .set-box > .set-name {
   width: 100%;
@@ -673,7 +673,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .set-box.on > .set-value {
   border-top-color: rgb(255 255 255 / 0.75);
 }
-.set-value { font-size: 16px; font-weight: 700; }
+.set-value { font-size: calc(var(--box-font, 13px) * 16 / 13); font-weight: 700; }
 
 .set-fill {
   padding: 1px 4px;
@@ -684,7 +684,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .set-fill .set-name {
   width: 100%;
-  font-size: 12px;
+  font-size: calc(var(--box-font, 13px) * 12 / 13);
   font-weight: 700;
   line-height: 1;
 }
@@ -1209,6 +1209,22 @@ body.app main { padding-top: 2px; }
   font-weight: 600;
 }
 .trips li.active button[data-load] span { color: inherit; }
+
+.box-stepper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 4px;
+}
+
+.box-stepper .flag-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7em;
+  text-align: center;
+}
 
 .hos h2, .stops h2, .origin h2, .actions h2, .result h2, .trips h2, .card h2 {
   margin-top: 0;
