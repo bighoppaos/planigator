@@ -1903,6 +1903,7 @@ function stopCard(stop, index) {
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
     ${around.self ? chip(around.self) : ""}
+    ${around.after.map(chip).join("")}
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
       <div class="stop-head">
         <label>
@@ -1938,7 +1939,6 @@ function stopCard(stop, index) {
     </article>
     ${around.following.map(chip).join("")}
     ${index < state.stops.length - 1 ? `<button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>` : ""}
-    ${around.after.map(chip).join("")}
   `;
 }
 
