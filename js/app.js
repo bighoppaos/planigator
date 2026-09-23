@@ -1931,7 +1931,7 @@ function stopCard(stop, index) {
       </div>
       ${stop.anytime ? "" : `
         ${stop.window ? whenRow("Opens", stop, "start", stop.start) : ""}
-        ${whenRow("Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
+        ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
     </article>
     ${around.following.map(chip).join("")}
@@ -2229,6 +2229,7 @@ function pickerStopMs() {
 function stopWhenTitle() {
   const stop = pickerStop();
   if (state.pickerTarget?.field === "start" && stop?.window) return "Opens";
+  if (state.pickerTarget?.field === "end" && stop?.window) return "Closes";
   return "Be there by";
 }
 
