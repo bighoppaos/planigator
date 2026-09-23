@@ -592,8 +592,8 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   state.plan = result;
   state.error = "";
   if (!silent) state.speedNote = "";
-  if (!skipHash) saveTrip();
-  if (state.signedIn && !skipHash) {
+  if (!skipHash && state.signedIn) {
+    saveTrip();
     try {
       await putTrips(state.trips);
       markTripsUploaded();
@@ -602,7 +602,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
       if (!silent) state.notice = error.message || "Saved on this device. The account copy did not update.";
     }
   } else if (!silent) {
-    state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
+    state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}).`;
   }
   render();
   persist();
@@ -738,11 +738,18 @@ function markTripsUploaded() {
 }
 
 async function pullAccountTrips() {
-  if (!state.signedIn) return;
+  if (!state.signedIn) {
+    const kept = state.trips.filter((trip) => trip && !trip.pendingUpload);
+    if (kept.length !== state.trips.length) {
+      state.trips = kept;
+      if (state.activeTripId && !state.trips.some((trip) => trip.id === state.activeTripId)) state.activeTripId = null;
+      persist();
+    }
+    return;
+  }
   try {
     const data = await fetchTrips();
     const remote = Array.isArray(data.trips) ? data.trips : [];
-    const remoteIds = new Set(remote.map((trip) => trip?.id).filter(Boolean));
     const byId = new Map();
     for (const trip of remote) {
       if (!trip?.id) continue;
@@ -753,10 +760,6 @@ async function pullAccountTrips() {
         kept.stops = copyRouteLine(kept.stops, local?.stops);
         byId.set(trip.id, kept);
       }
-    }
-    for (const trip of state.trips) {
-      if (!trip?.id || remoteIds.has(trip.id)) continue;
-      if (trip.pendingUpload) byId.set(trip.id, trip);
     }
     state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
     if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
@@ -2514,12 +2517,12 @@ function render() {
     </section>
 
     ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
-    ${planBox()}
 
     <section class="stops">
       ${destCards}
-      <button type="button" class="flag-box" id="addStop">Add a stop</button>
     </section>
+
+    ${planBox()}
 
     <section class="actions" id="actions">
       <label class="flag-box trip-name">Trip name
@@ -2970,7 +2973,6 @@ function bind() {
   $("#locate")?.addEventListener("click", () => locate());
   $("#fromAddress")?.addEventListener("click", () => startFromAddress());
   $("#newTrip")?.addEventListener("click", () => newTrip());
-  $("#addStop")?.addEventListener("click", () => addStop());
   document.querySelectorAll("[data-load]").forEach((button) => {
     button.addEventListener("click", () => loadTrip(button.getAttribute("data-load")));
   });
