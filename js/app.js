@@ -23,6 +23,7 @@ import {
   planPlainText,
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
+import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
@@ -642,6 +643,27 @@ function loadTrip(id) {
     render();
     persist();
   }
+}
+
+function loadExample() {
+  const trip = JSON.parse(JSON.stringify(EXAMPLE_TRIP));
+  state.settings = { ...state.settings, ...(trip.settings || {}) };
+  delete state.settings.sleepHours;
+  delete state.settings.readyMinutes;
+  state.stops = Array.isArray(trip.stops) ? trip.stops : [];
+  state.tripName = trip.tripName || trip.name || "";
+  state.activeTripId = null;
+  state.origin = trip.origin || null;
+  const gps = state.stops.find((stop) => stop.useCurrentLocation);
+  if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
+    state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
+  }
+  state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
+  state.speedNote = "";
+  state.error = "";
+  state.notice = `Opened ${trip.name}.`;
+  render();
+  persist();
 }
 
 async function deleteTrip(id) {
@@ -2034,11 +2056,12 @@ async function installApp() {
 
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
+  const example = `<p class="fine"><button type="button" class="text-button" id="loadExample">Load an example trip</button></p>`;
   const google = state.signedIn
-    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button></div>`
+    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
     : state.googleClientId
-      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p></div>`
-      : `<p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>`;
+      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p>${example}</div>`
+      : `<div class="auth-row"><p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>${example}</div>`;
   const card = !state.signedIn
     ? ""
     : state.cardOnFile
@@ -2616,6 +2639,7 @@ function bind() {
   mountAuth();
   syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
+  $("#loadExample")?.addEventListener("click", () => loadExample());
   $("#revealEmail")?.addEventListener("click", () => {
     state.emailRevealed = !state.emailRevealed;
     render();
