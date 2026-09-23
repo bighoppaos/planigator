@@ -1349,17 +1349,18 @@ function poofBox(el) {
   node.setAttribute("aria-hidden", "true");
   node.style.left = `${rect.left + rect.width / 2}px`;
   node.style.top = `${rect.top + rect.height / 2}px`;
-  const reach = Math.max(12, Math.min(22, Math.min(rect.width, rect.height) * 0.45));
-  for (let i = 0; i < 6; i += 1) {
+  const reach = Math.max(16, Math.min(28, Math.min(rect.width, rect.height) * 0.55));
+  for (let i = 0; i < 8; i += 1) {
     const bit = document.createElement("i");
-    const angle = (Math.PI * 2 * i) / 6;
-    bit.style.setProperty("--dx", `${Math.cos(angle) * reach}px`);
-    bit.style.setProperty("--dy", `${Math.sin(angle) * reach}px`);
+    const angle = (Math.PI * 2 * i) / 8 + 0.2;
+    const dist = reach * (0.75 + (i % 3) * 0.18);
+    bit.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+    bit.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
     node.append(bit);
   }
   document.body.append(node);
   el.remove();
-  window.setTimeout(() => node.remove(), 400);
+  window.setTimeout(() => node.remove(), 420);
 }
 
 function popConfetti() {

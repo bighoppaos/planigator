@@ -338,13 +338,27 @@ button.ghost.armed {
 .poof {
   position: fixed;
   z-index: 40;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
   border-radius: 50%;
   pointer-events: none;
-  background: radial-gradient(circle, rgb(255 253 248 / 0.95), rgb(130 128 122 / 0.55) 46%, transparent 72%);
-  animation: poof-core 340ms ease-out forwards;
+  background: radial-gradient(circle, #fff6c8 0%, #ffb020 30%, #e23b0c 62%, transparent 74%);
+  box-shadow: 0 0 12px 4px rgb(255 110 16 / 0.7);
+  animation: poof-core 380ms ease-out forwards;
+}
+
+.poof::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid rgb(255 176 40 / 0.9);
+  border-radius: 50%;
+  animation: poof-ring 380ms ease-out forwards;
 }
 
 .poof i {
@@ -352,20 +366,31 @@ button.ghost.armed {
   left: 50%;
   top: 50%;
   display: block;
-  width: 7px;
-  height: 7px;
-  margin: -3.5px 0 0 -3.5px;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
-  background: rgb(168 164 156 / 0.8);
-  animation: poof-bit 340ms ease-out forwards;
+  background: #ffd15a;
+  box-shadow: 0 0 6px 1px rgb(255 80 12 / 0.9);
+  animation: poof-bit 380ms ease-out forwards;
 }
 
+.poof i:nth-child(3n) { background: #ff4d12; }
+.poof i:nth-child(3n+1) { background: #ffe38a; }
+.poof i:nth-child(3n+2) { background: #ff8a14; }
+
 @keyframes poof-core {
-  to { opacity: 0; transform: scale(2.2); }
+  0% { opacity: 1; transform: scale(0.35); }
+  30% { opacity: 1; transform: scale(1.7); }
+  100% { opacity: 0; transform: scale(2.5); }
+}
+
+@keyframes poof-ring {
+  to { opacity: 0; transform: scale(1.9); }
 }
 
 @keyframes poof-bit {
-  to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.35); }
+  to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.2); }
 }
 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
