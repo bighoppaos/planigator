@@ -1952,9 +1952,10 @@ function hereLeg(stop) {
   const miles = Number(stop.miles) || 0;
   const hours = Number(stop.hours) || 0;
   if (miles > 0.05 || hours > 0.0001) {
-    const milesBox = miles > 0.05 ? `<span class="flag-box">${escapeAttr(formatMiles(miles))}</span>` : "";
-    const timeBox = hours > 0.0001 ? `<span class="flag-box">${escapeAttr(hoursLabel(hours))} from HERE<sup>©</sup></span>` : "";
-    return `<div class="here-leg">${milesBox}${timeBox}</div>`;
+    const parts = [];
+    if (miles > 0.05) parts.push(formatMiles(miles));
+    if (hours > 0.0001) parts.push(hoursLabel(hours));
+    return `<p class="flag-box">${escapeAttr(parts.join(" · "))} from HERE<sup>©</sup></p>`;
   }
   return "";
 }
