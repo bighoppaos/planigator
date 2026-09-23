@@ -340,6 +340,10 @@ function whenBox(stop, field, ms) {
   return `<button type="button" class="flag-box" data-stop-when="${escapeAttr(stop.id)}" data-stop-field="${field}">${escapeAttr(formatShort(ms))}</button>`;
 }
 
+function whenRow(label, stop, field, ms) {
+  return `<div class="when-row"><span class="flag-box">${escapeAttr(label)}</span><span class="when-arrow" aria-hidden="true"></span>${whenBox(stop, field, ms)}</div>`;
+}
+
 function dateChip({ id = "", field = "", ms, disabled = false }) {
   const d = new Date(ms);
   const dateValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -1883,8 +1887,8 @@ function stopCard(stop, index) {
         <button type="button" class="flag-box${stop.window ? " on" : ""}" data-toggle-field="window">Window</button>
       </div>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<div class="when-row"><span class="flag-box">Opens</span>${whenBox(stop, "start", stop.start)}</div>` : ""}
-        <div class="when-row"><span class="flag-box">Be there by</span>${whenBox(stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}</div>
+        ${stop.window ? whenRow("Opens", stop, "start", stop.start) : ""}
+        ${whenRow("Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
     </article>
     ${around.following.map(chip).join("")}

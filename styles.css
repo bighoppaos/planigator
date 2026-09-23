@@ -324,6 +324,14 @@ button.ghost.armed {
   margin-top: 4px;
 }
 
+.when-arrow {
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 5px solid currentColor;
+}
+
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card, .chip {
