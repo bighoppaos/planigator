@@ -1862,7 +1862,7 @@ function stopCard(stop, index) {
       <label>Address
         <input data-field="address" value="${escapeAttr(stop.address)}" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off">
       </label>
-      <button type="button" class="add-inline" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+      <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
       ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-pick="${index}">${escapeAttr(item.label)}</button>`).join("")}
       ${state.lookupStopId === stop.id && state.lookupMessage
@@ -1878,8 +1878,8 @@ function stopCard(stop, index) {
         <button type="button" class="flag-box${stop.window ? " on" : ""}" data-toggle-field="window">Window</button>
       </div>
       ${stop.anytime ? "" : `
-        ${stop.window ? `<label class="setting"><span>Opens</span>${dateChip({ field: "start", ms: stop.start })}</label>` : ""}
-        <label class="setting"><span>Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</label>
+        ${stop.window ? `<div class="when-row"><span class="flag-box">Opens</span>${dateChip({ field: "start", ms: stop.start })}</div>` : ""}
+        <div class="when-row"><span class="flag-box">Be there by</span>${dateChip({ field: stop.window ? "end" : "start", ms: stop.window ? stop.end : stop.start })}</div>
       `}`}
     </article>
     ${around.following.map(chip).join("")}

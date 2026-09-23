@@ -312,6 +312,18 @@ button.ghost.armed {
   color: #fff;
 }
 
+.stop-card .lookup {
+  margin-top: 4px;
+}
+
+.when-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card, .chip {
@@ -490,28 +502,33 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin: 8px 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 4px 0 8px;
 }
 
 .set-box {
-  min-height: 72px;
+  min-height: 0;
+  width: auto;
+  max-width: 100%;
   margin: 0;
-  padding: 8px 6px;
+  padding: 1px 4px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--card);
   color: var(--ink);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 0;
   text-align: center;
   font: inherit;
-  line-height: 1.15;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
 .set-box.on {
@@ -556,9 +573,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .set-value { font-size: 16px; font-weight: 700; }
 
 .set-fill {
-  padding: 3px 4px;
-  gap: 1px;
-  justify-content: space-between;
+  padding: 1px 4px;
+  gap: 0;
+  justify-content: center;
   min-width: 0;
 }
 
@@ -576,15 +593,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-top: 1px solid var(--line);
 }
 
-.action-grid { margin-top: 12px; }
-
-.action-grid .set-box {
-  padding: 3px 4px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.05;
-  min-width: 0;
-}
+.action-grid { margin-top: 4px; }
 
 .picker-title {
   margin: 0;
