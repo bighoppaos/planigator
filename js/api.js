@@ -129,11 +129,3 @@ export function fetchTrips() {
 export function putTrips(trips) {
   return api("/v1/trips", { method: "PUT", body: JSON.stringify({ trips }) });
 }
-
-export function fetchSettings() {
-  return api("/v1/settings");
-}
-
-export function putSettings(settings) {
-  return api("/v1/settings", { method: "PUT", body: JSON.stringify({ settings }) });
-}

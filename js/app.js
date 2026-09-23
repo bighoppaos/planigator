@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, fetchSettings, putSettings, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -188,13 +188,25 @@ function settingsForSave() {
   return settings;
 }
 
-let settingsSaveTimer = null;
+let tripSettingsTimer = null;
 
-function saveAccountSettings() {
+function saveActiveTripSettings() {
+  const trip = state.trips.find((item) => item.id === state.activeTripId);
+  if (!trip || !state.plan) return;
+  trip.settings = settingsForSave();
+  trip.savedAt = Date.now();
+  trip.pendingUpload = true;
+  persist();
   if (!state.signedIn) return;
-  clearTimeout(settingsSaveTimer);
-  settingsSaveTimer = setTimeout(() => {
-    putSettings(settingsForSave()).catch(() => {});
+  clearTimeout(tripSettingsTimer);
+  tripSettingsTimer = setTimeout(async () => {
+    try {
+      await putTrips(state.trips);
+      markTripsUploaded();
+      persist();
+    } catch {
+      // The trip still has the new settings on this device.
+    }
   }, 400);
 }
 
@@ -560,6 +572,9 @@ function saveTrip() {
 function loadTrip(id) {
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
+  state.settings = { ...state.settings, ...(trip.settings || {}) };
+  delete state.settings.sleepHours;
+  delete state.settings.readyMinutes;
   state.stops = trip.stops.map((stop) => ({ ...stop }));
   state.tripName = trip.tripName || trip.name || "";
   state.activeTripId = trip.id;
@@ -597,26 +612,8 @@ function markTripsUploaded() {
   state.trips = state.trips.map((trip) => ({ ...trip, pendingUpload: false }));
 }
 
-async function pullAccountSettings() {
-  if (!state.signedIn) return;
-  try {
-    const data = await fetchSettings();
-    if (data.settings && typeof data.settings === "object") {
-      state.settings = { ...defaultState().settings, ...data.settings };
-      delete state.settings.sleepHours;
-      delete state.settings.readyMinutes;
-      persist();
-      return;
-    }
-    await putSettings(settingsForSave());
-  } catch {
-    // Keep the settings already on this device.
-  }
-}
-
 async function pullAccountTrips() {
   if (!state.signedIn) return;
-  await pullAccountSettings();
   try {
     const data = await fetchTrips();
     const remote = Array.isArray(data.trips) ? data.trips : [];
@@ -2137,7 +2134,7 @@ function bindSettings() {
     el.addEventListener("change", () => {
       apply(el);
       persist();
-      if (id !== "tripName") saveAccountSettings();
+      if (id !== "tripName") saveActiveTripSettings();
       if (id === "arrival" && state.plan) calculate({ silent: true });
       else if (id !== "tripName") render();
     });
@@ -2145,7 +2142,7 @@ function bindSettings() {
       el.addEventListener("input", () => {
         apply(el);
         persist();
-        if (id !== "tripName") saveAccountSettings();
+        if (id !== "tripName") saveActiveTripSettings();
       });
     }
   });
@@ -2167,7 +2164,7 @@ function applyClock(wrap) {
   if (id === "startTime") state.settings.startMinutes = total;
   if (id === "endTime") state.settings.endMinutes = total;
   persist();
-  saveAccountSettings();
+  saveActiveTripSettings();
   render();
 }
 
@@ -2180,7 +2177,7 @@ function applyWhen(wrap) {
   if (wrap.getAttribute("data-when") === "leaveAt") {
     state.settings.leaveAt = ms;
     persist();
-    saveAccountSettings();
+    saveActiveTripSettings();
     render();
     return;
   }
