@@ -427,7 +427,7 @@ function applySharedTrip(data, { notice } = {}) {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
-  state.notice = notice || "Opened a shared trip. It is not saved to an account.";
+  state.notice = notice || "Opened a shared trip.";
   persist();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else render();
@@ -436,7 +436,7 @@ function applySharedTrip(data, { notice } = {}) {
 async function loadSharedCode(code) {
   try {
     applySharedTrip(await fetchShare(code), {
-      notice: "Opened a shared trip. It is not saved to an account.",
+      notice: "Opened a shared trip.",
     });
   } catch (error) {
     state.error = error.message || "That share link could not be opened.";
