@@ -129,3 +129,11 @@ export function fetchTrips() {
 export function putTrips(trips) {
   return api("/v1/trips", { method: "PUT", body: JSON.stringify({ trips }) });
 }
+
+export function createShare(trip) {
+  return api("/v1/share", { method: "POST", body: JSON.stringify(trip) });
+}
+
+export function fetchShare(code) {
+  return api(`/v1/share/${encodeURIComponent(code)}`);
+}

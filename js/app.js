@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -421,10 +421,27 @@ function applySharedTrip(data, { notice } = {}) {
   if (Array.isArray(data.stops) && data.stops.length) state.stops = data.stops.map((stop) => ({ ...stop }));
   state.tripName = data.tripName || "";
   state.activeTripId = null;
-  state.origin = null;
+  state.origin = data.origin || null;
+  const gps = state.stops.find((stop) => stop.useCurrentLocation);
+  if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
+    state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
+  }
+  state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
   state.notice = notice || "Opened a shared trip. Nothing was uploaded.";
   persist();
-  calculate({ silent: true, skipHash: true });
+  if (!state.plan) calculate({ silent: true, skipHash: true });
+  else render();
+}
+
+async function loadSharedCode(code) {
+  try {
+    applySharedTrip(await fetchShare(code), {
+      notice: "Opened a shared trip. Nothing was uploaded.",
+    });
+  } catch (error) {
+    state.error = error.message || "That share link could not be opened.";
+    render();
+  }
 }
 
 function hasRouteLine(stops) {
@@ -532,7 +549,6 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   } else if (!silent) {
     state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved in this browser.`;
   }
-  if (!skipHash) writeShareHash();
   render();
   persist();
 }
@@ -1447,13 +1463,31 @@ function mountAuth() {
   }
 }
 
-function currentShareUrl() {
-  if (location.hash.startsWith("#t=")) return location.href;
-  return writeShareHash();
+function sharePayload() {
+  return {
+    v: 2,
+    tripName: state.tripName,
+    settings: settingsForSave(),
+    origin: originPoint(),
+    plan: slimPlan(state.plan),
+    stops: state.stops.map((stop) => {
+      const copy = { ...stop };
+      delete copy.suggestions;
+      return copy;
+    }),
+  };
 }
 
 async function shareTrip() {
-  const url = currentShareUrl();
+  let saved;
+  try {
+    saved = await createShare(sharePayload());
+  } catch (error) {
+    state.error = error.message || "Could not make a share link.";
+    render();
+    return;
+  }
+  const url = saved.url || `${location.origin}/t/${saved.code}`;
   const title = state.tripName.trim() || "Planigator trip";
   try {
     if (navigator.share) {
@@ -1947,6 +1981,8 @@ export function initPlanner(el) {
   if (card === "1") state.cardSavedNote = true;
   if (card === "0") state.notice = "Card setup canceled. No free credits were added.";
   applyShareFromLocation();
+  const shareCode = new URLSearchParams(location.search).get("s");
+  if (shareCode) loadSharedCode(shareCode);
   render();
   refreshCredits().then(async () => {
     if (sessionStorage.getItem("planigator.web.signup") === "1") {
