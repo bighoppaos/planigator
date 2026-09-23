@@ -1636,9 +1636,47 @@ function mountMap() {
         source: "route",
         paint: { "line-color": "#1f8a62", "line-width": 4 },
       });
-    const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
-    map.fitBounds(bounds, { padding: 28, maxZoom: 8 });
+      const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
+      const markers = routePins().map((pin) => {
+        const ink = stopInk(pin.rgb);
+        const button = document.createElement("span");
+        button.className = "route-pin";
+        button.textContent = pin.label;
+        button.style.background = cssRGB(pin.rgb);
+        button.style.color = ink.color;
+        const marker = new maplibre.Marker({ element: button, anchor: "bottom" })
+          .setLngLat([pin.lon, pin.lat])
+          .addTo(map);
+        bounds.extend([pin.lon, pin.lat]);
+        return marker;
+      });
+      map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
+      map.once("idle", () => {
+        const placed = [];
+        markers.forEach((marker) => {
+          const point = map.project(marker.getLngLat());
+          let lift = 0;
+          for (const other of placed) {
+            if (Math.abs(other.x - point.x) < 72 && Math.abs(other.y - (point.y - lift)) < 26) lift += 26;
+          }
+          if (lift) marker.setOffset([0, -lift]);
+          placed.push({ x: point.x, y: point.y - lift });
+        });
+      });
+    });
+}
+
+function routePins() {
+  const pins = [];
+  state.stops.forEach((stop, index) => {
+    const here = stop.useCurrentLocation ? originPoint() : null;
+    const lat = here ? here.lat : Number(stop.lat);
+    const lon = here ? here.lon : Number(stop.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const label = stop.useCurrentLocation ? "Now" : cardTitle(index, state.stops);
+    pins.push({ lat, lon, label, rgb: stopColor(index, state.stops) });
   });
+  return pins;
 }
 
 function chip(event) {

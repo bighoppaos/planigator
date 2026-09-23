@@ -802,6 +802,18 @@ body.app main { padding-top: 16px; }
 }
 
 .route-map img { max-width: none; }
+.route-pin {
+  border: 2px solid #fff;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
 .route-map .maplibregl-ctrl-attrib { font-size: 10px; background: rgba(0, 0, 0, 0.55); }
 .route-map .maplibregl-ctrl-attrib, .route-map .maplibregl-ctrl-attrib a { color: #fff; }
 
