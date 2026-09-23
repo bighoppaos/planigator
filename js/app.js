@@ -2075,7 +2075,7 @@ function render() {
 
     ${authBlock()}
 
-    <section class="card hos">
+    <section class="hos">
       <h2>Trip Settings</h2>
         <div class="settings-grid">
           <div class="set-box${s.governed ? " on" : ""}">

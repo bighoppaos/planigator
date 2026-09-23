@@ -448,6 +448,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   text-align: center;
 }
 
+.hos {
+  margin: 8px -12px 16px;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -461,7 +468,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 8px 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--bg);
+  background: var(--card);
   color: var(--ink);
   display: flex;
   flex-direction: column;
