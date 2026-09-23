@@ -30,6 +30,9 @@ const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
+const lookupClosed = new Set();
+const usingDismissed = new Set();
+const usingTimers = new Map();
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
 
 function pad(n) {
@@ -774,6 +777,8 @@ function updateStop(id, patch) {
   if ("address" in patch) {
     const typed = String(patch.address || "").trim();
     if (typed !== (stop.verifiedLabel || "")) {
+      lookupClosed.delete(id);
+      clearUsingNote(id);
       stop.miles = "";
       stop.hours = "";
       stop.verifiedLabel = "";
@@ -1204,6 +1209,28 @@ function setLookupMessage(stopId, message, { ok = false } = {}) {
   state.lookupOk = ok;
 }
 
+function clearUsingNote(id) {
+  const timer = usingTimers.get(id);
+  if (timer) window.clearTimeout(timer);
+  usingTimers.delete(id);
+  usingDismissed.delete(id);
+}
+
+function dismissUsingNote(id) {
+  usingDismissed.add(id);
+  usingTimers.delete(id);
+  if (state.lookupStopId === id && state.lookupMessage === "Using that address.") clearLookupMessage();
+  document.querySelectorAll(`.stop-card[data-stop="${id}"] p`).forEach((note) => {
+    const text = note.textContent || "";
+    if (text === "Using that address." || text === "Using this address.") note.remove();
+  });
+}
+
+function armUsingNote(id) {
+  if (usingDismissed.has(id) || usingTimers.has(id)) return;
+  usingTimers.set(id, window.setTimeout(() => dismissUsingNote(id), 5000));
+}
+
 async function lookupAddress(id) {
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
@@ -1223,6 +1250,7 @@ async function lookupAddress(id) {
     render();
     return;
   }
+  lookupClosed.add(id);
   state.looking = id;
   clearLookupMessage();
   render();
@@ -1284,6 +1312,7 @@ function chooseSuggestion(id, index) {
   stop.miles = "";
   stop.hours = "";
   state.plan = null;
+  clearUsingNote(id);
   setLookupMessage(id, "Using that address.", { ok: true });
   persist();
   render();
@@ -2155,7 +2184,7 @@ function stopCard(stop, index) {
       </div>
       <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
       <div class="lookup-row">
-        <button type="button" class="flag-box lookup" data-act="lookup" ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+        <button type="button" class="flag-box lookup" data-act="lookup"${lookupClosed.has(stop.id) ? " hidden" : ""} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
         <button type="button" class="flag-box" data-act="paste">Paste an address</button>
       </div>
       ${lookupMapPreview(stop)}
@@ -2163,7 +2192,7 @@ function stopCard(stop, index) {
       ${state.lookupStopId === stop.id && state.lookupMessage
         ? `<p class="${state.lookupOk ? "ok" : "error"}">${escapeAttr(state.lookupMessage)}</p>`
         : ""}
-      ${pointReady(stop) && !(state.lookupStopId === stop.id && state.lookupOk)
+      ${pointReady(stop) && !usingDismissed.has(stop.id) && !(state.lookupStopId === stop.id && state.lookupOk)
         ? `<p class="flag-box">Using this address.</p>`
         : ""}
       ${originStop ? "" : hereLeg(stop)}
@@ -2913,6 +2942,10 @@ function bind() {
       };
       input.addEventListener("change", apply);
       if (field === "address") {
+        input.addEventListener("focus", () => {
+          if (!lookupClosed.delete(id)) return;
+          card.querySelector("[data-act=lookup]")?.removeAttribute("hidden");
+        });
         input.addEventListener("keydown", (event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
@@ -2971,6 +3004,11 @@ function bind() {
       });
     });
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
+    const usingNote = [...card.querySelectorAll("p")].some((note) => {
+      const text = note.textContent || "";
+      return text === "Using that address." || text === "Using this address.";
+    });
+    if (usingNote) armUsingNote(id);
     card.querySelector("[data-act=paste]")?.addEventListener("click", () => pasteAddress(id));
     card.querySelectorAll("[data-suggest]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-suggest"))));
