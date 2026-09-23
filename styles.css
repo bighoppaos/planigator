@@ -600,7 +600,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .directions button.dir-step.on .dir-link { text-decoration: none; }
 .directions button.dir-step.on span { color: #fff; }
 .dir-scroll {
-  width: fit-content;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 100%;
   max-height: 200px;
   margin-top: 4px;
@@ -610,7 +611,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 1px solid currentColor;
   border-radius: 6px;
 }
-.dir-scroll ol { margin: 0; }
+.dir-scroll ol {
+  margin: 0;
+  padding-left: 3em;
+}
+.dir-scroll .dir-leg {
+  margin-left: 0;
+}
 
 .here-leg {
   display: flex;
