@@ -2227,6 +2227,19 @@ function render() {
   bind();
 }
 
+function mphWheel() {
+  const current = state.settings.governed ? String(state.settings.governedMph) : "off";
+  const rows = [
+    { value: "off", label: "Off" },
+    ...MPH_CHOICES.map((mph) => ({ value: String(mph), label: String(mph) })),
+    { value: "off2", label: "Off" },
+  ];
+  return rows.map((row) => {
+    const on = row.value === current ? " on" : "";
+    return `<button type="button" class="time-opt${on}" data-part="mph" data-value="${row.value}">${row.label}</button>`;
+  }).join("");
+}
+
 function pickerOptions(values, current, part, labelFn = String) {
   return values.map((value) => {
     const on = String(value) === String(current) ? " on" : "";
@@ -2281,7 +2294,7 @@ function pickerSheet() {
   let action = "Done";
   if (id === "mph") {
     title = "Governed speed";
-    wheels = `<div class="time-col">${pickerOptions(MPH_CHOICES, state.settings.governedMph, "mph")}</div>`;
+    wheels = `<div class="time-col">${mphWheel()}</div>`;
   } else if (id === "hoursOfEleven") {
     title = "Hours I’ll drive out of the 11";
     wheels = `<div class="time-col">${pickerOptions(HOS_ELEVEN, state.settings.hoursOfEleven, "hoursOfEleven")}</div>`;
@@ -2375,9 +2388,16 @@ function commitPicker() {
     return;
   }
   if (id === "mph") {
-    const next = Number(chosenWheel("mph")) || DEFAULT_MPH;
-    if (next !== Number(state.settings.governedMph)) markGovernedStale();
-    state.settings.governedMph = next;
+    const raw = chosenWheel("mph");
+    if (raw === "off" || raw === "off2") {
+      if (state.settings.governed) markGovernedStale();
+      state.settings.governed = false;
+    } else {
+      const next = Number(raw) || DEFAULT_MPH;
+      if (next !== Number(state.settings.governedMph)) markGovernedStale();
+      state.settings.governed = true;
+      state.settings.governedMph = next;
+    }
   }
   if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
   if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
