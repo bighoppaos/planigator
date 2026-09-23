@@ -813,7 +813,24 @@ input.compact {
   min-width: 0;
 }
 
-.stop-head label { flex: 1; margin: 0; min-width: 0; overflow: hidden; }
+.stop-head label { flex: 1; margin: 0; min-width: 0; overflow: visible; }
+
+.stop-head input.plain {
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  min-width: 7ch;
+  margin: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+  field-sizing: content;
+}
 .icon-row { flex-shrink: 0; }
 
 .chip {
