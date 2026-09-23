@@ -1851,8 +1851,8 @@ function chip(event) {
   const ink = stopInk(event.rgb);
   const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
   const restMinutes = Math.round(Number(event.tripHours) * 60);
-  const hidePlainTen = event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60;
-  const hours = event.tripHours != null && !hidePlainTen ? hoursLabel(event.tripHours) : "";
+  const hideHours = event.kind === "thirty" || (event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60);
+  const hours = event.tripHours != null && !hideHours ? hoursLabel(event.tripHours) : "";
   const middle = event.kind === "leeway" && hours
     ? `${hours} / ${leewayDays(event.tripHours)}`
     : [hours, miles].filter(Boolean).join(" · ");
