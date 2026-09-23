@@ -374,7 +374,7 @@ function calculateButtonLabel() {
     : (state.signedIn || state.cardOnFile) && state.credits != null
       ? `${state.credits} left`
       : "";
-  return ["Calculate", use, left].filter(Boolean).join(" · ");
+  return [state.plan ? "Recalculate" : "Calculate", use, left].filter(Boolean).join(" · ");
 }
 
 const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
