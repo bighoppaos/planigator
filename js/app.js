@@ -2117,6 +2117,7 @@ async function watchSignIn() {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
   const routeFrom = routeFromLine(origin);

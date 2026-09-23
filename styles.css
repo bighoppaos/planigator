@@ -1223,7 +1223,19 @@ body.app main { padding-top: 2px; }
   align-items: center;
   justify-content: center;
   min-width: 1.7em;
+  font-size: 13px;
   text-align: center;
+}
+
+.stop-flags .flag-box,
+#calculate,
+button.lookup,
+#addStop,
+button[data-after],
+#shareTrip,
+#installApp,
+.trips button[data-delete] {
+  font-size: var(--box-font, 13px);
 }
 
 .hos h2, .stops h2, .origin h2, .actions h2, .result h2, .trips h2, .card h2 {
