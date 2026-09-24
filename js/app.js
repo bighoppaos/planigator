@@ -2094,7 +2094,7 @@ function planBox() {
       </div>
     </div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button></div><p class="flag-box" id="nextTruckNote" hidden></p><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2218,6 +2218,7 @@ let navCompass = null;
 let navCompassTimer = 0;
 let navReturnTimer = 0;
 let navStopCursor = 0;
+let truckHit = null;
 let navLine = [];
 let navLegs = [];
 
@@ -2823,10 +2824,72 @@ function routeAheadPoints() {
   return thinRoute(coords, 1609, 300);
 }
 
+function truckNoteText(hit) {
+  const place = [hit.city, hit.state].filter(Boolean).join(", ");
+  const ahead = Number.isFinite(Number(hit.milesAhead)) ? `${formatMiles(hit.milesAhead)} ahead` : "";
+  const off = Number.isFinite(Number(hit.milesOff)) ? `${formatMiles(hit.milesOff)} off the route` : "";
+  return [hit.name, place, ahead, off].filter(Boolean).join(" · ");
+}
+
+function showTruckHit(hit) {
+  truckHit = hit;
+  const note = document.getElementById("nextTruckNote");
+  const add = document.getElementById("addTruckStop");
+  if (note) {
+    note.hidden = !hit;
+    note.textContent = hit ? truckNoteText(hit) : "";
+  }
+  if (add) add.hidden = !hit;
+}
+
+function addTruckAsNextStop() {
+  const hit = truckHit;
+  const lat = Number(hit?.lat);
+  const lon = Number(hit?.lon);
+  if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const place = [hit.city, hit.state].filter(Boolean).join(", ");
+  const label = String(hit.label || [hit.name, place].filter(Boolean).join(", "));
+  const chosen = chosenNavStop();
+  const index = chosen ? chosen.index : state.stops.length;
+  const next = defaultStop({
+    name: hit.name || "Truck stop",
+    address: label,
+    verifiedLabel: label,
+    lat,
+    lon,
+    anytime: true,
+    window: false,
+  });
+  const previous = state.stops[index - 1];
+  if (previous && !previous.useCurrentLocation) {
+    next.start = previous.start + 4 * 3600 * 1000;
+    next.end = next.start;
+  }
+  state.stops.splice(index, 0, next);
+  const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
+  if (cursor >= 0) navStopCursor = cursor;
+  truckHit = null;
+  persist();
+  const note = document.getElementById("nextTruckNote");
+  const add = document.getElementById("addTruckStop");
+  if (note) {
+    note.hidden = false;
+    note.textContent = "Added as the next stop. Recalculate to put it on the route.";
+  }
+  if (add) add.hidden = true;
+  const calc = document.getElementById("calculate");
+  if (calc) calc.innerHTML = calculateButtonLabel();
+  const ordinal = document.getElementById("routeStopOrdinal");
+  if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
+}
+
 async function findNextTruckStop() {
   const button = document.getElementById("nextTruck");
   const note = document.getElementById("nextTruckNote");
+  const add = document.getElementById("addTruckStop");
   if (button) button.disabled = true;
+  if (add) add.hidden = true;
+  truckHit = null;
   if (note) {
     note.hidden = false;
     note.textContent = "Looking for the next truck stop…";
@@ -2842,14 +2905,25 @@ async function findNextTruckStop() {
     if (data.credits != null) state.credits = data.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
-    const place = [data.city, data.state].filter(Boolean).join(", ");
-    const ahead = Number.isFinite(Number(data.milesAhead)) ? `${formatMiles(data.milesAhead)} ahead` : "";
-    const off = Number.isFinite(Number(data.milesOff)) ? `${formatMiles(data.milesOff)} off the route` : "";
-    if (note) note.textContent = [data.name, place, ahead, off].filter(Boolean).join(" · ");
+    const lat = Number(data.lat);
+    const lon = Number(data.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("That truck stop has no map point.");
+    showTruckHit({
+      name: data.name,
+      city: data.city,
+      state: data.state,
+      label: data.label,
+      lat,
+      lon,
+      milesAhead: data.milesAhead,
+      milesOff: data.milesOff,
+    });
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
+    truckHit = null;
+    if (add) add.hidden = true;
     if (note) note.textContent = error.message || "No truck stop within 2 miles of the route.";
   } finally {
     if (button) button.disabled = state.estimating || (!state.unlimited && state.credits === 0);
@@ -4082,6 +4156,7 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
+  $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;
