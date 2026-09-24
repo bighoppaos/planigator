@@ -2189,6 +2189,7 @@ let navYou = null;
 let navFix = null;
 let navCompass = null;
 let navCompassTimer = 0;
+let navReturnTimer = 0;
 let navLine = [];
 let navLegs = [];
 
@@ -2287,10 +2288,10 @@ function navStep(leg, alongInLeg) {
   let cursor = 0;
   for (let i = 0; i < steps.length; i += 1) {
     const len = lengths[i] * scale;
-    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) return steps[i];
+    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) return { step: steps[i], index: i };
     cursor += len;
   }
-  return steps[0];
+  return { step: steps[0], index: 0 };
 }
 
 function navRemaining(fromAlong, toAlong) {
@@ -2366,6 +2367,8 @@ function setRouteFull(on) {
 
 function showWholeTrip() {
   navFollowing = false;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
   if (!routeMap) return;
   const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
   if (coordinates.length < 2 || !window.maplibregl) return;
@@ -2398,7 +2401,8 @@ function onNavFix(lat, lon) {
     const off = hit.dist > 250;
     const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
     const alongInLeg = leg ? hit.along - leg.start : 0;
-    const step = !off && leg ? navStep(leg, alongInLeg) : null;
+    const found = !off && leg ? navStep(leg, alongInLeg) : null;
+    const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
     const toward = leg ? navStopTitle(leg.stop) : "the stop";
@@ -2408,6 +2412,7 @@ function onNavFix(lat, lon) {
     } else {
       sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftOnLeg)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(hit.along, leg ? leg.end : Infinity);
+      if (navFollowing && found && leg?.stop?.id) markDirection(leg.stop.id, found.index);
     }
   }
   if (navFollowing) {
@@ -2454,9 +2459,23 @@ async function enableNavCompass() {
   window.addEventListener("deviceorientation", onNavCompass);
 }
 
+function pauseFollowForDirection() {
+  if (!navOn) return;
+  navFollowing = false;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = window.setTimeout(() => {
+    navReturnTimer = 0;
+    if (!navOn) return;
+    navFollowing = true;
+    if (navFix) onNavFix(navFix[0], navFix[1]);
+  }, 5000);
+}
+
 function endRouteNav() {
   navOn = false;
   navFollowing = false;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
   if (navWatch != null && navigator.geolocation) {
     navigator.geolocation.clearWatch(navWatch);
     navWatch = null;
@@ -2519,9 +2538,11 @@ function markDirection(stopId, index) {
   const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
     item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
   ));
-  if (!button) return;
+  if (!button) return null;
   button.classList.add("on");
   button.setAttribute("aria-pressed", "true");
+  revealDirection(button);
+  return button;
 }
 
 function revealDirection(button) {
@@ -3481,6 +3502,7 @@ function bind() {
   mountMap();
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     button.addEventListener("click", () => {
+      pauseFollowForDirection();
       zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
     });
   });
@@ -3515,6 +3537,8 @@ function bind() {
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
   $("#routeFull")?.addEventListener("click", () => setRouteFull(!routeFull));
   $("#routeFollow")?.addEventListener("click", async () => {
+    window.clearTimeout(navReturnTimer);
+    navReturnTimer = 0;
     await enableNavCompass();
     navFollowing = true;
     if (navFix) onNavFix(navFix[0], navFix[1]);
