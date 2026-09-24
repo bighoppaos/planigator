@@ -1000,6 +1000,52 @@ button.text-button {
   cursor: pointer;
 }
 
+button.text-button.example-load {
+  position: relative;
+  display: inline-block;
+  margin: 6px 0;
+  color: var(--ink);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+button.text-button.example-load::before,
+button.text-button.example-load::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, #fff 0 1px, #ffe7a0 2px, transparent 3.5px);
+  animation: example-sparkle 2.6s ease-in-out infinite;
+}
+
+button.text-button.example-load::before {
+  top: -6px;
+  left: 8%;
+}
+
+button.text-button.example-load::after {
+  right: -2px;
+  bottom: -4px;
+  animation-delay: 1.2s;
+}
+
+@keyframes example-sparkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.55); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.text-button.example-load::before,
+  button.text-button.example-load::after {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 .stop-card .fine,
 .stop-card .here-leg,
 .stop-card .ok {
