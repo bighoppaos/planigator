@@ -2065,6 +2065,7 @@ function planBox() {
         <button type="button" id="routeFull">Full screen</button>
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Whole trip</button>
+        <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden>Follow me</button>
       </aside>
@@ -3616,6 +3617,7 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
+  $("#routeRecalc")?.addEventListener("click", () => calculate());
   const routeStop = $("#routeStop");
   routeStop?.addEventListener("pointerup", (event) => cycleNavStop(event));
   routeStop?.addEventListener("click", (event) => cycleNavStop(event));
