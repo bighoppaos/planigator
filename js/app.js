@@ -2430,7 +2430,7 @@ function speakNavProgress(leg, found, hereAlong) {
     }
     if (text) {
       window.speechSynthesis?.cancel();
-      speakNav(text);
+      speakNav(directionWithMilesLeft(text, leftMeters));
     }
   }
   for (const band of [5, 3, 2, 1]) {
