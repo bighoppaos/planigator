@@ -1599,6 +1599,7 @@ function googleNeedsFullPageRedirect() {
 }
 
 async function completeGoogleCredential(credential) {
+  clearSession();
   const me = await loginWith("google", credential);
   state.idleNote = "";
   applyAccount(me);
