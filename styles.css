@@ -1099,6 +1099,17 @@ header .brand img {
   margin-bottom: 0;
 }
 
+.set-box,
+.flag-box,
+.chip,
+.stop-card,
+.build-line,
+.call-log-box,
+.secondary,
+button.example-load {
+  filter: drop-shadow(0 14px 12px rgb(0 0 0 / 0.35));
+}
+
 .hero-mark {
   aspect-ratio: 1 / 1;
   width: min(100%, 640px);
