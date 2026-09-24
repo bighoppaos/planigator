@@ -2566,6 +2566,7 @@ function render() {
   root.innerHTML = `
     ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
     <section class="hero card hero-mark">
+      <img class="hero-anim" src="./icons/planigator-clip.gif" alt="" width="400" height="400">
       <div class="hero-copy">
       <h1>Planigator.help</h1>
       <ul class="pitch">
