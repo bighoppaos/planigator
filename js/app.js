@@ -715,10 +715,11 @@ function exampleStillStock() {
 function rollOpenExample() {
   if (!exampleStillStock()) return;
   const stored = storedExampleWeek(state.stops);
-  const weeks = exampleWeeksAhead();
-  if (stored == null) return;
-  if (stored < weeks) loadExample();
-  else calculate({ silent: true, skipHash: true });
+  if (stored != null && stored < exampleWeeksAhead()) {
+    loadExample();
+    return;
+  }
+  calculate({ silent: true, skipHash: true });
 }
 
 function loadExample() {
@@ -2516,6 +2517,7 @@ export function initPlanner(el) {
       pulseActivity();
     }
     await pullAccountTrips();
+    rollOpenExample();
     if (!state.locating) render();
     if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
