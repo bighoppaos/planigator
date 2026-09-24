@@ -1372,42 +1372,48 @@ body.app main { padding-top: 2px; }
 body.route-full { overflow: hidden; }
 .route-rail {
   position: absolute;
-  top: 0;
+  top: auto;
   right: 0;
   bottom: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 6px;
   padding: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   pointer-events: none;
 }
 .route-rail button[hidden] { display: none; }
 .route-rail button {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   margin: 0;
-  padding: 6px;
-  border: 1px solid #fffdf8;
+  padding: 4px;
+  border: 2px solid transparent;
   border-radius: 50%;
-  background: rgb(7 21 37 / 0.92);
-  color: #fffdf8;
+  background: rgb(0 0 0 / 0.35);
+  color: #fff;
   font: inherit;
   font-size: 12px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.05;
   text-align: center;
   pointer-events: auto;
 }
+#routeStop {
+  border-color: #3dcaa0;
+  background: rgb(0 0 0 / 0.35);
+}
 .route-stage.is-full .route-rail button {
-  width: 76px;
-  height: 76px;
-  font-size: 13px;
+  width: 60px;
+  height: 60px;
+  font-size: 12px;
 }
 .route-nav-banner {
   position: absolute;

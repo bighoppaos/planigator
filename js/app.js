@@ -2062,9 +2062,10 @@ function planBox() {
         <p id="routeNavNote"></p>
       </div>
       <aside class="route-rail">
-        <button type="button" id="routeWhole">Whole trip</button>
         <button type="button" id="routeFull">Full screen</button>
         <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeWhole">Whole trip</button>
+        <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden>Follow me</button>
       </aside>
     </div>
@@ -2191,6 +2192,7 @@ let navFix = null;
 let navCompass = null;
 let navCompassTimer = 0;
 let navReturnTimer = 0;
+let navStopCursor = 0;
 let navLine = [];
 let navLegs = [];
 
@@ -2357,6 +2359,8 @@ function syncRouteChrome() {
   if (exit) exit.hidden = !routeFull;
   const follow = document.getElementById("routeFollow");
   if (follow) follow.hidden = !navOn;
+  const ordinal = document.getElementById("routeStopOrdinal");
+  if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn;
   if (routeFull) routeMap?.resize();
@@ -2367,6 +2371,34 @@ function setRouteFull(on) {
   routeFull = Boolean(on);
   syncRouteChrome();
   requestAnimationFrame(() => routeMap?.resize());
+}
+
+function navDestList() {
+  return state.stops
+    .map((stop, index) => ({ stop, index }))
+    .filter(({ index }) => !isOriginStop(state.stops, index));
+}
+
+function ordinalStop(index) {
+  const n = index + 1;
+  const mod = n % 100;
+  if (mod >= 11 && mod <= 13) return `${n}th`;
+  if (n % 10 === 1) return `${n}st`;
+  if (n % 10 === 2) return `${n}nd`;
+  if (n % 10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+
+function cycleNavStop() {
+  const dests = navDestList();
+  if (!dests.length) return;
+  navStopCursor = dests.length < 2 ? 0 : (navStopCursor + 1) % dests.length;
+  syncRouteChrome();
+  if (!navOn) beginRouteNav();
+  else {
+    navFollowing = true;
+    if (navFix) onNavFix(navFix[0], navFix[1]);
+  }
 }
 
 function showWholeTrip() {
@@ -2410,13 +2442,18 @@ function onNavFix(lat, lon) {
     const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
-    const toward = leg ? navStopTitle(leg.stop) : "the stop";
+    const dests = navDestList();
+    const chosen = dests[Math.min(navStopCursor, Math.max(dests.length - 1, 0))];
+    const targetLeg = chosen ? navLegs.find((item) => item.stop.id === chosen.stop.id) : leg;
+    const towardStop = targetLeg?.stop || leg?.stop;
+    const toward = towardStop ? navStopTitle(towardStop) : "the stop";
+    const leftToStop = targetLeg ? Math.max(0, targetLeg.end - hit.along) : leftOnLeg;
     if (off) {
       sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
-      paintNavLine(0, Infinity);
+      paintNavLine(0, targetLeg ? targetLeg.end : Infinity);
     } else {
-      sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftOnLeg)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
-      paintNavLine(hit.along, leg ? leg.end : Infinity);
+      sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+      paintNavLine(hit.along, targetLeg ? targetLeg.end : Infinity);
       if (navFollowing && found && leg?.stop?.id) markDirection(leg.stop.id, found.index);
     }
   }
@@ -2728,10 +2765,13 @@ function eventsAround(stopId) {
   const self = events.find((event) => event.id === stopId);
   const mine = events.filter((event) => event.stopID === stopId && event.id !== stopId && event.kind !== "leeway");
   return {
-    before: mine.filter((event) => !self || event.start < self.start).sort((a, b) => a.start - b.start),
+    before: [
+      ...mine.filter((event) => !self || event.start < self.start),
+      ...events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1 && self && event.start < self.start),
+    ].sort((a, b) => a.start - b.start),
     self,
     following: mine.filter((event) => self && event.start >= self.start).sort((a, b) => a.start - b.start),
-    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1),
+    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1 && (!self || event.start >= self.start)),
     now: events.filter((event) => event.kind === "leeway" && event.after === -1),
   };
 }
@@ -3557,6 +3597,7 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
+  $("#routeStop")?.addEventListener("click", () => cycleNavStop());
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
   $("#routeFollow")?.addEventListener("click", async () => {

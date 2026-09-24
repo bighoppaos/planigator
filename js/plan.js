@@ -319,6 +319,25 @@ export function timeline({
     const totalDrive = Math.max(block.pieces.reduce((sum, piece) => sum + piece.routeHours, 0), 0.001);
     let leftoverMiles = stopMiles;
     block.pieces.forEach((piece, pieceIndex) => {
+      if (pieceIndex > 0) {
+        const prev = block.pieces[pieceIndex - 1];
+        const pauses = prev.pausesAfter || [];
+        const afterEnd = pauses.length ? pauses[pauses.length - 1].end : prev.end;
+        const gap = piece.start - afterEnd;
+        if (gap >= 60 * 1000) {
+          events.push({
+            id: `leeway-gap-${stops[index].id}-${pieceIndex}`,
+            kind: "leeway",
+            start: afterEnd,
+            end: piece.start,
+            tripHours: gap / 3600 / 1000,
+            timePhrase: arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival",
+            rgb: LEEWAY_RGB,
+            after: index,
+            stopID: stops[index].id,
+          });
+        }
+      }
       const isTail = pieceIndex === block.pieces.length - 1;
       let pieceMiles = 0;
       if (isTail) pieceMiles = leftoverMiles;
