@@ -1511,19 +1511,33 @@ async function buyPack() {
   }
 }
 
+const scriptLoads = new Map();
+
 function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if ([...document.scripts].some((script) => script.src === src)) {
+  const pending = scriptLoads.get(src);
+  if (pending) return pending;
+  const existing = [...document.scripts].find((script) => script.src === src);
+  if (existing?.dataset.loaded === "1") return Promise.resolve();
+  const promise = new Promise((resolve, reject) => {
+    const script = existing || document.createElement("script");
+    const finish = () => {
+      script.dataset.loaded = "1";
       resolve();
-      return;
+    };
+    const fail = () => {
+      scriptLoads.delete(src);
+      reject(new Error("Could not load sign-in."));
+    };
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener("error", fail, { once: true });
+    if (!existing) {
+      script.src = src;
+      script.async = true;
+      document.head.appendChild(script);
     }
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Could not load sign-in."));
-    document.head.appendChild(script);
   });
+  scriptLoads.set(src, promise);
+  return promise;
 }
 
 async function logout() {
@@ -1727,34 +1741,36 @@ async function completeGoogleCredential(credential) {
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
   if (!googleBox || !state.googleClientId || googleBox.childElementCount) return;
-    const start = () => {
-      if (!window.google?.accounts?.id) return;
-      const redirect = googleNeedsFullPageRedirect();
-      const settings = {
-        client_id: state.googleClientId,
-        auto_select: false,
-        itp_support: true,
-        use_fedcm_for_prompt: false,
-        ux_mode: redirect ? "redirect" : "popup",
-        callback: async ({ credential }) => {
-          try {
-            await completeGoogleCredential(credential);
-          } catch (error) {
-            state.error = error.message || "Google sign-in failed.";
-            render();
-          }
-        },
-      };
-      if (redirect) settings.login_uri = `${location.origin}/oauth/google`;
-      window.google.accounts.id.initialize(settings);
-      googleBox.innerHTML = "";
-      window.google.accounts.id.renderButton(googleBox, { theme: "outline", size: "large", width: 280 });
+  const start = () => {
+    const box = document.getElementById("googleBtn");
+    if (!box || !state.googleClientId || box.childElementCount) return;
+    if (!window.google?.accounts?.id) return;
+    const redirect = googleNeedsFullPageRedirect();
+    const settings = {
+      client_id: state.googleClientId,
+      auto_select: false,
+      itp_support: true,
+      use_fedcm_for_prompt: false,
+      ux_mode: redirect ? "redirect" : "popup",
+      callback: async ({ credential }) => {
+        try {
+          await completeGoogleCredential(credential);
+        } catch (error) {
+          state.error = error.message || "Google sign-in failed.";
+          render();
+        }
+      },
     };
-    if (window.google?.accounts?.id) start();
-    else loadScript("https://accounts.google.com/gsi/client").then(start).catch((error) => {
-      state.error = error.message;
-      render();
-    });
+    if (redirect) settings.login_uri = `${location.origin}/oauth/google`;
+    window.google.accounts.id.initialize(settings);
+    box.innerHTML = "";
+    window.google.accounts.id.renderButton(box, { theme: "outline", size: "large", width: 280 });
+  };
+  if (window.google?.accounts?.id) start();
+  else loadScript("https://accounts.google.com/gsi/client").then(start).catch((error) => {
+    state.error = error.message;
+    render();
+  });
 }
 
 function sharePayload() {
