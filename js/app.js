@@ -2337,7 +2337,7 @@ function stopCard(stop, index) {
       </div>
       <div class="address-row">
         <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
-        <button type="button" class="flag-box" data-act="paste">Paste an address</button>
+        <button type="button" class="flag-box" data-act="paste">Paste an<br>address</button>
       </div>
       <div class="lookup-row">
         <button type="button" class="flag-box lookup" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
@@ -3141,6 +3141,7 @@ function bind() {
           const stop = state.stops.find((item) => item.id === id);
           if (!stop) return;
           stop[field] = input.value;
+          if (field === "address") fitAddressField(input);
           persist();
         });
       }
@@ -3199,6 +3200,12 @@ function bind() {
   document.querySelectorAll("[data-after]").forEach((button) => {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
   });
+  document.querySelectorAll("textarea[data-field=address]").forEach(fitAddressField);
+}
+
+function fitAddressField(field) {
+  field.style.height = "0px";
+  field.style.height = `${field.scrollHeight}px`;
 }
 
 if (document.body.classList.contains("planner-only")) {
