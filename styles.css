@@ -1348,7 +1348,7 @@ body.app main { padding-top: 2px; }
 }
 .route-stage {
   position: relative;
-  margin: 0 0 14px;
+  margin: 0 12px 14px;
   overflow: hidden;
   border-radius: 12px;
 }
@@ -1444,6 +1444,7 @@ body.route-full { overflow: hidden; }
   background: rgb(7 21 37 / 0.92);
   color: #fffdf8;
 }
+.route-stage:not(.is-full) .route-nav-banner { display: none; }
 .route-nav-banner strong {
   display: block;
   font-size: 16px;
