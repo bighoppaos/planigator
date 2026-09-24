@@ -2040,7 +2040,7 @@ function directionsBlock() {
   if (!groups.length) return "";
   const items = groups.map((group) => `
     <li class="dir-leg">${escapeAttr(group.title)}</li>
-    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span>${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
+    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span class="dir-miles">${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
   `).join("");
   return `<details class="directions call-log-box" open>
     <summary>auto zooming directions</summary>
@@ -2055,23 +2055,24 @@ function planBox() {
   if (!plan) return "";
   return `<section class="result">
     <div class="route-stage" id="routeStage">
-      <div id="routeMap" class="route-map"></div>
+      <div id="routeMap" class="route-map">
+      <aside class="route-rail">
+        <button type="button" id="routeFull">Full screen</button>
+        <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeWhole">Trip</button>
+        <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
+        <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
+        <button type="button" id="routeFollow" hidden>Follow me</button>
+      </aside>
+      </div>
       <div class="route-nav-banner" id="routeNavBanner" hidden>
         <strong id="routeNavTitle"></strong>
         <p id="routeNavDetail"></p>
         <p id="routeNavNote"></p>
       </div>
-      <aside class="route-rail">
-        <button type="button" id="routeFull">Full screen</button>
-        <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeWhole">Whole trip</button>
-        <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
-        <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
-        <button type="button" id="routeFollow" hidden>Follow me</button>
-      </aside>
     </div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav">Start navigation</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>Start navigation</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2364,7 +2365,10 @@ function syncRouteChrome() {
   const shown = chosenNavStop();
   if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.index : navStopCursor);
   const banner = document.getElementById("routeNavBanner");
-  if (banner) banner.hidden = !navOn;
+  if (banner) banner.hidden = !navOn || !routeFull;
+  const start = document.getElementById("startNav");
+  if (start) start.disabled = navOn;
+  syncTripFitButton();
   if (routeFull) routeMap?.resize();
   if (navOn) freezeTyping(true);
 }
@@ -2412,6 +2416,85 @@ function ordinalStop(index) {
 }
 
 let navStopTapAt = 0;
+let tripFit = "off";
+
+function tripFitWord() {
+  if (tripFit === "remaining") return "Left";
+  if (tripFit === "nextTurn") return "Turn";
+  return "Trip";
+}
+
+function syncTripFitButton() {
+  const button = document.getElementById("routeWhole");
+  if (button) button.textContent = tripFitWord();
+}
+
+function fitCoords(coordinates, maxZoom) {
+  if (!routeMap || !window.maplibregl || coordinates.length < 2) return;
+  const bounds = coordinates.reduce(
+    (box, coord) => box.extend(coord),
+    new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
+  );
+  routeMap.stop();
+  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom, bearing: 0, duration: 600 });
+}
+
+function cycleTripFit() {
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  navFollowing = false;
+  if (tripFit === "off" || tripFit === "nextTurn") tripFit = "full";
+  else if (tripFit === "full") tripFit = "remaining";
+  else tripFit = "nextTurn";
+  syncTripFitButton();
+  if (tripFit === "full") {
+    showWholeTrip();
+    return;
+  }
+  rebuildNavLegs();
+  if (tripFit === "remaining") {
+    const from = navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : 0;
+    const until = alongForChosen(chosenNavStop());
+    fitCoords(navRemaining(from, until == null ? Infinity : until), 14);
+    return;
+  }
+  const step = liveDirection();
+  if (step) zoomToDirection(step.stopId, step.index);
+}
+
+function liveDirection() {
+  if (!navOn || !navFix || navLine.length < 2) {
+    const stop = state.stops.find((item) => Array.isArray(item.directions) && item.directions.length);
+    return stop ? { stopId: stop.id, index: 0 } : null;
+  }
+  const hit = navNearest(navFix[0], navFix[1], navLine);
+  const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+  const found = leg ? navStep(leg, Math.max(0, hit.along - leg.start)) : null;
+  if (!found || !leg?.stop?.id) return null;
+  return { stopId: leg.stop.id, index: found.index };
+}
+
+function metersLeftInStep(leg, alongInLeg, index) {
+  const steps = Array.isArray(leg?.stop?.directions) ? leg.stop.directions : [];
+  const lengths = steps.map(stepLengthMeters);
+  const sum = lengths.reduce((total, length) => total + length, 0);
+  const total = polylineMeters(leg.path);
+  const scale = sum > 1 ? total / sum : 1;
+  let cursor = 0;
+  for (let i = 0; i < index; i += 1) cursor += (lengths[i] || 0) * scale;
+  const length = (lengths[index] || 0) * scale;
+  return Math.max(0, length - Math.max(0, alongInLeg - cursor));
+}
+
+function paintDirectionMiles(stopId, index, meters) {
+  const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
+    item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
+  ));
+  const slot = button?.querySelector(".dir-miles");
+  if (!slot) return;
+  const miles = meters / 1609.344;
+  slot.textContent = miles > 0.05 ? formatMiles(miles) : formatMiles(0);
+}
 
 function cycleNavStop(event) {
   const now = Date.now();
@@ -2546,7 +2629,10 @@ function onNavFix(lat, lon) {
   } else {
     sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(hit.along, until);
-      if (navFollowing && found && leg?.stop?.id) markDirection(leg.stop.id, found.index);
+      if (found && leg?.stop?.id) {
+        if (navFollowing) markDirection(leg.stop.id, found.index);
+        paintDirectionMiles(leg.stop.id, found.index, metersLeftInStep(leg, alongInLeg, found.index));
+      }
     }
   }
   if (navFollowing) {
@@ -2735,6 +2821,8 @@ function mountMap() {
     attributionControl: false,
   });
   routeMap = map;
+  const rail = el.querySelector(".route-rail");
+  if (rail) el.appendChild(rail);
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
@@ -3688,7 +3776,7 @@ function bind() {
     beginRouteNav();
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
-  $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
+  $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
   $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
   const routeStop = $("#routeStop");
   routeStop?.addEventListener("pointerup", (event) => cycleNavStop(event));
@@ -3698,6 +3786,8 @@ function bind() {
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;
+    tripFit = "off";
+    syncTripFitButton();
     await enableNavCompass();
     navFollowing = true;
     if (navFix) onNavFix(navFix[0], navFix[1]);

@@ -1349,8 +1349,11 @@ body.app main { padding-top: 2px; }
 .route-stage {
   position: relative;
   margin: 0 0 14px;
+  overflow: hidden;
+  border-radius: 12px;
 }
 .route-map {
+  position: relative;
   height: 280px;
   margin: 0;
   border-radius: 12px;
@@ -1363,8 +1366,11 @@ body.app main { padding-top: 2px; }
   inset: 0;
   z-index: 40;
   margin: 0;
+  border-radius: 0;
   background: #071525;
 }
+.route-map .maplibregl-canvas-container { z-index: 0; }
+.route-map .route-rail { z-index: 5; }
 .route-stage.is-full .route-map {
   height: 100%;
   border-radius: 0;
