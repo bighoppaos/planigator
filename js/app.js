@@ -1770,6 +1770,15 @@ async function shareToNav() {
     render();
     return;
   }
+  if (state.signedIn) {
+    saveTrip();
+    try {
+      await putTrips(state.trips);
+      markTripsUploaded();
+    } catch {
+      // The trip is still saved in this browser. Nav can still open.
+    }
+  }
   window.location.href = `planigator://nav/${saved.code}`;
   state.notice = "Opening Planigator.";
   render();
