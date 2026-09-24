@@ -2454,7 +2454,7 @@ function hereCallsBlock() {
 
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
-  const example = `<p class="fine"><button type="button" class="text-button example-load" id="loadExample">Load an example trip</button></p>${exampleOpenNote()}`;
+  const example = `<p class="fine"><button type="button" class="text-button example-load" id="loadExample">Load an example trip<canvas class="example-sparkles" aria-hidden="true"></canvas></button></p>${exampleOpenNote()}`;
   const google = state.signedIn
     ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
     : state.googleClientId
@@ -3207,6 +3207,64 @@ function bind() {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
   });
   document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
+  mountExampleSparkle();
+}
+
+function mountExampleSparkle() {
+  const canvas = document.querySelector(".example-sparkles");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const speed = 2.6;
+  const count = 22;
+  const draw = (now) => {
+    if (!canvas.isConnected) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    const pxW = Math.round(w * dpr);
+    const pxH = Math.round(h * dpr);
+    if (canvas.width !== pxW || canvas.height !== pxH) {
+      canvas.width = pxW;
+      canvas.height = pxH;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const t = reduce ? 1.2 : (now / 1000) * speed;
+    for (let index = 0; index < count; index += 1) {
+      const seed = (index + 1) * 1.618;
+      const x = (Math.sin(seed * 4.2) * 0.5 + 0.5) * w + Math.sin(t + seed) * 2.5;
+      const y = (Math.cos(seed * 3.3) * 0.5 + 0.5) * h + Math.cos(t * 0.8 + seed) * 2;
+      const twinkle = reduce ? 0.9 : 0.12 + 0.88 * Math.abs(Math.sin(t * Math.PI + seed * 2.1));
+      const radius = 1.1 + (index % 3) * 0.5;
+      ctx.globalAlpha = twinkle;
+      ctx.strokeStyle = "rgba(20,32,28,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y - radius * 2.2);
+      ctx.lineTo(x, y + radius * 2.2);
+      ctx.moveTo(x - radius * 2.2, y);
+      ctx.lineTo(x + radius * 2.2, y);
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(x, y - radius * 2.2);
+      ctx.lineTo(x, y + radius * 2.2);
+      ctx.moveTo(x - radius * 2.2, y);
+      ctx.lineTo(x + radius * 2.2, y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    if (!reduce) requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
 }
 
 function fitAddressField(field) {
