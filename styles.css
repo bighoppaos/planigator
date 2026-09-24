@@ -1512,9 +1512,15 @@ body.route-full { overflow: hidden; }
   gap: 8px;
   align-items: flex-start;
 }
+#nextTruck,
+#nextTruckNote,
 #addTruckStop {
   width: fit-content;
+  max-width: 100%;
   margin: 4px 0 0;
+  padding: 8px 12px;
+  font-size: calc(var(--box-font, 13px) * 22 / 13);
+  line-height: 1.2;
 }
 #startNav,
 #endNav {
