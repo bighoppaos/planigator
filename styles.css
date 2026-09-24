@@ -1453,12 +1453,23 @@ body.route-full { overflow: hidden; }
   flex-basis: 60px;
   font-size: 12px;
 }
-.route-place {
+.route-place-row {
   position: absolute;
   left: 50%;
   bottom: 22px;
   transform: translateX(-50%);
   z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 16px);
+  pointer-events: none;
+}
+.route-stage.is-full .route-place-row {
+  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 78px);
+}
+.route-place,
+.route-drive {
   margin: 0;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1468,10 +1479,6 @@ body.route-full { overflow: hidden; }
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
-  pointer-events: none;
-}
-.route-stage.is-full .route-place {
-  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 78px);
 }
 .route-nav-banner {
   position: absolute;

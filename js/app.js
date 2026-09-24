@@ -553,8 +553,8 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
       : state.signedIn
-        ? "Those 5 free credits are used. Save a card for 10 more. That card is not charged when they run out."
-        : "Sign in with Google for 5 free credits. Save a card for 10 more. That card is not charged when they run out.";
+        ? "Those 40 free credits are used. Save a card for 10 more. That card is not charged when they run out."
+        : "Sign in with Google for 40 free credits. Save a card for 10 more. That card is not charged when they run out.";
     render();
     return;
   }
@@ -1764,7 +1764,7 @@ async function completeGoogleCredential(credential) {
   state.idleNote = "";
   applyAccount(me);
   if (me.signupCredits) {
-    state.signupNote = "5 free credits are yours.";
+    state.signupNote = "40 free credits are yours.";
     state.notice = "";
     popConfetti();
     render();
@@ -2085,7 +2085,10 @@ function planBox() {
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
-      <p class="route-place" id="routePlace" hidden></p>
+      <div class="route-place-row" id="routePlaceRow">
+        <p class="route-drive" id="routeDrive" hidden></p>
+        <p class="route-place" id="routePlace" hidden></p>
+      </div>
       </div>
       <div class="route-nav-banner" id="routeNavBanner" hidden>
         <strong id="routeNavTitle"></strong>
@@ -2450,6 +2453,26 @@ function paintPlace(text) {
   if (!chip) return;
   chip.hidden = !text;
   chip.textContent = text || "";
+}
+
+function driveLeftText(alongMeters) {
+  const totalMiles = Number(state.plan?.miles);
+  const totalHours = Number(state.plan?.driveHours);
+  if (!(totalMiles > 0) || !(totalHours > 0)) return "";
+  let hours = totalHours;
+  if (navOn && navLine.length >= 2 && Number.isFinite(alongMeters)) {
+    const leftMiles = Math.max(0, (polylineMeters(navLine) - alongMeters) / 1609.344);
+    hours = totalHours * Math.min(1, leftMiles / totalMiles);
+  }
+  return `${hoursLabel(Math.max(0, hours))} left`;
+}
+
+function paintDrive(alongMeters) {
+  const chip = document.getElementById("routeDrive");
+  if (!chip) return;
+  const text = driveLeftText(alongMeters);
+  chip.hidden = !text;
+  chip.textContent = text;
 }
 
 function refreshPlace(lat, lon) {
@@ -2981,9 +3004,11 @@ function onNavFix(lat, lon) {
   refreshPlace(lat, lon);
   rebuildNavLegs();
   if (navLine.length < 2) {
+    paintDrive(null);
     sayNav("No road line yet", "Calculate the trip, then start navigation again.", "");
   } else {
     const hit = navNearest(lat, lon, navLine);
+    paintDrive(hit.along);
     const off = hit.dist > 250;
     const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
     const alongInLeg = leg ? hit.along - leg.start : 0;
@@ -3228,7 +3253,7 @@ function mountMap() {
     attributionControl: false,
   });
   routeMap = map;
-  el.querySelectorAll(".route-rail, .route-place").forEach((node) => el.appendChild(node));
+  el.querySelectorAll(".route-rail, .route-place-row").forEach((node) => el.appendChild(node));
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
@@ -3521,7 +3546,7 @@ function authBlock() {
   const google = state.signedIn
     ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
     : state.googleClientId
-      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 5 free credits, enough to try a trip.</p>${example}</div>`
+      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 40 free credits, enough to try a trip.</p>${example}</div>`
       : `<div class="auth-row"><p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>${example}</div>`;
   const card = !state.signedIn
     ? ""
@@ -3573,7 +3598,7 @@ export function initPlanner(el) {
     if (sessionStorage.getItem("planigator.web.signup") === "1") {
       sessionStorage.removeItem("planigator.web.signup");
       if (state.signedIn) {
-        state.signupNote = "5 free credits are yours.";
+        state.signupNote = "40 free credits are yours.";
         state.notice = "";
         popConfetti();
       }
@@ -4151,6 +4176,7 @@ function bind() {
     queueBoxFontSave();
   });
   mountMap();
+  paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
   else if (Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
   else currentFix().then((here) => { if (here) refreshPlace(here.lat, here.lon); });
