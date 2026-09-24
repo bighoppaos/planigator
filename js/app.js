@@ -1627,7 +1627,7 @@ async function completeGoogleCredential(credential) {
 
 function mountAuth() {
   const googleBox = document.getElementById("googleBtn");
-  if (googleBox && state.googleClientId) {
+  if (!googleBox || !state.googleClientId || googleBox.childElementCount) return;
     const start = () => {
       if (!window.google?.accounts?.id) return;
       const redirect = googleNeedsFullPageRedirect();
@@ -1656,7 +1656,6 @@ function mountAuth() {
       state.error = error.message;
       render();
     });
-  }
 }
 
 function sharePayload() {
@@ -2450,6 +2449,9 @@ async function watchSignIn() {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  const googleLive = document.getElementById("googleBtn");
+  const keepGoogle = googleLive && googleLive.childElementCount ? googleLive : null;
+  if (keepGoogle) keepGoogle.remove();
   document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
@@ -2479,9 +2481,11 @@ function render() {
 
     <section class="hos" style="--box-font: ${state.boxFont}px">
       <div class="box-stepper">
-        <button type="button" class="flag-box" id="boxFontDown" ${state.boxFont <= 13 ? "disabled" : ""} aria-label="Smaller boxes">−</button>
-        <span class="flag-box">${state.boxFont}</span>
-        <button type="button" class="flag-box" id="boxFontUp" ${state.boxFont >= 28 ? "disabled" : ""} aria-label="Bigger boxes">+</button>
+        <label class="box-stepper">
+          <span class="sr">Box size</span>
+          <input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}">
+          <span class="flag-box" id="boxFontReadout">${state.boxFont}</span>
+        </label>
       </div>
         <div class="settings-grid action-grid">
           <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
@@ -2553,6 +2557,8 @@ function render() {
     ${pickerSheet()}
 
   `;
+  const slot = document.getElementById("googleBtn");
+  if (keepGoogle && slot) slot.replaceWith(keepGoogle);
   bind();
 }
 
@@ -2944,15 +2950,16 @@ function bind() {
   });
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
-  $("#boxFontDown")?.addEventListener("click", () => {
-    state.boxFont = Math.max(13, state.boxFont - 1);
+  $("#boxFont")?.addEventListener("input", () => {
+    const next = Number($("#boxFont").value);
+    if (!Number.isFinite(next)) return;
+    state.boxFont = Math.min(28, Math.max(13, Math.round(next)));
+    document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
+    const hos = document.querySelector(".hos");
+    if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
+    const readout = document.getElementById("boxFontReadout");
+    if (readout) readout.textContent = String(state.boxFont);
     persist();
-    render();
-  });
-  $("#boxFontUp")?.addEventListener("click", () => {
-    state.boxFont = Math.min(28, state.boxFont + 1);
-    persist();
-    render();
   });
   mountMap();
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
