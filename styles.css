@@ -1440,7 +1440,10 @@ body.route-full { overflow: hidden; }
   right: auto;
 }
 .route-stage.is-full .route-nav-banner {
+  top: auto;
+  bottom: max(8px, env(safe-area-inset-bottom));
   left: calc(max(8px, env(safe-area-inset-left)) + 76px);
+  right: calc(max(8px, env(safe-area-inset-right)) + 76px);
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
