@@ -1335,6 +1335,7 @@ button[data-act="paste"],
 #addStop,
 button[data-after],
 #shareTrip,
+#shareNav,
 #installApp,
 .trips button[data-delete] {
   font-size: var(--box-font, 13px);

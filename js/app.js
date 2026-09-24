@@ -1756,6 +1756,25 @@ async function shareTrip() {
   render();
 }
 
+async function shareToNav() {
+  let saved;
+  try {
+    saved = await createShare(sharePayload());
+  } catch (error) {
+    state.error = error.message || "Could not send that trip.";
+    render();
+    return;
+  }
+  if (!saved.code) {
+    state.error = "Could not send that trip.";
+    render();
+    return;
+  }
+  window.location.href = `planigator://nav/${saved.code}`;
+  state.notice = "Opening Planigator.";
+  render();
+}
+
 async function copyPlan() {
   if (!state.plan) {
     state.error = "Calculate the trip first.";
@@ -2597,6 +2616,7 @@ function render() {
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
         ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
+        ${plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
         ${plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
@@ -3038,6 +3058,7 @@ function bind() {
   });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
+  $("#shareNav")?.addEventListener("click", () => shareToNav());
   $("#installApp")?.addEventListener("click", () => installApp());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => locate());
