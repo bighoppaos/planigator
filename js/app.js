@@ -30,7 +30,7 @@ const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
-const lookupClosed = new Set();
+const lookupOpen = new Set();
 const usingDismissed = new Set();
 const usingTimers = new Map();
 const $ = (sel) => (plannerRoot || document).querySelector(sel);
@@ -197,7 +197,6 @@ settleLoadedStops(state.stops);
 function settleLoadedStops(stops) {
   for (const stop of stops || []) {
     if (!stop?.id || stop.useCurrentLocation) continue;
-    lookupClosed.add(stop.id);
     if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) continue;
     usingDismissed.add(stop.id);
     const timer = usingTimers.get(stop.id);
@@ -827,7 +826,7 @@ function updateStop(id, patch) {
   if ("address" in patch) {
     const typed = String(patch.address || "").trim();
     if (typed !== (stop.verifiedLabel || "")) {
-      lookupClosed.delete(id);
+      lookupOpen.add(id);
       clearUsingNote(id);
       stop.miles = "";
       stop.hours = "";
@@ -942,11 +941,7 @@ function newTrip() {
   Object.assign(state, defaultState());
   Object.assign(state, keep);
   state.notice = "";
-  for (const stop of state.stops) {
-    if (!stop?.id || stop.useCurrentLocation) continue;
-    lookupClosed.add(stop.id);
-    usingDismissed.add(stop.id);
-  }
+  lookupOpen.clear();
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
   queueMicrotask(() => { writingHash = false; });
@@ -1305,7 +1300,7 @@ async function lookupAddress(id) {
     render();
     return;
   }
-  lookupClosed.add(id);
+  lookupOpen.delete(id);
   state.looking = id;
   clearLookupMessage();
   render();
@@ -2240,7 +2235,7 @@ function stopCard(stop, index) {
       </div>
       <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
       <div class="lookup-row">
-        <button type="button" class="flag-box lookup" data-act="lookup"${lookupClosed.has(stop.id) ? " hidden" : ""} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+        <button type="button" class="flag-box lookup" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
         <button type="button" class="flag-box" data-act="paste">Paste an address</button>
       </div>
       ${lookupMapPreview(stop)}
@@ -3018,7 +3013,8 @@ function bind() {
       input.addEventListener("change", apply);
       if (field === "address") {
         input.addEventListener("focus", () => {
-          if (!lookupClosed.delete(id)) return;
+          if (lookupOpen.has(id)) return;
+          lookupOpen.add(id);
           card.querySelector("[data-act=lookup]")?.removeAttribute("hidden");
         });
         input.addEventListener("keydown", (event) => {
