@@ -300,7 +300,10 @@ function mount(trip) {
   enableCompass();
 }
 
-document.getElementById("followOverview")?.addEventListener("click", () => {
+document.body.addEventListener("pointerdown", () => enableCompass(), { once: true });
+
+document.getElementById("followOverview")?.addEventListener("click", async () => {
+  await enableCompass();
   following = false;
   if (!map || line.length < 2) return;
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
@@ -309,6 +312,7 @@ document.getElementById("followOverview")?.addEventListener("click", () => {
     new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
   );
   map.fitBounds(bounds, { padding: 80, maxZoom: 12, duration: 600 });
+  map.easeTo({ bearing: 0, duration: 400 });
 });
 
 function onCompass(event) {
@@ -346,12 +350,6 @@ async function enableCompass() {
   window.removeEventListener("deviceorientation", onCompass);
   window.addEventListener("deviceorientation", onCompass);
 }
-
-document.getElementById("followLock")?.addEventListener("click", () => {
-  following = true;
-  enableCompass();
-  if (lastFix) onFix(lastFix[0], lastFix[1]);
-});
 
 const code = new URLSearchParams(location.search).get("s");
 if (code) {

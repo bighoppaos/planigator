@@ -3162,7 +3162,15 @@ function bind() {
   });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
-  $("#startNav")?.addEventListener("click", () => {
+  $("#startNav")?.addEventListener("click", async () => {
+    const orientation = window.DeviceOrientationEvent;
+    if (orientation && typeof orientation.requestPermission === "function") {
+      try {
+        await orientation.requestPermission();
+      } catch {
+        // Still open navigation. The compass circle on that page can ask again.
+      }
+    }
     location.href = "./follow.html";
   });
   $("#shareNav")?.addEventListener("click", () => shareToNav());
