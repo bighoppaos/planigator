@@ -1440,12 +1440,21 @@ body.route-full { overflow: hidden; }
   60%, 79.99% { background: #f2c14e; border-color: #f2c14e; color: #14201c; }
   80%, 100% { background: #c23b6e; border-color: #c23b6e; color: #fff; }
 }
-#startNav {
+.nav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+#startNav,
+#endNav {
+  width: fit-content;
   font-size: calc(var(--box-font, 13px) * 22 / 13);
   animation: start-nav-colors 2.5s linear infinite;
 }
+#endNav { animation-delay: -1.25s; }
 @media (prefers-reduced-motion: reduce) {
-  #startNav { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
+  #startNav, #endNav { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
 }
 .turn-pin {
   width: 14px;

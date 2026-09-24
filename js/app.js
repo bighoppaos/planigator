@@ -1450,14 +1450,19 @@ async function fillHereLegs() {
       points.push(here);
       continue;
     }
-    if (!pointReady(stop)) {
-      const title = cardTitle(state.stops.indexOf(stop), state.stops);
-      throw new Error(`Look up ${title} and tap a verified address. A lookup that finds nothing is not charged.`);
-    }
+    if (!pointReady(stop)) continue;
     points.push({ lat: Number(stop.lat), lon: Number(stop.lon) });
   }
   const departAt = leaveAtNow();
   const speedCapMph = state.settings.governed ? mph() : null;
+  const missing = state.stops
+    .map((stop, index) => ({ stop, index }))
+    .filter(({ stop }) => !stop.useCurrentLocation && !pointReady(stop));
+  if (missing.length) {
+    const names = missing.map(({ index }) => cardTitle(index, state.stops));
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    throw new Error(`Press lookup address on ${list} and choose an address before pressing Calculate.`);
+  }
   for (let i = 1; i < state.stops.length; i += 1) {
     if (!points[i - 1] || !points[i]) continue;
     const heading = state.origin?.heading;
@@ -2063,7 +2068,7 @@ function planBox() {
       </aside>
     </div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<button type="button" class="flag-box" id="startNav">Start navigation</button>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav">Start navigation</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2447,6 +2452,26 @@ async function enableNavCompass() {
   }
   window.removeEventListener("deviceorientation", onNavCompass);
   window.addEventListener("deviceorientation", onNavCompass);
+}
+
+function endRouteNav() {
+  navOn = false;
+  navFollowing = false;
+  if (navWatch != null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(navWatch);
+    navWatch = null;
+  }
+  if (navYou) {
+    navYou.remove();
+    navYou = null;
+  }
+  window.removeEventListener("deviceorientation", onNavCompass);
+  const source = routeMap?.getSource("left");
+  if (source) {
+    source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });
+  }
+  if (routeMap) routeMap.easeTo({ bearing: 0, duration: 400 });
+  syncRouteChrome();
 }
 
 function beginRouteNav() {
@@ -3484,6 +3509,7 @@ function bind() {
     }
     beginRouteNav();
   });
+  $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
   $("#routeFull")?.addEventListener("click", () => setRouteFull(!routeFull));
   $("#routeFollow")?.addEventListener("click", async () => {
