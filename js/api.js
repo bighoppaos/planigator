@@ -143,6 +143,10 @@ export function saveBoxFont(boxFont) {
   return api("/v1/box-font", { method: "POST", body: JSON.stringify({ boxFont }) });
 }
 
+export function redeemGift(code) {
+  return api("/v1/gift", { method: "POST", body: JSON.stringify({ code }) });
+}
+
 export function createShare(trip) {
   return api("/v1/share", { method: "POST", body: JSON.stringify(trip) });
 }

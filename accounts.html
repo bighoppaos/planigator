@@ -24,7 +24,18 @@
       <div id="ranges" class="visit-ranges"></div>
       <div id="chart" class="visit-chart"></div>
     </section>
-    <div id="list" class="card account-scroll" hidden>
+    <section id="gifts" class="card" hidden>
+      <h2>Credit codes</h2>
+      <p class="muted">A person signs in with Google, then types the code on the plan page. Each code works once.</p>
+      <form id="giftForm" class="gift-form">
+        <label class="flag-box">Credits
+          <input id="giftCredits" type="number" min="1" max="500" value="10" inputmode="numeric">
+        </label>
+        <button type="submit" class="flag-box">Make a code</button>
+      </form>
+      <p id="giftNote" class="muted"></p>
+      <ul id="giftList"></ul>
+    </section>
       <table class="account-table">
         <thead>
           <tr>
@@ -40,6 +51,6 @@
       </table>
     </div>
   </main>
-  <script type="module" src="./js/accounts.js?v=5"></script>
+  <script type="module" src="./js/accounts.js?v=6"></script>
 </body>
 </html>

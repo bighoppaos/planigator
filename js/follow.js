@@ -27,6 +27,8 @@ let line = [];
 let legs = [];
 let following = true;
 let lastFix = null;
+let compass = null;
+let compassTimer = 0;
 
 function cleanPath(path) {
   if (!Array.isArray(path)) return [];
@@ -237,7 +239,8 @@ function onFix(lat, lon) {
   }
   if (following) {
     const camera = { center: [lon, lat], zoom: Math.max(map.getZoom(), 15), duration: 700 };
-    if (travel != null) camera.bearing = travel;
+    if (compass != null) camera.bearing = compass;
+    else if (travel != null) camera.bearing = travel;
     map.easeTo(camera);
   }
 }
@@ -294,6 +297,7 @@ function mount(trip) {
     () => say("Allow location", "Planigator needs location to show you moving on this trip.", ""),
     { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 },
   );
+  enableCompass();
 }
 
 document.getElementById("followOverview")?.addEventListener("click", () => {
@@ -307,8 +311,45 @@ document.getElementById("followOverview")?.addEventListener("click", () => {
   map.fitBounds(bounds, { padding: 80, maxZoom: 12, duration: 600 });
 });
 
+function onCompass(event) {
+  let heading = null;
+  if (typeof event.webkitCompassHeading === "number" && event.webkitCompassHeading >= 0) {
+    heading = event.webkitCompassHeading;
+  } else if (event.absolute && typeof event.alpha === "number") {
+    heading = (360 - event.alpha) % 360;
+  }
+  if (heading == null || Number.isNaN(heading)) return;
+  compass = heading;
+  if (!following || !map || !lastFix) return;
+  const now = Date.now();
+  if (now - compassTimer < 120) return;
+  compassTimer = now;
+  map.easeTo({
+    center: [lastFix[1], lastFix[0]],
+    bearing: compass,
+    zoom: Math.max(map.getZoom(), 15),
+    duration: 120,
+  });
+}
+
+async function enableCompass() {
+  const orientation = window.DeviceOrientationEvent;
+  if (!orientation) return;
+  if (typeof orientation.requestPermission === "function") {
+    try {
+      const result = await orientation.requestPermission();
+      if (result !== "granted") return;
+    } catch {
+      return;
+    }
+  }
+  window.removeEventListener("deviceorientation", onCompass);
+  window.addEventListener("deviceorientation", onCompass);
+}
+
 document.getElementById("followLock")?.addEventListener("click", () => {
   following = true;
+  enableCompass();
   if (lastFix) onFix(lastFix[0], lastFix[1]);
 });
 

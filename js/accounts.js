@@ -144,6 +144,7 @@ async function load() {
   if (me.idle || !me.signedIn) {
     list.hidden = true;
     visits.hidden = true;
+    document.getElementById("gifts").hidden = true;
     status.textContent = me.idle
       ? "Signed out after an hour away. Sign in on the planner with the owner Google account, then reload this page."
       : "Sign in on the planner with the owner Google account, then reload this page.";
@@ -167,11 +168,41 @@ async function load() {
   drawRanges();
   drawVisits();
   render(Array.isArray(data.accounts) ? data.accounts : []);
+  await loadGifts();
+}
+
+function drawGift(gift) {
+  const item = document.createElement("li");
+  item.textContent = gift.used
+    ? `${gift.code} · ${gift.credits} credits · used`
+    : `${gift.code} · ${gift.credits} credits`;
+  return item;
+}
+
+async function loadGifts() {
+  const box = document.getElementById("gifts");
+  const giftRows = document.getElementById("giftList");
+  const data = await api("/v1/admin/gifts");
+  box.hidden = false;
+  giftRows.replaceChildren(...(Array.isArray(data.gifts) ? data.gifts : []).map(drawGift));
 }
 
 try {
   await load();
   setInterval(load, 30000);
+  document.getElementById("giftForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const note = document.getElementById("giftNote");
+    const credits = Math.round(Number(document.getElementById("giftCredits")?.value));
+    note.textContent = "Making the code…";
+    try {
+      const made = await api("/v1/admin/gifts", { method: "POST", body: JSON.stringify({ credits }) });
+      note.textContent = `${made.code} is worth ${made.credits} credits.`;
+      await loadGifts();
+    } catch (error) {
+      note.textContent = error.message || "Could not make a code.";
+    }
+  });
   const mark = () => pulseActivity();
   document.addEventListener("pointerdown", mark);
   document.addEventListener("keydown", mark);

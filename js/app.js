@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -1538,6 +1538,24 @@ function loadScript(src) {
   return promise;
 }
 
+async function redeemCode(code) {
+  const trimmed = String(code || "").trim();
+  if (!/^[A-Za-z0-9]{8}$/.test(trimmed)) {
+    state.error = "That code is not valid.";
+    render();
+    return;
+  }
+  try {
+    const data = await redeemGift(trimmed);
+    if (data.credits != null) state.credits = data.credits;
+    state.error = "";
+    state.notice = `${data.added} credits added.`;
+  } catch (error) {
+    state.error = error.message || "That code is used or not valid.";
+  }
+  render();
+}
+
 async function logout() {
   if (boxFontTimer) {
     window.clearTimeout(boxFontTimer);
@@ -2506,7 +2524,11 @@ function authBlock() {
     ? `<p class="fine">Card saved. Free credits show up after Stripe confirms that card has not been used.</p>`
     : "";
   const idle = state.idleNote ? `<p class="ok">${escapeAttr(state.idleNote)}</p>` : "";
-  return `<div class="auth-block">${idle}${google}${card}${cardSaved}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
+  const signedOut = state.notice === "Signed out." ? `<p class="ok">Signed out.</p>` : "";
+  const gift = state.signedIn && !state.unlimited
+    ? `<form class="auth-row" id="giftForm"><label class="flag-box">Credit code <input id="giftCode" maxlength="8" autocomplete="off" spellcheck="false"></label><button type="submit" class="flag-box">Use code</button></form>`
+    : "";
+  return `<div class="auth-block">${idle}${signedOut}${google}${gift}${card}${cardSaved}${state.cardNote ? `<p class="error">${escapeAttr(state.cardNote)}</p>` : ""}</div>`;
 }
 
 export function initPlanner(el) {
@@ -2693,7 +2715,7 @@ function render() {
       ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 5. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+      ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
 
     ${savedTripsBlock()}
@@ -3088,6 +3110,11 @@ function bind() {
   mountAuth();
   syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
+  $("#giftForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = $("#giftCode")?.value || "";
+    redeemCode(code);
+  });
   $("#loadExample")?.addEventListener("click", (event) => {
     poofBig(event.currentTarget);
     loadExample();
