@@ -2389,16 +2389,35 @@ function ordinalStop(index) {
   return `${n}th`;
 }
 
-function cycleNavStop() {
+let navStopTapAt = 0;
+
+function cycleNavStop(event) {
+  const now = Date.now();
+  if (now - navStopTapAt < 400) return;
+  navStopTapAt = now;
+  event?.preventDefault();
+  event?.stopPropagation();
   const dests = navDestList();
-  if (!dests.length) return;
-  navStopCursor = dests.length < 2 ? 0 : (navStopCursor + 1) % dests.length;
+  if (dests.length < 2) return;
+  navStopCursor = (navStopCursor + 1) % dests.length;
   syncRouteChrome();
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  navFollowing = true;
   if (!navOn) beginRouteNav();
-  else {
-    navFollowing = true;
-    if (navFix) onNavFix(navFix[0], navFix[1]);
-  }
+  else if (navFix) onNavFix(navFix[0], navFix[1]);
+  else applyChosenStop();
+}
+
+function applyChosenStop() {
+  rebuildNavLegs();
+  const dests = navDestList();
+  const chosen = dests[Math.min(navStopCursor, Math.max(dests.length - 1, 0))];
+  if (!chosen) return;
+  const targetLeg = navLegs.find((item) => item.stop.id === chosen.stop.id);
+  const name = navStopTitle(chosen.stop);
+  sayNav(`Head to ${name}`, targetLeg ? `${navMiles(targetLeg.end)} to ${name}` : "", "");
+  if (targetLeg) paintNavLine(0, targetLeg.end);
 }
 
 function showWholeTrip() {
@@ -3597,7 +3616,9 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
-  $("#routeStop")?.addEventListener("click", () => cycleNavStop());
+  const routeStop = $("#routeStop");
+  routeStop?.addEventListener("pointerup", (event) => cycleNavStop(event));
+  routeStop?.addEventListener("click", (event) => cycleNavStop(event));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
   $("#routeFollow")?.addEventListener("click", async () => {
