@@ -2068,7 +2068,7 @@ function planBox() {
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
-        <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
+        <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span id="routeStopName">stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -2370,7 +2370,9 @@ function syncRouteChrome() {
   if (follow) follow.hidden = !navOn;
   const ordinal = document.getElementById("routeStopOrdinal");
   const shown = chosenNavStop();
-  if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.index : navStopCursor);
+  if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
+  const stopName = document.getElementById("routeStopName");
+  if (stopName) stopName.textContent = shown ? navStopTitle(shown.stop) : "stop";
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn || !routeFull;
   const start = document.getElementById("startNav");
@@ -2396,7 +2398,7 @@ function chosenNavStop() {
   const dests = navDestList();
   if (!dests.length) return null;
   const cursor = ((navStopCursor % dests.length) + dests.length) % dests.length;
-  return dests[cursor];
+  return { ...dests[cursor], cursor };
 }
 
 function alongForChosen(chosen) {
@@ -2490,7 +2492,6 @@ function frameNextTurn() {
     pin.className = "turn-pin";
     turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
   }
-  if (turn.stop?.id) markDirection(turn.stop.id, turn.index);
   const bounds = coords.reduce(
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
@@ -2572,9 +2573,10 @@ function cycleNavStop(event) {
   if (dests.length < 2) return;
   navStopCursor = (navStopCursor + 1) % dests.length;
   syncRouteChrome();
+  turnFrameAt = null;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
-  navFollowing = true;
+  if (tripFit !== "nextTurn") navFollowing = true;
   if (!navOn) beginRouteNav();
   else if (navFix) onNavFix(navFix[0], navFix[1]);
   else applyChosenStop();
@@ -2696,7 +2698,7 @@ function onNavFix(lat, lon) {
     sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
-        if (navFollowing) markDirection(leg.stop.id, found.index);
+        markDirection(leg.stop.id, found.index);
         paintDirectionMiles(leg.stop.id, found.index, metersLeftInStep(leg, alongInLeg, found.index));
       }
     }
@@ -3867,9 +3869,7 @@ function bind() {
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
   $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
-  const routeStop = $("#routeStop");
-  routeStop?.addEventListener("pointerup", (event) => cycleNavStop(event));
-  routeStop?.addEventListener("click", (event) => cycleNavStop(event));
+  $("#routeStop")?.addEventListener("click", (event) => cycleNavStop(event));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
   $("#routeFollow")?.addEventListener("click", async () => {
