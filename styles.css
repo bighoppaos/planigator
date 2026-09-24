@@ -452,6 +452,42 @@ p.flag-box {
   to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.2); }
 }
 
+.poof.big {
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  box-shadow: 0 0 36px 14px rgb(255 110 16 / 0.8);
+  animation-duration: 700ms;
+}
+
+.poof.big::before {
+  width: 72px;
+  height: 72px;
+  margin: -36px 0 0 -36px;
+  border-width: 3px;
+  animation-duration: 700ms;
+}
+
+.poof.big::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #ffe38a 45%, transparent 72%);
+  animation: poof-core 700ms ease-out forwards;
+}
+
+.poof.big i {
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  animation-duration: 700ms;
+}
+
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stop-card {

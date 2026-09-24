@@ -1588,6 +1588,27 @@ function poofBox(el) {
   window.setTimeout(() => node.remove(), 420);
 }
 
+function poofBig(el) {
+  if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const rect = el.getBoundingClientRect();
+  const node = document.createElement("span");
+  node.className = "poof big";
+  node.setAttribute("aria-hidden", "true");
+  node.style.left = `${rect.left + rect.width / 2}px`;
+  node.style.top = `${rect.top + rect.height / 2}px`;
+  const reach = Math.min(220, Math.max(120, Math.min(window.innerWidth, window.innerHeight) * 0.28));
+  for (let i = 0; i < 18; i += 1) {
+    const bit = document.createElement("i");
+    const angle = (Math.PI * 2 * i) / 18;
+    const dist = reach * (0.55 + (i % 4) * 0.14);
+    bit.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+    bit.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+    node.append(bit);
+  }
+  document.body.append(node);
+  window.setTimeout(() => node.remove(), 760);
+}
+
 function popConfetti() {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const canvas = document.createElement("canvas");
@@ -3053,7 +3074,10 @@ function bind() {
   mountAuth();
   syncOwnerLink();
   $("#logout")?.addEventListener("click", () => logout());
-  $("#loadExample")?.addEventListener("click", () => loadExample());
+  $("#loadExample")?.addEventListener("click", (event) => {
+    poofBig(event.currentTarget);
+    loadExample();
+  });
   $("#revealEmail")?.addEventListener("click", () => {
     state.emailRevealed = !state.emailRevealed;
     render();
