@@ -851,6 +851,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   min-width: 0;
 }
 
+.set-box[data-toggle="leaveNow"],
+.set-box[data-toggle="startAnytime"],
+.set-box[data-toggle="endAnytime"] {
+  min-height: calc(var(--box-font, 13px) * 2.12 + 4px);
+}
+
 .picker-title {
   margin: 0;
   font-size: 16px;
