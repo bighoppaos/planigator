@@ -24,12 +24,14 @@ import {
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
 let plannerRoot = null;
 let writingHash = false;
+let boxFontTimer = 0;
+let boxFontDirty = false;
 const lookupOpen = new Set();
 const usingDismissed = new Set();
 const usingTimers = new Map();
@@ -1228,6 +1230,49 @@ function applyAccount(me) {
   state.packCredits = Number(me.packCredits) || 0;
   state.cardGrantUsed = Boolean(me.cardGrantUsed);
   state.packPriceCents = me.packPriceCents || 149;
+  if (me.signedIn && !boxFontDirty) {
+    const next = clampBoxFont(me.boxFont);
+    if (state.boxFont !== next) {
+      state.boxFont = next;
+      paintBoxFont();
+      persist();
+    }
+  }
+}
+
+function clampBoxFont(value) {
+  const n = Math.round(Number(value));
+  return n >= 13 && n <= 28 ? n : 13;
+}
+
+function paintBoxFont() {
+  document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
+  const hos = document.querySelector(".hos");
+  if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
+  const readout = document.getElementById("boxFontReadout");
+  if (readout) readout.textContent = String(state.boxFont);
+  const input = document.getElementById("boxFont");
+  if (input && document.activeElement !== input) input.value = String(state.boxFont);
+}
+
+function resetLocalBoxFont() {
+  if (boxFontTimer) window.clearTimeout(boxFontTimer);
+  boxFontTimer = 0;
+  boxFontDirty = false;
+  state.boxFont = 13;
+}
+
+function queueBoxFontSave() {
+  if (!state.signedIn) return;
+  boxFontDirty = true;
+  if (boxFontTimer) window.clearTimeout(boxFontTimer);
+  const size = state.boxFont;
+  boxFontTimer = window.setTimeout(() => {
+    boxFontTimer = 0;
+    saveBoxFont(size).then(() => {
+      if (state.boxFont === size && !boxFontTimer) boxFontDirty = false;
+    }).catch(() => {});
+  }, 300);
 }
 
 async function refreshCredits() {
@@ -1457,6 +1502,18 @@ function loadScript(src) {
 }
 
 async function logout() {
+  if (boxFontTimer) {
+    window.clearTimeout(boxFontTimer);
+    boxFontTimer = 0;
+  }
+  if (boxFontDirty && state.signedIn) {
+    try {
+      await saveBoxFont(state.boxFont);
+    } catch {
+      // Still sign out. The last size stays on the account only if this save landed.
+    }
+  }
+  boxFontDirty = false;
   await logoutRemote();
   clearSession();
   try {
@@ -1476,6 +1533,7 @@ async function logout() {
   state.credits = null;
   state.calls = [];
   state.notice = "Signed out.";
+  resetLocalBoxFont();
   resetEditor();
   persist();
   await refreshCredits();
@@ -2404,6 +2462,7 @@ export function initPlanner(el) {
     if (state.idleSignOut) {
       state.calls = [];
       state.notice = "";
+      resetLocalBoxFont();
       resetEditor();
       state.idleNote = "Signed out after an hour away.";
       persist();
@@ -2434,6 +2493,7 @@ async function watchSignIn() {
   if (was && !state.signedIn) {
     state.calls = [];
     state.notice = state.idleSignOut ? "" : "Signed out.";
+    resetLocalBoxFont();
     resetEditor();
     if (state.idleSignOut) state.idleNote = "Signed out after an hour away.";
     persist();
@@ -2955,6 +3015,7 @@ function bind() {
     const readout = document.getElementById("boxFontReadout");
     if (readout) readout.textContent = String(state.boxFont);
     persist();
+    queueBoxFontSave();
   });
   mountMap();
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
