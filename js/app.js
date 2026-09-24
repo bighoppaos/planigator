@@ -2057,7 +2057,7 @@ function directionsBlock() {
   if (!groups.length) return "";
   const items = groups.map((group) => `
     <li class="dir-leg">${escapeAttr(group.title)}</li>
-    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span class="dir-miles">${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
+    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(step.text)}">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span class="dir-miles" data-full="${escapeAttr(formatMiles(step.miles))}">${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
   `).join("");
   return `<details class="directions call-log-box" open>
     <summary>auto zooming directions</summary>
@@ -2402,7 +2402,7 @@ function spokenGoFor(meters) {
     const feet = Math.max(1, Math.round(meters * 3.28084));
     return `Go for ${feet} ${feet === 1 ? "foot" : "feet"}`;
   }
-  const rounded = miles >= 10 ? Math.round(miles) : Math.round(miles * 10) / 10;
+  const rounded = miles >= 100 ? Math.round(miles) : Math.round(miles * 10) / 10;
   const unit = rounded === 1 ? "mile" : "miles";
   return `Go for ${rounded} ${unit}`;
 }
@@ -2690,13 +2690,19 @@ function metersLeftInStep(leg, alongInLeg, index) {
 }
 
 function paintDirectionMiles(stopId, index, meters) {
-  const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
-    item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
-  ));
-  const slot = button?.querySelector(".dir-miles");
-  if (!slot) return;
-  const miles = meters / 1609.344;
-  slot.textContent = miles > 0.05 ? formatMiles(miles) : formatMiles(0);
+  document.querySelectorAll("[data-dir-stop]").forEach((button) => {
+    const current = button.getAttribute("data-dir-stop") === stopId && button.getAttribute("data-dir-index") === String(index);
+    const link = button.querySelector(".dir-link");
+    const slot = button.querySelector(".dir-miles");
+    const original = link?.getAttribute("data-original") || "";
+    if (!current) {
+      if (link && original) link.textContent = original;
+      if (slot?.getAttribute("data-full")) slot.textContent = slot.getAttribute("data-full");
+      return;
+    }
+    if (link && original) link.textContent = directionWithMilesLeft(original, meters);
+    if (slot) slot.textContent = "";
+  });
 }
 
 function cycleNavStop(event) {
