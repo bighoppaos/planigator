@@ -672,7 +672,7 @@ function exampleWeeksAhead(now = Date.now()) {
   today.setHours(0, 0, 0, 0);
   if (today < anchor) return 0;
   const days = Math.round((today.getTime() - anchor.getTime()) / 86400000);
-  return Math.max(0, Math.floor(days / 7));
+  return Math.floor(days / 7) + 1;
 }
 
 function addLocalDays(ms, days) {
@@ -694,6 +694,30 @@ function shiftExampleStamps(value, days) {
     else copy[key] = shiftExampleStamps(item, days);
   }
   return copy;
+}
+
+function storedExampleWeek(stops) {
+  const base = (EXAMPLE_TRIP.stops || []).find((stop) => !stop.useCurrentLocation);
+  const live = (stops || []).find((stop) => !stop.useCurrentLocation);
+  if (!base || !live) return null;
+  const delta = Math.round((Number(live.start) - Number(base.start)) / 86400000);
+  if (!Number.isFinite(delta) || delta < 0 || delta % 7 !== 0) return null;
+  return delta / 7;
+}
+
+function exampleStillStock() {
+  if (state.activeTripId) return false;
+  const baseStops = EXAMPLE_TRIP.stops || [];
+  if (state.stops.length !== baseStops.length) return false;
+  return baseStops.every((stop, index) => state.stops[index]?.id === stop.id);
+}
+
+function rollOpenExample() {
+  if (!exampleStillStock()) return;
+  const stored = storedExampleWeek(state.stops);
+  const weeks = exampleWeeksAhead();
+  if (stored == null || stored >= weeks) return;
+  loadExample();
 }
 
 function loadExample() {
@@ -2459,6 +2483,7 @@ export function initPlanner(el) {
     render();
   });
   plannerRoot = el;
+  rollOpenExample();
   const paid = new URLSearchParams(location.search).get("paid");
   if (paid === "1") state.notice = "";
   if (paid === "0") state.notice = "Checkout canceled. Your credits are unchanged.";
