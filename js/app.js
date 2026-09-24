@@ -1550,6 +1550,9 @@ async function redeemCode(code) {
     if (data.credits != null) state.credits = data.credits;
     state.error = "";
     state.notice = `${data.added} credits added.`;
+    render();
+    popConfetti();
+    return;
   } catch (error) {
     state.error = error.message || "That code is used or not valid.";
   }
