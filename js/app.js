@@ -2989,7 +2989,7 @@ function render() {
     <div class="hero-lift"><section class="hero card hero-mark">
       <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
       <div class="hero-copy">
-      <h1>Planigator.help</h1>
+      <h1>www.planigator.help</h1>
       <ul class="pitch">
         <li>One page for the truck-legal plan, the auto-zooming turn list, and navigation</li>
         <li>See how much leeway time you have</li>
