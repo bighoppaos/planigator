@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="./styles.css?v=92">
 </head>
 <body class="app planner-only box-hover">
-  <p class="build-line">Build#225 9.24.26. Box hover preview. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
+  <p class="build-line">Build#225 9.24.26. Box hover preview 2. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
   <main id="app"></main>
   <footer>
     <nav>
@@ -25,6 +25,18 @@
   <style>
     .page-refresh { display: none; }
     html.from-home .page-refresh { display: inline; }
+    .box-hover .hos,
+    .box-hover .stops {
+      margin-left: 0;
+      margin-right: 0;
+    }
+    .box-hover .settings-grid,
+    .box-hover .settings-pairs,
+    .box-hover .set-pair,
+    .box-hover .action-grid,
+    .box-hover .stack {
+      gap: 22px;
+    }
     .box-hover .set-box,
     .box-hover .flag-box,
     .box-hover .stop-card,
@@ -32,7 +44,11 @@
     .box-hover .call-log-box,
     .box-hover .secondary,
     .box-hover button.example-load {
-      filter: drop-shadow(0 14px 12px rgb(0 0 0 / 0.35));
+      filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.55));
+    }
+    .box-hover .stop-card {
+      overflow: visible;
+      margin-bottom: 28px;
     }
   </style>
   <script>
