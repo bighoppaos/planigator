@@ -1518,23 +1518,21 @@ function loadScript(src) {
   if (pending) return pending;
   const existing = [...document.scripts].find((script) => script.src === src);
   if (existing?.dataset.loaded === "1") return Promise.resolve();
+  existing?.remove();
   const promise = new Promise((resolve, reject) => {
-    const script = existing || document.createElement("script");
-    const finish = () => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
       script.dataset.loaded = "1";
       resolve();
     };
-    const fail = () => {
+    script.onerror = () => {
       scriptLoads.delete(src);
+      script.remove();
       reject(new Error("Could not load sign-in."));
     };
-    script.addEventListener("load", finish, { once: true });
-    script.addEventListener("error", fail, { once: true });
-    if (!existing) {
-      script.src = src;
-      script.async = true;
-      document.head.appendChild(script);
-    }
+    document.head.appendChild(script);
   });
   scriptLoads.set(src, promise);
   return promise;
