@@ -2709,6 +2709,8 @@ function stopCard(stop, index) {
   const ink = stopInk(rgb);
   const around = eventsAround(stop.id);
   const title = cardTitle(index, state.stops);
+  const typedAddress = (stop.address || "").trim();
+  const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = !originStop && dests.length > 1;
   const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
@@ -2729,7 +2731,7 @@ function stopCard(stop, index) {
         <button type="button" class="flag-box" data-act="paste">Paste an<br>address</button>
       </div>
       <div class="lookup-row">
-        <button type="button" class="flag-box lookup" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
+        <button type="button" class="flag-box lookup${lookupFlash ? " lookup-flash" : ""}" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
       </div>
       ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-suggest="${index}">${escapeAttr(item.label)}</button>`).join("")}
@@ -3577,6 +3579,18 @@ function bind() {
           const stop = state.stops.find((item) => item.id === id);
           if (!stop) return;
           stop[field] = input.value;
+          if (field === "address") {
+            const button = card.querySelector("[data-act=lookup]");
+            const typed = input.value.trim();
+            const verified = String(stop.verifiedLabel || "").trim();
+            if (button && typed && typed !== verified) {
+              lookupOpen.add(id);
+              button.hidden = false;
+              button.classList.add("lookup-flash");
+            } else if (button) {
+              button.classList.remove("lookup-flash");
+            }
+          }
           if (field === "address" || field === "name") fitAddressField(input);
           persist();
         });

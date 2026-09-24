@@ -1453,8 +1453,11 @@ body.route-full { overflow: hidden; }
   animation: start-nav-colors 2.5s linear infinite;
 }
 #endNav { animation-delay: -1.25s; }
+button.lookup.lookup-flash {
+  animation: start-nav-colors 2.5s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
-  #startNav, #endNav { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
+  #startNav, #endNav, button.lookup.lookup-flash { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
 }
 .turn-pin {
   width: 14px;
