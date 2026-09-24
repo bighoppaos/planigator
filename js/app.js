@@ -2064,6 +2064,7 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeWhole">Whole trip</button>
         <button type="button" id="routeFull">Full screen</button>
+        <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeFollow" hidden>Follow me</button>
       </aside>
     </div>
@@ -2351,12 +2352,15 @@ function syncRouteChrome() {
   if (stage) stage.classList.toggle("is-full", routeFull);
   document.body.classList.toggle("route-full", routeFull);
   const full = document.getElementById("routeFull");
-  if (full) full.textContent = routeFull ? "Exit" : "Full screen";
+  if (full) full.hidden = routeFull;
+  const exit = document.getElementById("routeExit");
+  if (exit) exit.hidden = !routeFull;
   const follow = document.getElementById("routeFollow");
   if (follow) follow.hidden = !navOn;
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn;
   if (routeFull) routeMap?.resize();
+  if (navOn) freezeTyping(true);
 }
 
 function setRouteFull(on) {
@@ -2476,6 +2480,7 @@ function endRouteNav() {
   navFollowing = false;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
+  freezeTyping(false);
   if (navWatch != null && navigator.geolocation) {
     navigator.geolocation.clearWatch(navWatch);
     navWatch = null;
@@ -2493,9 +2498,25 @@ function endRouteNav() {
   syncRouteChrome();
 }
 
+function freezeTyping(freeze) {
+  document.querySelectorAll("textarea, input").forEach((el) => {
+    if (freeze) {
+      if (el.disabled || el.dataset.undoFreeze === "1") return;
+      el.dataset.undoFreeze = "1";
+      el.disabled = true;
+    } else if (el.dataset.undoFreeze === "1") {
+      el.disabled = false;
+      delete el.dataset.undoFreeze;
+    }
+  });
+  const active = document.activeElement;
+  if (active && active !== document.body && active.blur) active.blur();
+}
+
 function beginRouteNav() {
   navOn = true;
   navFollowing = true;
+  freezeTyping(true);
   syncRouteChrome();
   document.getElementById("routeStage")?.scrollIntoView({ block: "nearest" });
   sayNav("Finding you…", "Allow location to move along this trip.", "");
@@ -3535,7 +3556,8 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
-  $("#routeFull")?.addEventListener("click", () => setRouteFull(!routeFull));
+  $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
+  $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;
