@@ -2327,7 +2327,7 @@ function stopCard(stop, index) {
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
-          <input class="plain" data-field="name" value="${escapeAttr(stop.name)}" placeholder="${escapeAttr(title)}">
+          <textarea class="plain" data-field="name" rows="1" placeholder="${escapeAttr(title)}" aria-label="Stop name">${escapeAttr(stop.name)}</textarea>
         </label>
         <div class="icon-row">
           <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 ? "disabled" : ""} aria-label="Move stop up">↑</button>
@@ -3122,6 +3122,12 @@ function bind() {
         updateStop(id, patch);
       };
       input.addEventListener("change", apply);
+      if (field === "name") {
+        input.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+        });
+      }
       if (field === "address") {
         input.addEventListener("focus", () => {
           if (lookupOpen.has(id)) return;
@@ -3141,7 +3147,7 @@ function bind() {
           const stop = state.stops.find((item) => item.id === id);
           if (!stop) return;
           stop[field] = input.value;
-          if (field === "address") fitAddressField(input);
+          if (field === "address" || field === "name") fitAddressField(input);
           persist();
         });
       }
@@ -3200,7 +3206,7 @@ function bind() {
   document.querySelectorAll("[data-after]").forEach((button) => {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
   });
-  document.querySelectorAll("textarea[data-field=address]").forEach(fitAddressField);
+  document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
 }
 
 function fitAddressField(field) {
