@@ -1386,18 +1386,18 @@ body.route-full { overflow: hidden; }
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  width: 60px;
+  gap: 4px;
+  width: 48px;
   padding: 0;
   pointer-events: none;
 }
 .route-rail button[hidden] { display: none; }
 .route-rail button {
-  width: 60px;
+  width: 48px;
   min-width: 0;
-  max-width: 60px;
-  height: 60px;
-  flex: 0 0 60px;
+  max-width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1410,7 +1410,7 @@ body.route-full { overflow: hidden; }
   background: rgb(0 0 0 / 0.35);
   color: #fff;
   font: inherit;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1.05;
   text-align: center;
@@ -1427,10 +1427,14 @@ body.route-full { overflow: hidden; }
   top: max(8px, env(safe-area-inset-top));
   right: max(8px, env(safe-area-inset-right));
   bottom: max(8px, env(safe-area-inset-bottom));
+  width: 60px;
+  gap: 6px;
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
+  max-width: 60px;
   height: 60px;
+  flex-basis: 60px;
   font-size: 12px;
 }
 .route-nav-banner {

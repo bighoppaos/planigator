@@ -1988,15 +1988,16 @@ function directionFocus(stop, index) {
   const steps = Array.isArray(stop?.directions) ? stop.directions : [];
   const step = steps[index];
   if (!step) return null;
-  const storedLat = Number(step.lat);
-  const storedLon = Number(step.lon);
-  if (Number.isFinite(storedLat) && Number.isFinite(storedLon)) {
-    return { lat: storedLat, lon: storedLon, coords: [[storedLat, storedLon]] };
-  }
   const path = (Array.isArray(stop?.path) ? stop.path : [])
     .map((pair) => [Number(pair?.[0]), Number(pair?.[1])])
     .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
-  if (path.length < 2) return null;
+  const storedLat = Number(step.lat);
+  const storedLon = Number(step.lon);
+  const hasStored = Number.isFinite(storedLat) && Number.isFinite(storedLon);
+  if (path.length < 2) {
+    if (!hasStored) return null;
+    return { lat: storedLat, lon: storedLon, coords: [[storedLat, storedLon]] };
+  }
   const lengths = steps.map(stepLengthMeters);
   const sum = lengths.reduce((total, length) => total + length, 0);
   const total = polylineMeters(path);
@@ -2021,12 +2022,18 @@ function directionFocus(stop, index) {
   for (let i = 1; i < path.length; i += 1) {
     const seg = metersBetween(path[i - 1], path[i]);
     const next = walked + seg;
-    if (next >= start && walked <= end) add(path[i][0], path[i][1]);
+    if (next > start && walked < end && seg > 0) {
+      const t0 = Math.max(0, (start - walked) / seg);
+      const t1 = Math.min(1, (end - walked) / seg);
+      if (t0 > 0) add(path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t0, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t0);
+      add(path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t1, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t1);
+    }
     walked = next;
     if (walked > end) break;
   }
   add(at.lat, at.lon);
   if (to) add(to.lat, to.lon);
+  if (navFix && metersBetween(navFix, [at.lat, at.lon]) < 2000) add(navFix[0], navFix[1]);
   return { lat: at.lat, lon: at.lon, coords };
 }
 
@@ -2057,12 +2064,12 @@ function planBox() {
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail">
-        <button type="button" id="routeFull">Full screen</button>
+        <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
-        <button type="button" id="routeFollow" hidden>Follow me</button>
+        <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
       <div class="route-nav-banner" id="routeNavBanner" hidden>
@@ -2763,7 +2770,26 @@ function applyTurnZoom(map, focus) {
     (box, pair) => box.extend([pair[1], pair[0]]),
     new maplibre.LngLatBounds([coords[0][1], coords[0][0]], [coords[0][1], coords[0][0]]),
   );
-  map.fitBounds(bounds, { padding: 64, maxZoom: 16, animate: !reduce, duration: reduce ? 0 : 800 });
+  const span = Math.max(
+    metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getWest()]),
+    metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getSouth(), bounds.getEast()]),
+  );
+  if (span < 30) {
+    map.easeTo({
+      center: [focus.lon, focus.lat],
+      zoom: 16,
+      bearing: 0,
+      duration: reduce ? 0 : 800,
+    });
+  } else {
+    map.fitBounds(bounds, {
+      padding: 64,
+      maxZoom: 16,
+      bearing: 0,
+      animate: !reduce,
+      duration: reduce ? 0 : 800,
+    });
+  }
   pendingTurn = null;
 }
 
