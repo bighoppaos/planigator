@@ -105,8 +105,8 @@ export function startCardSetup() {
   return api("/v1/setup-card", { method: "POST", body: "{}" });
 }
 
-export function loginWith(provider, idToken) {
-  return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken }) });
+export function loginWith(provider, idToken, dropSession) {
+  return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken, dropSession: dropSession || "" }) });
 }
 
 export async function logoutRemote() {

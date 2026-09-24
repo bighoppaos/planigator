@@ -1599,8 +1599,9 @@ function googleNeedsFullPageRedirect() {
 }
 
 async function completeGoogleCredential(credential) {
+  const dropSession = localStorage.getItem("planigator.web.session") || "";
   clearSession();
-  const me = await loginWith("google", credential);
+  const me = await loginWith("google", credential, dropSession);
   state.idleNote = "";
   applyAccount(me);
   if (me.signupCredits) {
