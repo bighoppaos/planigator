@@ -1042,8 +1042,8 @@ function locateSucceeded(pos, attempt) {
   const hadOrigin = Boolean(state.origin);
   const moved = movedEnough(state.origin, pos.coords);
   state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-  const heading = Number(pos.coords.heading);
-  if (Number.isFinite(heading) && heading >= 0) state.origin.heading = heading;
+  const heading = pos.coords.heading;
+  if (typeof heading === "number" && Number.isFinite(heading) && heading >= 0) state.origin.heading = heading;
   if (!state.stops[0]?.useCurrentLocation) {
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
@@ -1459,7 +1459,8 @@ async function fillHereLegs() {
   const speedCapMph = state.settings.governed ? mph() : null;
   for (let i = 1; i < state.stops.length; i += 1) {
     if (!points[i - 1] || !points[i]) continue;
-    const course = state.stops[i - 1]?.useCurrentLocation ? state.origin?.heading : null;
+    const heading = state.origin?.heading;
+    const course = state.stops[i - 1]?.useCurrentLocation && typeof heading === "number" ? heading : undefined;
     const leg = await truckRoute(points[i - 1], points[i], {
       speedCapMph,
       departAt,

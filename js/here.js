@@ -44,9 +44,8 @@ export function truckRouteUrl({
 }) {
   const profile = TRUCK_PROFILE;
   let origin = `${from.lat.toFixed(6)},${from.lon.toFixed(6)}`;
-  const heading = Number(course);
-  if (Number.isFinite(heading) && heading >= 0 && heading <= 360) {
-    origin += `;course=${Math.round(heading % 360)};minCourseDistance=400`;
+  if (typeof course === "number" && Number.isFinite(course) && course >= 0 && course <= 360) {
+    origin += `;course=${Math.round(course % 360)};minCourseDistance=400`;
   }
   const straight = metersBetween([from.lat, from.lon], [to.lat, to.lon]);
   const items = [
