@@ -197,8 +197,8 @@ settleLoadedStops(state.stops);
 function settleLoadedStops(stops) {
   for (const stop of stops || []) {
     if (!stop?.id || stop.useCurrentLocation) continue;
-    if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) continue;
     lookupClosed.add(stop.id);
+    if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) continue;
     usingDismissed.add(stop.id);
     const timer = usingTimers.get(stop.id);
     if (timer) window.clearTimeout(timer);
