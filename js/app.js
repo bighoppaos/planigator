@@ -1871,7 +1871,7 @@ function directionsBlock() {
     <li class="dir-leg">${escapeAttr(group.title)}</li>
     ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span>${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
   `).join("");
-  return `<details class="directions call-log-box">
+  return `<details class="directions call-log-box" open>
     <summary>auto zooming directions</summary>
     <div class="dir-scroll">
       <ol>${items}</ol>
