@@ -3004,11 +3004,13 @@ function onNavFix(lat, lon) {
     sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(0, until);
   } else {
-    sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+    const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
+    const title = String(step?.text || "").trim();
+    sayNav(title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
-        paintDirectionMiles(leg.stop.id, found.index, metersLeftInStep(leg, alongInLeg, found.index));
+        paintDirectionMiles(leg.stop.id, found.index, leftInStep);
       }
       speakNavProgress(leg, found, hit.along);
     }
