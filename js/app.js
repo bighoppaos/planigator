@@ -2520,10 +2520,10 @@ function render() {
           <div class="set-pair">
             ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
             ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
+            ${state.plan ? `<button type="button" class="flag-box" id="updateTimes">Update times</button>` : ""}
           </div>
         </div>
         ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
-        ${state.plan ? `<button type="button" class="flag-box" id="updateTimes">Update times</button>` : ""}
         <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
     </section>
 

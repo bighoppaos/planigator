@@ -1282,10 +1282,10 @@ body.app main { padding-top: 2px; }
 
 .result-lines .flag-box { max-width: 100%; }
 
-.hos #updateTimes {
-  width: fit-content;
-  max-width: 100%;
-  margin: 4px 0;
+.set-pair > #updateTimes {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
 }
 
 .trips ul { list-style: none; padding: 0; margin: 4px 0 0; }
@@ -1329,6 +1329,7 @@ body.app main { padding-top: 2px; }
 .stop-flags .flag-box,
 .when-row.window-when button.flag-box,
 #calculate,
+#updateTimes,
 button.lookup,
 button[data-act="paste"],
 #addStop,
