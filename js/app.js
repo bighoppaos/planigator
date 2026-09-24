@@ -2094,7 +2094,7 @@ function planBox() {
       </div>
     </div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>Start navigation</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2484,7 +2484,10 @@ function syncRouteChrome() {
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn || !routeFull;
   const start = document.getElementById("startNav");
-  if (start) start.disabled = navOn;
+  if (start) {
+    start.disabled = navOn;
+    start.textContent = navOn ? "Navigation in progress" : "Start navigation";
+  }
   syncTripFitButton();
   if (routeFull) routeMap?.resize();
   if (navOn) freezeTyping(true);
