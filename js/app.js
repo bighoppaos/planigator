@@ -2426,7 +2426,7 @@ function speakNavProgress(leg, found, hereAlong) {
     spokenStepKey = stepKey;
     spokenMiles.clear();
     for (const band of [5, 3, 2, 1]) {
-      if (miles < band - 0.15) spokenMiles.add(band);
+      if (miles < band - 0.15 || (miles <= band && miles > band - 0.4)) spokenMiles.add(band);
     }
     if (text) {
       window.speechSynthesis?.cancel();
