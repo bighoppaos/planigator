@@ -1087,6 +1087,18 @@ header .brand img {
   display: block;
 }
 
+.hero-lift {
+  width: min(100%, 640px);
+  margin: 10px auto 28px;
+  border-radius: 16px;
+  box-shadow: 0 14px 12px rgb(0 0 0 / 0.35);
+}
+
+.hero-lift .hero-mark {
+  width: 100%;
+  margin-bottom: 0;
+}
+
 .hero-mark {
   aspect-ratio: 1 / 1;
   width: min(100%, 640px);

@@ -2605,7 +2605,7 @@ function render() {
   const plan = state.plan;
   root.innerHTML = `
     ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
-    <section class="hero card hero-mark">
+    <div class="hero-lift"><section class="hero card hero-mark">
       <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
       <div class="hero-copy">
       <h1>Planigator.help</h1>
@@ -2619,7 +2619,7 @@ function render() {
         <li>And more</li>
       </ul>
       </div>
-    </section>
+    </section></div>
 
     ${authBlock()}
 
