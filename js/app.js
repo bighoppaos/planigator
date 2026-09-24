@@ -2566,7 +2566,7 @@ function render() {
   root.innerHTML = `
     ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
     <section class="hero card hero-mark">
-      <img class="hero-anim" src="./icons/planigator-clip.gif" alt="" width="400" height="400">
+      <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
       <div class="hero-copy">
       <h1>Planigator.help</h1>
       <ul class="pitch">
@@ -3236,10 +3236,13 @@ function mountExampleSparkle() {
     const t = reduce ? 1.2 : (now / 1000) * speed;
     for (let index = 0; index < count; index += 1) {
       const seed = (index + 1) * 1.618;
-      const x = (Math.sin(seed * 4.2) * 0.5 + 0.5) * w + Math.sin(t + seed) * 2.5;
-      const y = (Math.cos(seed * 3.3) * 0.5 + 0.5) * h + Math.cos(t * 0.8 + seed) * 2;
-      const twinkle = reduce ? 0.9 : 0.12 + 0.88 * Math.abs(Math.sin(t * Math.PI + seed * 2.1));
       const radius = 1.1 + (index % 3) * 0.5;
+      const reach = radius * 2.2 + 1;
+      const spanX = Math.max(1, w - reach * 2);
+      const spanY = Math.max(1, h - reach * 2);
+      const x = Math.min(w - reach, Math.max(reach, reach + (Math.sin(seed * 4.2) * 0.5 + 0.5) * spanX + Math.sin(t + seed) * 2.5));
+      const y = Math.min(h - reach, Math.max(reach, reach + (Math.cos(seed * 3.3) * 0.5 + 0.5) * spanY + Math.cos(t * 0.8 + seed) * 2));
+      const twinkle = reduce ? 0.9 : 0.12 + 0.88 * Math.abs(Math.sin(t * Math.PI + seed * 2.1));
       ctx.globalAlpha = twinkle;
       ctx.strokeStyle = "rgba(20,32,28,0.55)";
       ctx.lineWidth = 1.5;
