@@ -28,6 +28,15 @@ export function clearCardWelcome() {
   return api("/v1/card-seen", { method: "POST", body: "{}" }).catch(() => {});
 }
 
+export function noteVisit(hit) {
+  let id = localStorage.getItem("planigator.web.visitor");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("planigator.web.visitor", id);
+  }
+  return api("/v1/visit", { method: "POST", body: JSON.stringify({ id, hit: Boolean(hit) }) }).catch(() => {});
+}
+
 export function pulseActivity() {
   const now = Date.now();
   if (now - lastPulse < 60_000) return Promise.resolve();

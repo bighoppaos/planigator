@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=121";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -2486,6 +2486,11 @@ export function initPlanner(el) {
     render();
   });
   plannerRoot = el;
+  noteVisit(!sessionStorage.getItem("planigator.web.visit"));
+  sessionStorage.setItem("planigator.web.visit", "1");
+  setInterval(() => {
+    if (document.visibilityState === "visible") noteVisit(false);
+  }, 30000);
   rollOpenExample();
   const paid = new URLSearchParams(location.search).get("paid");
   if (paid === "1") state.notice = "";
@@ -3243,20 +3248,21 @@ function mountExampleSparkle() {
       const x = Math.min(w - reach, Math.max(reach, reach + (Math.sin(seed * 4.2) * 0.5 + 0.5) * spanX + Math.sin(t + seed) * 2.5));
       const y = Math.min(h - reach, Math.max(reach, reach + (Math.cos(seed * 3.3) * 0.5 + 0.5) * spanY + Math.cos(t * 0.8 + seed) * 2));
       const twinkle = reduce ? 0.9 : 0.12 + 0.88 * Math.abs(Math.sin(t * Math.PI + seed * 2.1));
-      ctx.globalAlpha = twinkle;
-      ctx.strokeStyle = "rgba(20,32,28,0.55)";
-      ctx.lineWidth = 1.5;
+      const hue = (seed * 47 + t * 36) % 360;
+      ctx.globalAlpha = twinkle * 0.72;
+      ctx.strokeStyle = `hsl(${hue} 70% 28%)`;
+      ctx.lineWidth = 1.1;
       ctx.beginPath();
       ctx.moveTo(x, y - radius * 2.2);
       ctx.lineTo(x, y + radius * 2.2);
       ctx.moveTo(x - radius * 2.2, y);
       ctx.lineTo(x + radius * 2.2, y);
       ctx.stroke();
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = `hsl(${hue} 75% 58%)`;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.strokeStyle = `hsl(${(hue + 40) % 360} 80% 72%)`;
       ctx.lineWidth = 0.6;
       ctx.beginPath();
       ctx.moveTo(x, y - radius * 2.2);

@@ -1519,6 +1519,49 @@ a.primary {
   font-weight: 700;
 }
 
+.visit-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.visit-chart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 3px;
+  min-height: 120px;
+  overflow-x: auto;
+}
+
+.visit-col {
+  flex: 1 0 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 110px;
+}
+
+.visit-bar {
+  display: block;
+  width: 100%;
+  max-width: 22px;
+  background: var(--mint);
+  border-radius: 3px 3px 0 0;
+}
+
+.visit-label {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--muted);
+}
+
+.visit-chart > p { flex: 1 0 100%; margin: 6px 0 0; }
+
 .account-scroll { overflow-x: auto; }
 
 .account-table {
