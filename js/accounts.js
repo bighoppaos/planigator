@@ -143,6 +143,7 @@ async function load() {
   const me = await creditsMe();
   if (me.idle || !me.signedIn) {
     list.hidden = true;
+    visits.hidden = true;
     status.textContent = me.idle
       ? "Signed out after an hour away. Sign in on the planner with the owner Google account, then reload this page."
       : "Sign in on the planner with the owner Google account, then reload this page.";
@@ -153,6 +154,9 @@ async function load() {
     pulseActivity();
     noteVisit(!sessionStorage.getItem("planigator.web.visit"));
     sessionStorage.setItem("planigator.web.visit", "1");
+    setInterval(() => {
+      if (document.visibilityState === "visible") noteVisit(false);
+    }, 30000);
   }
   const data = await api("/v1/admin/accounts");
   const traffic = await api("/v1/admin/visits");
