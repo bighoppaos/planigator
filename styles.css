@@ -1453,6 +1453,26 @@ body.route-full { overflow: hidden; }
   flex-basis: 60px;
   font-size: 12px;
 }
+.route-place {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 4;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(7 21 37 / 0.92);
+  color: #fffdf8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.route-stage.is-full .route-place {
+  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 78px);
+}
 .route-nav-banner {
   position: absolute;
   top: 8px;

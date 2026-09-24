@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=122";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -2085,6 +2085,7 @@ function planBox() {
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
+      <p class="route-place" id="routePlace" hidden></p>
       </div>
       <div class="route-nav-banner" id="routeNavBanner" hidden>
         <strong id="routeNavTitle"></strong>
@@ -2424,6 +2425,35 @@ function speakNavProgress(leg, found, hereAlong) {
     speakNav(nextText ? `${distance}. ${nextText}` : `${distance} to the next turn.`);
     break;
   }
+}
+
+let placeAt = null;
+let placeText = "";
+let placeBusy = false;
+
+function paintPlace(text) {
+  const chip = document.getElementById("routePlace");
+  if (!chip) return;
+  chip.hidden = !text;
+  chip.textContent = text || "";
+}
+
+function refreshPlace(lat, lon) {
+  if (placeText) paintPlace(placeText);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || placeBusy) return;
+  if (placeAt && placeText && metersBetween(placeAt, [lat, lon]) < 8000) return;
+  placeBusy = true;
+  whereCity(lat, lon).then((data) => {
+    const city = String(data?.city || "").trim();
+    const state = String(data?.state || "").trim();
+    const text = [city, state].filter(Boolean).join(", ");
+    if (!text) return;
+    placeAt = [lat, lon];
+    placeText = text;
+    paintPlace(text);
+  }).catch(() => {}).finally(() => {
+    placeBusy = false;
+  });
 }
 
 function sayNav(title, sub, note) {
@@ -2770,6 +2800,7 @@ function onNavFix(lat, lon) {
   let travel = null;
   if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
   navFix = [lat, lon];
+  refreshPlace(lat, lon);
   rebuildNavLegs();
   if (navLine.length < 2) {
     sayNav("No road line yet", "Calculate the trip, then start navigation again.", "");
@@ -3017,7 +3048,7 @@ function mountMap() {
     attributionControl: false,
   });
   routeMap = map;
-  el.querySelectorAll(".route-rail").forEach((rail) => el.appendChild(rail));
+  el.querySelectorAll(".route-rail, .route-place").forEach((node) => el.appendChild(node));
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
@@ -3940,6 +3971,9 @@ function bind() {
     queueBoxFontSave();
   });
   mountMap();
+  if (navFix) refreshPlace(navFix[0], navFix[1]);
+  else if (Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
+  else currentFix().then((here) => { if (here) refreshPlace(here.lat, here.lon); });
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     button.addEventListener("click", () => {
       pauseFollowForDirection();

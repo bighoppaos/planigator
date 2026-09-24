@@ -94,6 +94,10 @@ export function suggestAddresses(query) {
   return api("/v1/suggest", { method: "POST", body: JSON.stringify({ q: query }) });
 }
 
+export function whereCity(lat, lon) {
+  return api("/v1/where", { method: "POST", body: JSON.stringify({ lat, lon }) });
+}
+
 export function truckRoute(from, to, options = {}) {
   return api("/v1/route", {
     method: "POST",
