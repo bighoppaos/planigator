@@ -166,34 +166,45 @@ function stepFor(leg, alongInLeg) {
   return steps[0];
 }
 
-function remainingLine(fromAlong) {
-  if (line.length < 2) return [];
+function remainingLine(fromAlong, toAlong = Infinity) {
+  if (line.length < 2 || toAlong <= fromAlong) return [];
   let walked = 0;
+  let started = false;
   const coords = [];
   const push = (pair) => {
     const prev = coords[coords.length - 1];
     if (prev && prev[0] === pair[1] && prev[1] === pair[0]) return;
     coords.push([pair[1], pair[0]]);
   };
+  const at = (i, t) => [
+    line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t,
+    line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t,
+  ];
   for (let i = 1; i < line.length; i += 1) {
     const seg = metersBetween(line[i - 1], line[i]);
-    if (walked + seg >= fromAlong) {
-      const t = seg > 0 ? Math.min(1, Math.max(0, (fromAlong - walked) / seg)) : 1;
-      const lat = line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t;
-      const lon = line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t;
-      push([lat, lon]);
-      for (let j = i; j < line.length; j += 1) push(line[j]);
-      break;
+    const segEnd = walked + seg;
+    if (!started && segEnd >= fromAlong) {
+      const t = seg > 0 ? Math.min(1, Math.max(0, (fromAlong - walked) / seg)) : 0;
+      push(at(i, t));
+      started = true;
     }
-    walked += seg;
+    if (started) {
+      if (segEnd >= toAlong) {
+        const t = seg > 0 ? Math.min(1, Math.max(0, (toAlong - walked) / seg)) : 1;
+        push(at(i, t));
+        break;
+      }
+      push(line[i]);
+    }
+    walked = segEnd;
   }
   return coords;
 }
 
-function drawRemaining(along) {
+function drawRemaining(along, until = Infinity) {
   const source = map?.getSource("left");
   if (!source) return;
-  const coordinates = remainingLine(along);
+  const coordinates = remainingLine(along, until);
   source.setData({
     type: "Feature",
     geometry: { type: "LineString", coordinates: coordinates.length >= 2 ? coordinates : [] },
@@ -235,7 +246,7 @@ function onFix(lat, lon) {
   } else {
     const text = String(step?.text || "").trim() || `Continue to ${toward}`;
     say(text, `${milesLabel(leftOnLeg)} to ${toward}`, `${milesLabel(leftOnTrip)} left in the trip`);
-    drawRemaining(hit.along);
+    drawRemaining(hit.along, leg ? leg.end : Infinity);
   }
   if (following) {
     const camera = { center: [lon, lat], zoom: Math.max(map.getZoom(), 15), duration: 700 };
@@ -301,6 +312,12 @@ function mount(trip) {
 }
 
 document.body.addEventListener("pointerdown", () => enableCompass(), { once: true });
+
+document.getElementById("followLock")?.addEventListener("click", async () => {
+  await enableCompass();
+  following = true;
+  if (lastFix) onFix(lastFix[0], lastFix[1]);
+});
 
 document.getElementById("followOverview")?.addEventListener("click", async () => {
   await enableCompass();

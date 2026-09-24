@@ -102,6 +102,7 @@ export function truckRoute(from, to, options = {}) {
       to,
       speedCapMph: options.speedCapMph,
       departAt: options.departAt,
+      course: options.course,
     }),
   });
 }

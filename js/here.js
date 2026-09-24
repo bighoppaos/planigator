@@ -39,12 +39,19 @@ export function truckRouteUrl({
   apiKey,
   speedCapMph,
   departAt,
+  course,
   now = Date.now(),
 }) {
   const profile = TRUCK_PROFILE;
+  let origin = `${from.lat.toFixed(6)},${from.lon.toFixed(6)}`;
+  const heading = Number(course);
+  if (Number.isFinite(heading) && heading >= 0 && heading <= 360) {
+    origin += `;course=${Math.round(heading % 360)};minCourseDistance=400`;
+  }
+  const straight = metersBetween([from.lat, from.lon], [to.lat, to.lon]);
   const items = [
     pair("transportMode", "truck"),
-    pair("origin", `${from.lat.toFixed(6)},${from.lon.toFixed(6)}`),
+    pair("origin", origin),
     pair("destination", `${to.lat.toFixed(6)},${to.lon.toFixed(6)}`),
     pair("return", "summary"),
     pair("departureTime", hereDeparture(departAt, now)),
@@ -67,5 +74,13 @@ export function truckRouteUrl({
   if (cap > 1) {
     items.push(pair("vehicle[speedCap]", Math.min(70, Math.max(1, cap * 0.44704)).toFixed(2)));
   }
+  if (straight < 8047) items.push(pair("routingMode", "short"));
   return `https://router.hereapi.com/v8/routes?${items.join("&")}`;
+}
+
+function metersBetween(a, b) {
+  const lat = ((a[0] + b[0]) / 2) * Math.PI / 180;
+  const y = (b[0] - a[0]) * 111320;
+  const x = (b[1] - a[1]) * 111320 * Math.cos(lat);
+  return Math.hypot(x, y);
 }
