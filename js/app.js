@@ -2364,6 +2364,68 @@ function paintNavLine(along, until) {
   });
 }
 
+let spokenStepKey = "";
+let spokenTurnKey = "";
+const spokenMiles = new Set();
+
+function unlockNavVoice() {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  synth.resume();
+  const utter = new SpeechSynthesisUtterance("Navigation on.");
+  utter.lang = "en-US";
+  synth.speak(utter);
+}
+
+function speakNav(text) {
+  const synth = window.speechSynthesis;
+  if (!synth || !navOn || !text) return;
+  synth.resume();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "en-US";
+  utter.rate = 1;
+  synth.speak(utter);
+}
+
+function resetNavVoice() {
+  spokenStepKey = "";
+  spokenTurnKey = "";
+  spokenMiles.clear();
+  window.speechSynthesis?.cancel();
+}
+
+function speakNavProgress(leg, found, hereAlong) {
+  if (!found || !leg?.stop?.id) return;
+  const stepKey = `${leg.stop.id}:${found.index}`;
+  if (stepKey !== spokenStepKey) {
+    spokenStepKey = stepKey;
+    const text = String(found.step?.text || "").trim();
+    if (text) {
+      window.speechSynthesis?.cancel();
+      speakNav(text);
+    }
+  }
+  const turn = upcomingTurn(hereAlong);
+  if (!turn?.stop) return;
+  const turnKey = `${turn.stop.id}:${turn.index}:${Math.round(turn.along)}`;
+  const miles = (turn.along - hereAlong) / 1609.344;
+  if (turnKey !== spokenTurnKey) {
+    spokenTurnKey = turnKey;
+    spokenMiles.clear();
+    for (const band of [5, 3, 2, 1]) {
+      if (miles < band - 0.15) spokenMiles.add(band);
+    }
+  }
+  const nextText = String(turn.stop.directions?.[turn.index]?.text || "").trim();
+  for (const band of [5, 3, 2, 1]) {
+    if (spokenMiles.has(band) || miles > band || miles <= band - 0.4) continue;
+    spokenMiles.add(band);
+    const distance = band === 1 ? "1 mile" : `${band} miles`;
+    speakNav(nextText ? `${distance}. ${nextText}` : `${distance} to the next turn.`);
+    break;
+  }
+}
+
 function sayNav(title, sub, note) {
   const head = document.getElementById("routeNavTitle");
   const detail = document.getElementById("routeNavDetail");
@@ -2603,7 +2665,10 @@ function cycleNavStop(event) {
   navReturnTimer = 0;
   if (tripFit !== "nextTurn") navFollowing = true;
   syncRouteChrome();
-  if (!navOn) beginRouteNav();
+  if (!navOn) {
+    unlockNavVoice();
+    beginRouteNav();
+  }
   else if (navFix) onNavFix(navFix[0], navFix[1]);
   else applyChosenStop();
 }
@@ -2734,6 +2799,7 @@ function onNavFix(lat, lon) {
         markDirection(leg.stop.id, found.index);
         paintDirectionMiles(leg.stop.id, found.index, metersLeftInStep(leg, alongInLeg, found.index));
       }
+      speakNavProgress(leg, found, hit.along);
     }
   }
   if (tripFit === "nextTurn") {
@@ -2800,6 +2866,7 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  resetNavVoice();
   navFollowing = false;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
@@ -3894,6 +3961,7 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
   $("#startNav")?.addEventListener("click", async () => {
+    unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;
     if (orientation && typeof orientation.requestPermission === "function") {
       try {
