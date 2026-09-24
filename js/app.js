@@ -942,6 +942,11 @@ function newTrip() {
   Object.assign(state, defaultState());
   Object.assign(state, keep);
   state.notice = "";
+  for (const stop of state.stops) {
+    if (!stop?.id || stop.useCurrentLocation) continue;
+    lookupClosed.add(stop.id);
+    usingDismissed.add(stop.id);
+  }
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
   queueMicrotask(() => { writingHash = false; });
