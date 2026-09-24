@@ -716,8 +716,9 @@ function rollOpenExample() {
   if (!exampleStillStock()) return;
   const stored = storedExampleWeek(state.stops);
   const weeks = exampleWeeksAhead();
-  if (stored == null || stored >= weeks) return;
-  loadExample();
+  if (stored == null) return;
+  if (stored < weeks) loadExample();
+  else calculate({ silent: true, skipHash: true });
 }
 
 function loadExample() {
@@ -738,8 +739,7 @@ function loadExample() {
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
   settleLoadedStops(state.stops);
-  render();
-  persist();
+  calculate({ silent: true, skipHash: true });
 }
 
 async function deleteTrip(id) {
@@ -2334,10 +2334,12 @@ function stopCard(stop, index) {
           <button type="button" class="ghost${state.confirmRemoveId === stop.id ? " armed" : ""}" data-act="remove" ${canRemove ? "" : "disabled"} aria-label="Remove ${escapeAttr(title)}">${state.confirmRemoveId === stop.id ? "Remove" : "−"}</button>
         </div>
       </div>
-      <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
+      <div class="address-row">
+        <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
+        <button type="button" class="flag-box" data-act="paste">Paste an address</button>
+      </div>
       <div class="lookup-row">
         <button type="button" class="flag-box lookup" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
-        <button type="button" class="flag-box" data-act="paste">Paste an address</button>
       </div>
       ${lookupMapPreview(stop)}
       ${(stop.suggestions || []).map((item, index) => `<button type="button" class="suggest" data-suggest="${index}">${escapeAttr(item.label)}</button>`).join("")}

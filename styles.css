@@ -320,6 +320,36 @@ p.flag-box {
   color: #fff;
 }
 
+.address-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.address-row textarea[data-field="address"] {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.address-row button[data-act="paste"] {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 7.5rem;
+  height: auto;
+  margin: 0;
+  padding: 1px 4px;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.1;
+}
+
 .lookup-row {
   display: flex;
   flex-wrap: wrap;
