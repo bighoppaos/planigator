@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Planigator</title>
+  <meta name="description" content="Plan a truck trip in the browser. Pickup, drop, HERE truck routes, leave-by, 30s, and 10-hour rests stay on this device.">
+  <meta name="theme-color" content="#1f8a62">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Planigator">
+  <meta property="og:title" content="Planigator">
+  <meta property="og:description" content="Plan a truck trip in the browser. Share the link with anyone.">
+  <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="./styles.css?v=95">
+</head>
+<body class="app planner-only nav-test">
+  <p class="build-line">Navigation test. Not the live plan. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
+  <main id="app"></main>
+  <footer>
+    <nav>
+      <a href="./try.html" aria-current="page">Plan</a>
+      <a href="./support.html">Support</a>
+      <a href="./privacy.html">Privacy</a>
+      <a href="./terms.html">Terms</a>
+    </nav>
+    <p>Planning aid only. Not legal advice. Not a substitute for your ELD.</p>
+  </footer>
+  <style>
+    .page-refresh { display: none; }
+    html.from-home .page-refresh { display: inline; }
+  </style>
+  <script>
+    (function () {
+      var fromHome = window.navigator.standalone === true;
+      try {
+        if (window.matchMedia("(display-mode: standalone)").matches) fromHome = true;
+        if (window.matchMedia("(display-mode: fullscreen)").matches) fromHome = true;
+      } catch (e) {}
+      if (fromHome) document.documentElement.classList.add("from-home");
+      var url = new URL(location.href);
+      if (url.searchParams.has("refresh")) {
+        url.searchParams.delete("refresh");
+        history.replaceState(null, "", url.pathname + url.search + url.hash);
+      }
+      var button = document.getElementById("refreshPage");
+      if (!button) return;
+      button.addEventListener("click", function () {
+        var next = new URL(location.href);
+        next.searchParams.set("refresh", String(Date.now()));
+        location.replace(next.href);
+      });
+    })();
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        return Promise.all(regs.map((reg) => reg.unregister()));
+      }).then(() => {
+        if (!window.caches) return;
+        return caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+      });
+    }
+  </script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="./js/app.js?v=221"></script>
+</body>
+</html>

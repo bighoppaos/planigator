@@ -2041,6 +2041,7 @@ function planBox() {
   return `<section class="result">
     <div id="routeMap" class="route-map"></div>
     ${directionsBlock()}
+    ${document.body.classList.contains("nav-test") && directionsBlock() ? `<button type="button" class="flag-box" id="startNav">Start navigation</button>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -3158,6 +3159,9 @@ function bind() {
   });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
+  $("#startNav")?.addEventListener("click", () => {
+    location.href = "./follow.html";
+  });
   $("#shareNav")?.addEventListener("click", () => shareToNav());
   $("#installApp")?.addEventListener("click", () => installApp());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());

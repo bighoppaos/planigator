@@ -51,6 +51,31 @@
       font-size: 14px;
       font-weight: 700;
     }
+    .follow-rail {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      padding-right: max(8px, env(safe-area-inset-right));
+    }
+    .follow-rail a {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 72px;
+      padding: 8px 10px;
+      border: 1px solid #fffdf8;
+      border-radius: 10px;
+      background: rgb(7 21 37 / 0.92);
+      color: #fffdf8;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+    }
     .follow-you {
       width: 18px;
       height: 18px;
@@ -71,7 +96,7 @@
     <p id="followDetail"></p>
     <p class="follow-note" id="followStatus"></p>
   </section>
-  <div class="follow-bar">
+  <aside class="follow-rail"><a href="./try.html">End</a></aside>
     <button type="button" id="followLock">Follow me</button>
     <button type="button" id="followOverview">Whole route</button>
   </div>
