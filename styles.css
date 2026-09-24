@@ -1420,7 +1420,8 @@ body.route-full { overflow: hidden; }
   z-index: 1;
 }
 #routeStop,
-#routeFollow.on {
+#routeFollow.on,
+#routeWhole.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
 }

@@ -2513,7 +2513,9 @@ function tripFitWord() {
 
 function syncTripFitButton() {
   const button = document.getElementById("routeWhole");
-  if (button) button.textContent = tripFitWord();
+  if (!button) return;
+  button.textContent = tripFitWord();
+  button.classList.toggle("on", tripFit !== "off");
 }
 
 function fitCoords(coordinates, maxZoom) {
