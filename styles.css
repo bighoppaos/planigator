@@ -1346,13 +1346,95 @@ body.app main { padding-top: 2px; }
   max-width: 160px;
   cursor: pointer;
 }
+.route-stage {
+  position: relative;
+  margin: 0 0 14px;
+}
 .route-map {
   height: 280px;
-  margin: 0 0 14px;
+  margin: 0;
   border-radius: 12px;
   overflow: hidden;
   background: #d7e2ea;
   scroll-margin-top: 12px;
+}
+.route-stage.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  background: #071525;
+}
+.route-stage.is-full .route-map {
+  height: 100%;
+  border-radius: 0;
+}
+body.route-full { overflow: hidden; }
+.route-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  pointer-events: none;
+}
+.route-rail button {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid #fffdf8;
+  border-radius: 50%;
+  background: rgb(7 21 37 / 0.92);
+  color: #fffdf8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  pointer-events: auto;
+}
+.route-stage.is-full .route-rail button {
+  width: 76px;
+  height: 76px;
+  font-size: 13px;
+}
+.route-nav-banner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 84px;
+  z-index: 2;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgb(7 21 37 / 0.92);
+  color: #fffdf8;
+}
+.route-nav-banner strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.route-nav-banner p { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
+.route-you {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #2f6fed;
+  box-shadow: 0 0 0 6px rgb(47 111 237 / 0.28);
+}
+#startNav {
+  font-size: calc(var(--box-font, 13px) * 22 / 13);
 }
 .turn-pin {
   width: 14px;

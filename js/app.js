@@ -2047,9 +2047,21 @@ function planBox() {
   const plan = state.plan;
   if (!plan) return "";
   return `<section class="result">
-    <div id="routeMap" class="route-map"></div>
+    <div class="route-stage" id="routeStage">
+      <div id="routeMap" class="route-map"></div>
+      <div class="route-nav-banner" id="routeNavBanner" hidden>
+        <strong id="routeNavTitle"></strong>
+        <p id="routeNavDetail"></p>
+        <p id="routeNavNote"></p>
+      </div>
+      <aside class="route-rail">
+        <button type="button" id="routeWhole">Whole trip</button>
+        <button type="button" id="routeFull">Full screen</button>
+        <button type="button" id="routeFollow" hidden>Follow me</button>
+      </aside>
+    </div>
     ${directionsBlock()}
-    ${document.body.classList.contains("nav-test") && directionsBlock() ? `<button type="button" class="flag-box" id="startNav">Start navigation</button>` : ""}
+    ${directionsBlock() ? `<button type="button" class="flag-box" id="startNav">Start navigation</button>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2162,10 +2174,21 @@ let routeMap = null;
 let routeMapReady = false;
 let turnMarker = null;
 let pendingTurn = null;
+let routeFull = false;
+let navOn = false;
+let navFollowing = true;
+let navWatch = null;
+let navYou = null;
+let navFix = null;
+let navCompass = null;
+let navCompassTimer = 0;
+let navLine = [];
+let navLegs = [];
 
 function clearRouteMap() {
   pendingTurn = null;
   routeMapReady = false;
+  navYou = null;
   if (turnMarker) {
     turnMarker.remove();
     turnMarker = null;
@@ -2174,6 +2197,272 @@ function clearRouteMap() {
     routeMap.remove();
     routeMap = null;
   }
+}
+
+function navStopTitle(stop) {
+  if (stop?.useCurrentLocation) return "Current location";
+  const name = String(stop?.name || "").trim();
+  return name || "Stop";
+}
+
+function navMiles(meters) {
+  const miles = meters / 1609.344;
+  if (miles < 0.1) return `${Math.max(1, Math.round(meters * 3.28084))} ft`;
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
+}
+
+function navBearing(a, b) {
+  const φ1 = a[0] * Math.PI / 180;
+  const φ2 = b[0] * Math.PI / 180;
+  const λ = (b[1] - a[1]) * Math.PI / 180;
+  const y = Math.sin(λ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function navProjectT(a, b, lat, lon) {
+  const lat0 = ((a[0] + b[0]) / 2) * Math.PI / 180;
+  const bx = (b[1] - a[1]) * 111320 * Math.cos(lat0);
+  const by = (b[0] - a[0]) * 111320;
+  const px = (lon - a[1]) * 111320 * Math.cos(lat0);
+  const py = (lat - a[0]) * 111320;
+  const len2 = bx * bx + by * by;
+  if (len2 < 1) return 0;
+  return Math.max(0, Math.min(1, (px * bx + py * by) / len2));
+}
+
+function navNearest(lat, lon, path) {
+  let bestDist = Infinity;
+  let along = 0;
+  let walked = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    const seg = metersBetween(path[i - 1], path[i]);
+    const t = navProjectT(path[i - 1], path[i], lat, lon);
+    const plat = path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t;
+    const plon = path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t;
+    const dist = metersBetween([lat, lon], [plat, plon]);
+    if (dist < bestDist) {
+      bestDist = dist;
+      along = walked + seg * t;
+    }
+    walked += seg;
+  }
+  return { dist: bestDist, along };
+}
+
+function rebuildNavLegs() {
+  const next = [];
+  let cursor = 0;
+  const full = [];
+  for (const stop of state.stops) {
+    const path = Array.isArray(stop.path)
+      ? stop.path.map((pair) => [Number(pair?.[0]), Number(pair?.[1])]).filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+      : [];
+    if (path.length < 2) continue;
+    if (full.length && path[0][0] === full[full.length - 1][0] && path[0][1] === full[full.length - 1][1]) full.push(...path.slice(1));
+    else full.push(...path);
+    const meters = polylineMeters(path);
+    next.push({ stop, path, start: cursor, end: cursor + meters });
+    cursor += meters;
+  }
+  navLine = full;
+  navLegs = next;
+}
+
+function navStep(leg, alongInLeg) {
+  const steps = Array.isArray(leg.stop.directions) ? leg.stop.directions : [];
+  if (!steps.length) return null;
+  const lengths = steps.map(stepLengthMeters);
+  const sum = lengths.reduce((total, length) => total + length, 0);
+  const total = polylineMeters(leg.path);
+  const scale = sum > 1 ? total / sum : 1;
+  let cursor = 0;
+  for (let i = 0; i < steps.length; i += 1) {
+    const len = lengths[i] * scale;
+    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) return steps[i];
+    cursor += len;
+  }
+  return steps[0];
+}
+
+function navRemaining(fromAlong, toAlong) {
+  if (navLine.length < 2 || toAlong <= fromAlong) return [];
+  let walked = 0;
+  let started = false;
+  const coords = [];
+  const push = (pair) => {
+    const prev = coords[coords.length - 1];
+    if (prev && prev[0] === pair[1] && prev[1] === pair[0]) return;
+    coords.push([pair[1], pair[0]]);
+  };
+  for (let i = 1; i < navLine.length; i += 1) {
+    const seg = metersBetween(navLine[i - 1], navLine[i]);
+    const segEnd = walked + seg;
+    const at = (t) => [
+      navLine[i - 1][0] + (navLine[i][0] - navLine[i - 1][0]) * t,
+      navLine[i - 1][1] + (navLine[i][1] - navLine[i - 1][1]) * t,
+    ];
+    if (!started && segEnd >= fromAlong) {
+      push(at(seg > 0 ? Math.min(1, Math.max(0, (fromAlong - walked) / seg)) : 0));
+      started = true;
+    }
+    if (started) {
+      if (segEnd >= toAlong) {
+        push(at(seg > 0 ? Math.min(1, Math.max(0, (toAlong - walked) / seg)) : 1));
+        break;
+      }
+      push(navLine[i]);
+    }
+    walked = segEnd;
+  }
+  return coords;
+}
+
+function paintNavLine(along, until) {
+  const source = routeMap?.getSource("left");
+  if (!source) return;
+  const coordinates = navRemaining(along, until);
+  source.setData({
+    type: "Feature",
+    geometry: { type: "LineString", coordinates: coordinates.length >= 2 ? coordinates : [] },
+  });
+}
+
+function sayNav(title, sub, note) {
+  const head = document.getElementById("routeNavTitle");
+  const detail = document.getElementById("routeNavDetail");
+  const status = document.getElementById("routeNavNote");
+  if (head) head.textContent = title;
+  if (detail) detail.textContent = sub;
+  if (status) status.textContent = note || "";
+}
+
+function syncRouteChrome() {
+  const stage = document.getElementById("routeStage");
+  if (stage) stage.classList.toggle("is-full", routeFull);
+  document.body.classList.toggle("route-full", routeFull);
+  const full = document.getElementById("routeFull");
+  if (full) full.textContent = routeFull ? "Exit" : "Full screen";
+  const follow = document.getElementById("routeFollow");
+  if (follow) follow.hidden = !navOn;
+  const banner = document.getElementById("routeNavBanner");
+  if (banner) banner.hidden = !navOn;
+  if (routeFull) routeMap?.resize();
+}
+
+function setRouteFull(on) {
+  routeFull = Boolean(on);
+  syncRouteChrome();
+  requestAnimationFrame(() => routeMap?.resize());
+}
+
+function showWholeTrip() {
+  navFollowing = false;
+  if (!routeMap) return;
+  const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
+  if (coordinates.length < 2 || !window.maplibregl) return;
+  const bounds = coordinates.reduce(
+    (box, coord) => box.extend(coord),
+    new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
+  );
+  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 14, duration: 600 });
+  routeMap.easeTo({ bearing: 0, duration: 400 });
+}
+
+function onNavFix(lat, lon) {
+  const maplibre = window.maplibregl;
+  if (!routeMap || !maplibre || !navOn) return;
+  if (!navYou) {
+    const dot = document.createElement("span");
+    dot.className = "route-you";
+    navYou = new maplibre.Marker({ element: dot, anchor: "center" }).setLngLat([lon, lat]).addTo(routeMap);
+  } else {
+    navYou.setLngLat([lon, lat]);
+  }
+  let travel = null;
+  if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
+  navFix = [lat, lon];
+  rebuildNavLegs();
+  if (navLine.length < 2) {
+    sayNav("No road line yet", "Calculate the trip, then start navigation again.", "");
+  } else {
+    const hit = navNearest(lat, lon, navLine);
+    const off = hit.dist > 250;
+    const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+    const alongInLeg = leg ? hit.along - leg.start : 0;
+    const step = !off && leg ? navStep(leg, alongInLeg) : null;
+    const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
+    const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
+    const toward = leg ? navStopTitle(leg.stop) : "the stop";
+    if (off) {
+      sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
+      paintNavLine(0, Infinity);
+    } else {
+      sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftOnLeg)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+      paintNavLine(hit.along, leg ? leg.end : Infinity);
+    }
+  }
+  if (navFollowing) {
+    const camera = { center: [lon, lat], zoom: Math.max(routeMap.getZoom(), 15), duration: 700 };
+    if (navCompass != null) camera.bearing = navCompass;
+    else if (travel != null) camera.bearing = travel;
+    routeMap.easeTo(camera);
+  }
+}
+
+function onNavCompass(event) {
+  let heading = null;
+  if (typeof event.webkitCompassHeading === "number" && event.webkitCompassHeading >= 0) {
+    heading = event.webkitCompassHeading;
+  } else if (event.absolute && typeof event.alpha === "number") {
+    heading = (360 - event.alpha) % 360;
+  }
+  if (heading == null || Number.isNaN(heading)) return;
+  navCompass = heading;
+  if (!navOn || !navFollowing || !routeMap || !navFix) return;
+  const now = Date.now();
+  if (now - navCompassTimer < 120) return;
+  navCompassTimer = now;
+  routeMap.easeTo({
+    center: [navFix[1], navFix[0]],
+    bearing: navCompass,
+    zoom: Math.max(routeMap.getZoom(), 15),
+    duration: 120,
+  });
+}
+
+async function enableNavCompass() {
+  const orientation = window.DeviceOrientationEvent;
+  if (!orientation) return;
+  if (typeof orientation.requestPermission === "function") {
+    try {
+      const result = await orientation.requestPermission();
+      if (result !== "granted") return;
+    } catch {
+      return;
+    }
+  }
+  window.removeEventListener("deviceorientation", onNavCompass);
+  window.addEventListener("deviceorientation", onNavCompass);
+}
+
+function beginRouteNav() {
+  navOn = true;
+  navFollowing = true;
+  syncRouteChrome();
+  document.getElementById("routeStage")?.scrollIntoView({ block: "nearest" });
+  sayNav("Finding you…", "Allow location to move along this trip.", "");
+  if (navWatch == null && navigator.geolocation) {
+    navWatch = navigator.geolocation.watchPosition(
+      (pos) => onNavFix(pos.coords.latitude, pos.coords.longitude),
+      () => sayNav("Allow location", "Planigator needs location to show you on this trip.", ""),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 },
+    );
+  } else if (navFix) {
+    onNavFix(navFix[0], navFix[1]);
+  }
+  enableNavCompass();
 }
 
 function applyTurnZoom(map, focus) {
@@ -2267,6 +2556,17 @@ function mountMap() {
       source: "route",
       paint: { "line-color": "#1f8a62", "line-width": 4 },
     });
+    map.addSource("left", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
+    });
+    map.addLayer({
+      id: "left",
+      type: "line",
+      source: "left",
+      paint: { "line-color": "#3dcaa0", "line-width": 6 },
+    });
+    map.on("dragstart", () => { navFollowing = false; });
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
     const markers = routePins().map((pin) => {
       const ink = stopInk(pin.rgb);
@@ -3167,16 +3467,24 @@ function bind() {
   });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
+  syncRouteChrome();
   $("#startNav")?.addEventListener("click", async () => {
     const orientation = window.DeviceOrientationEvent;
     if (orientation && typeof orientation.requestPermission === "function") {
       try {
         await orientation.requestPermission();
       } catch {
-        // Still open navigation. The compass circle on that page can ask again.
+        // The first tap on the map can ask again.
       }
     }
-    location.href = "./follow.html";
+    beginRouteNav();
+  });
+  $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
+  $("#routeFull")?.addEventListener("click", () => setRouteFull(!routeFull));
+  $("#routeFollow")?.addEventListener("click", async () => {
+    await enableNavCompass();
+    navFollowing = true;
+    if (navFix) onNavFix(navFix[0], navFix[1]);
   });
   $("#shareNav")?.addEventListener("click", () => shareToNav());
   $("#installApp")?.addEventListener("click", () => installApp());
