@@ -1384,6 +1384,7 @@ body.route-full { overflow: hidden; }
   padding: 8px;
   pointer-events: none;
 }
+.route-rail button[hidden] { display: none; }
 .route-rail button {
   width: 64px;
   height: 64px;
