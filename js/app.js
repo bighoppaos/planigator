@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=122";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -2094,7 +2094,7 @@ function planBox() {
       </div>
     </div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button></div><p class="flag-box" id="nextTruckNote" hidden></p><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -2772,6 +2772,88 @@ async function recalculateFromHere() {
   ];
   navStopCursor = Math.max(0, chosenPos);
   await calculate();
+}
+
+function thinRoute(points, gap, maxCount) {
+  if (points.length <= 2) return points;
+  const kept = [points[0]];
+  let last = points[0];
+  for (let i = 1; i < points.length - 1; i += 1) {
+    if (metersBetween(last, points[i]) >= gap) {
+      kept.push(points[i]);
+      last = points[i];
+    }
+  }
+  kept.push(points[points.length - 1]);
+  if (kept.length <= maxCount) return kept;
+  const step = Math.ceil(kept.length / maxCount);
+  const sampled = kept.filter((_, index) => index % step === 0);
+  const end = kept[kept.length - 1];
+  if (sampled[sampled.length - 1] !== end) sampled.push(end);
+  return sampled;
+}
+
+function routeAheadPoints() {
+  rebuildNavLegs();
+  const line = navLine.length >= 2 ? navLine : routePoints();
+  if (line.length < 2) return [];
+  const from = navFix ? navNearest(navFix[0], navFix[1], line).along : 0;
+  const coords = [];
+  let walked = 0;
+  const push = (pair) => {
+    const prev = coords[coords.length - 1];
+    if (prev && prev[0] === pair[0] && prev[1] === pair[1]) return;
+    coords.push(pair);
+  };
+  for (let i = 1; i < line.length; i += 1) {
+    const seg = metersBetween(line[i - 1], line[i]);
+    const segEnd = walked + seg;
+    if (segEnd >= from) {
+      if (!coords.length) {
+        const t = seg > 0 ? Math.min(1, Math.max(0, (from - walked) / seg)) : 0;
+        push([
+          line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t,
+          line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t,
+        ]);
+      }
+      push(line[i]);
+    }
+    walked = segEnd;
+  }
+  return thinRoute(coords, 1609, 300);
+}
+
+async function findNextTruckStop() {
+  const button = document.getElementById("nextTruck");
+  const note = document.getElementById("nextTruckNote");
+  if (button) button.disabled = true;
+  if (note) {
+    note.hidden = false;
+    note.textContent = "Looking for the next truck stop…";
+  }
+  try {
+    if (!navFix) {
+      const here = await currentFix();
+      if (here) navFix = [here.lat, here.lon];
+    }
+    const points = routeAheadPoints();
+    if (points.length < 2) throw new Error("Calculate the trip first.");
+    const data = await nextTruckStop(points);
+    if (data.credits != null) state.credits = data.credits;
+    const calc = document.getElementById("calculate");
+    if (calc) calc.innerHTML = calculateButtonLabel();
+    const place = [data.city, data.state].filter(Boolean).join(", ");
+    const ahead = Number.isFinite(Number(data.milesAhead)) ? `${formatMiles(data.milesAhead)} ahead` : "";
+    const off = Number.isFinite(Number(data.milesOff)) ? `${formatMiles(data.milesOff)} off the route` : "";
+    if (note) note.textContent = [data.name, place, ahead, off].filter(Boolean).join(" · ");
+  } catch (error) {
+    if (error.credits != null) state.credits = error.credits;
+    const calc = document.getElementById("calculate");
+    if (calc) calc.innerHTML = calculateButtonLabel();
+    if (note) note.textContent = error.message || "No truck stop within 2 miles of the route.";
+  } finally {
+    if (button) button.disabled = state.estimating || (!state.unlimited && state.credits === 0);
+  }
 }
 
 function showWholeTrip() {
@@ -3999,6 +4081,7 @@ function bind() {
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
+  $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;
