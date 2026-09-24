@@ -2082,7 +2082,7 @@ function planBox() {
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
-        <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span id="routeStopName">stop</span></button>
+        <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -2389,8 +2389,6 @@ function syncRouteChrome() {
   const ordinal = document.getElementById("routeStopOrdinal");
   const shown = chosenNavStop();
   if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
-  const stopName = document.getElementById("routeStopName");
-  if (stopName) stopName.textContent = shown ? navStopTitle(shown.stop) : "stop";
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn || !routeFull;
   const start = document.getElementById("startNav");
