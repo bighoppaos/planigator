@@ -2375,13 +2375,14 @@ function showWholeTrip() {
   navReturnTimer = 0;
   if (!routeMap) return;
   const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
+  routePins().forEach((pin) => coordinates.push([pin.lon, pin.lat]));
   if (coordinates.length < 2 || !window.maplibregl) return;
   const bounds = coordinates.reduce(
     (box, coord) => box.extend(coord),
     new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
   );
-  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 14, duration: 600 });
-  routeMap.easeTo({ bearing: 0, duration: 400 });
+  routeMap.stop();
+  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 14, bearing: 0, duration: 600 });
 }
 
 function onNavFix(lat, lon) {
