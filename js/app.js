@@ -2396,34 +2396,47 @@ function resetNavVoice() {
   window.speechSynthesis?.cancel();
 }
 
+function spokenGoFor(meters) {
+  const miles = meters / 1609.344;
+  if (miles < 0.1) {
+    const feet = Math.max(1, Math.round(meters * 3.28084));
+    return `Go for ${feet} ${feet === 1 ? "foot" : "feet"}`;
+  }
+  const rounded = miles >= 10 ? Math.round(miles) : Math.round(miles * 10) / 10;
+  const unit = rounded === 1 ? "mile" : "miles";
+  return `Go for ${rounded} ${unit}`;
+}
+
+function directionWithMilesLeft(text, metersLeft) {
+  const phrase = spokenGoFor(metersLeft);
+  const body = String(text || "").trim();
+  if (/Go for\s+[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:mi|ft|feet|mile|miles)\b/i.test(body)) {
+    return body.replace(/Go for\s+[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:mi|ft|feet|mile|miles)\b/i, phrase);
+  }
+  return body ? `${body} ${phrase}` : phrase;
+}
+
 function speakNavProgress(leg, found, hereAlong) {
   if (!found || !leg?.stop?.id) return;
   const stepKey = `${leg.stop.id}:${found.index}`;
+  const leftMeters = metersLeftInStep(leg, hereAlong - leg.start, found.index);
+  const miles = leftMeters / 1609.344;
+  const text = String(found.step?.text || "").trim();
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
-    const text = String(found.step?.text || "").trim();
+    spokenMiles.clear();
+    for (const band of [5, 3, 2, 1]) {
+      if (miles < band - 0.15) spokenMiles.add(band);
+    }
     if (text) {
       window.speechSynthesis?.cancel();
       speakNav(text);
     }
   }
-  const turn = upcomingTurn(hereAlong);
-  if (!turn?.stop) return;
-  const turnKey = `${turn.stop.id}:${turn.index}:${Math.round(turn.along)}`;
-  const miles = (turn.along - hereAlong) / 1609.344;
-  if (turnKey !== spokenTurnKey) {
-    spokenTurnKey = turnKey;
-    spokenMiles.clear();
-    for (const band of [5, 3, 2, 1]) {
-      if (miles < band - 0.15) spokenMiles.add(band);
-    }
-  }
-  const nextText = String(turn.stop.directions?.[turn.index]?.text || "").trim();
   for (const band of [5, 3, 2, 1]) {
     if (spokenMiles.has(band) || miles > band || miles <= band - 0.4) continue;
     spokenMiles.add(band);
-    const distance = band === 1 ? "1 mile" : `${band} miles`;
-    speakNav(nextText ? `${distance}. ${nextText}` : `${distance} to the next turn.`);
+    speakNav(directionWithMilesLeft(text, leftMeters));
     break;
   }
 }
