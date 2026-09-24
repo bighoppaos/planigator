@@ -2446,6 +2446,65 @@ function fitCoords(coordinates, maxZoom) {
   routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom, bearing: 0, duration: 600 });
 }
 
+let turnFrameAt = null;
+
+function upcomingTurn(hereAlong) {
+  let fallback = null;
+  for (const leg of navLegs) {
+    const steps = Array.isArray(leg.stop?.directions) ? leg.stop.directions : [];
+    const lengths = steps.map(stepLengthMeters);
+    const sum = lengths.reduce((total, length) => total + length, 0);
+    const total = Math.max(0, leg.end - leg.start);
+    const scale = sum > 1 ? total / sum : 1;
+    let along = leg.start;
+    for (let i = 0; i < steps.length; i += 1) {
+      if (along > hereAlong + 8) return { along, stop: leg.stop, index: i };
+      along += (lengths[i] || 0) * scale;
+    }
+    if (leg.end > hereAlong + 8) fallback = { along: leg.end, stop: leg.stop, index: Math.max(0, steps.length - 1) };
+  }
+  if (fallback) return fallback;
+  const last = navLegs[navLegs.length - 1];
+  return last ? { along: last.end, stop: last.stop, index: 0 } : null;
+}
+
+function frameNextTurn() {
+  const maplibre = window.maplibregl;
+  if (!routeMap || !maplibre) return;
+  rebuildNavLegs();
+  if (!navFix || navLine.length < 2) return;
+  if (turnFrameAt && metersBetween(turnFrameAt, navFix) < 20) return;
+  const hit = navNearest(navFix[0], navFix[1], navLine);
+  const turn = upcomingTurn(hit.along);
+  if (!turn) return;
+  const end = Math.min(polylineMeters(navLine), turn.along + 80);
+  const coords = navRemaining(Math.min(hit.along, end), end);
+  coords.push([navFix[1], navFix[0]]);
+  const at = pointAlong(navLine, turn.along);
+  if (at) coords.push([at.lon, at.lat]);
+  if (coords.length < 2) return;
+  turnFrameAt = [navFix[0], navFix[1]];
+  if (turnMarker) turnMarker.remove();
+  if (at) {
+    const pin = document.createElement("span");
+    pin.className = "turn-pin";
+    turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
+  }
+  if (turn.stop?.id) markDirection(turn.stop.id, turn.index);
+  const bounds = coords.reduce(
+    (box, coord) => box.extend(coord),
+    new maplibre.LngLatBounds(coords[0], coords[0]),
+  );
+  const pad = routeFull ? 88 : 56;
+  routeMap.stop();
+  routeMap.fitBounds(bounds, {
+    padding: { top: pad, right: pad + 36, bottom: pad, left: pad },
+    maxZoom: 17,
+    bearing: 0,
+    duration: 700,
+  });
+}
+
 function cycleTripFit() {
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
@@ -2465,8 +2524,8 @@ function cycleTripFit() {
     fitCoords(navRemaining(from, until == null ? Infinity : until), 14);
     return;
   }
-  const step = liveDirection();
-  if (step) zoomToDirection(step.stopId, step.index);
+  turnFrameAt = null;
+  frameNextTurn();
 }
 
 function liveDirection() {
@@ -2642,6 +2701,10 @@ function onNavFix(lat, lon) {
       }
     }
   }
+  if (tripFit === "nextTurn") {
+    frameNextTurn();
+    return;
+  }
   if (navFollowing) {
     const camera = { center: [lon, lat], zoom: Math.max(routeMap.getZoom(), 15), duration: 700 };
     if (navCompass != null) camera.bearing = navCompass;
@@ -2659,7 +2722,7 @@ function onNavCompass(event) {
   }
   if (heading == null || Number.isNaN(heading)) return;
   navCompass = heading;
-  if (!navOn || !navFollowing || !routeMap || !navFix) return;
+  if (!navOn || !navFollowing || tripFit === "nextTurn" || !routeMap || !navFix) return;
   const now = Date.now();
   if (now - navCompassTimer < 120) return;
   navCompassTimer = now;
