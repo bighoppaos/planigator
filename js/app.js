@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=121";
+} from "./plan.js?v=122";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
@@ -1442,41 +1442,51 @@ function chooseSuggestion(id, index) {
 }
 
 async function fillHereLegs() {
-  const points = [];
-  for (const stop of state.stops) {
-    if (stop.useCurrentLocation) {
-      const here = originPoint();
-      if (!here) throw new Error("Allow location first, then Calculate.");
-      points.push(here);
-      continue;
-    }
-    if (!pointReady(stop)) continue;
-    points.push({ lat: Number(stop.lat), lon: Number(stop.lon) });
-  }
   const departAt = leaveAtNow();
   const speedCapMph = state.settings.governed ? mph() : null;
   const missing = state.stops
     .map((stop, index) => ({ stop, index }))
-    .filter(({ stop }) => !stop.useCurrentLocation && !pointReady(stop));
+    .filter(({ stop }) => !stop.useCurrentLocation && !stop.skipRoute && !pointReady(stop));
   if (missing.length) {
     const names = missing.map(({ index }) => cardTitle(index, state.stops));
     const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
     throw new Error(`Press lookup address on ${list} and choose an address before pressing Calculate.`);
   }
-  for (let i = 1; i < state.stops.length; i += 1) {
-    if (!points[i - 1] || !points[i]) continue;
+  const routed = [];
+  for (const stop of state.stops) {
+    if (stop.skipRoute) {
+      stop.miles = "";
+      stop.hours = "";
+      stop.path = [];
+      stop.directions = [];
+      continue;
+    }
+    routed.push(stop);
+  }
+  const routedPoints = [];
+  for (const stop of routed) {
+    if (stop.useCurrentLocation) {
+      const here = originPoint();
+      if (!here) throw new Error("Allow location first, then Calculate.");
+      routedPoints.push(here);
+      continue;
+    }
+    routedPoints.push({ lat: Number(stop.lat), lon: Number(stop.lon) });
+  }
+  for (let i = 1; i < routed.length; i += 1) {
+    if (!routedPoints[i - 1] || !routedPoints[i]) continue;
     const heading = state.origin?.heading;
-    const course = state.stops[i - 1]?.useCurrentLocation && typeof heading === "number" ? heading : undefined;
-    const leg = await truckRoute(points[i - 1], points[i], {
+    const course = routed[i - 1]?.useCurrentLocation && typeof heading === "number" ? heading : undefined;
+    const leg = await truckRoute(routedPoints[i - 1], routedPoints[i], {
       speedCapMph,
       departAt,
       course,
       routingMode: state.settings.routeMode === "short" ? "short" : "fast",
     });
-    state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
-    state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
-    state.stops[i].path = Array.isArray(leg.points) ? leg.points : [];
-    state.stops[i].directions = Array.isArray(leg.directions) ? leg.directions : [];
+    routed[i].miles = String(Math.round(leg.miles * 10) / 10);
+    routed[i].hours = String(Math.round(leg.hours * 100) / 100);
+    routed[i].path = Array.isArray(leg.points) ? leg.points : [];
+    routed[i].directions = Array.isArray(leg.directions) ? leg.directions : [];
     if (leg.credits != null) state.credits = leg.credits;
   }
   persist();
@@ -2402,7 +2412,7 @@ function chosenNavStop() {
 }
 
 function alongForChosen(chosen) {
-  if (!chosen) return null;
+  if (!chosen || chosen.stop?.skipRoute) return null;
   const leg = navLegs.find((item) => item.stop.id === chosen.stop.id);
   if (leg) return leg.end;
   const dests = navDestList();
@@ -2588,7 +2598,8 @@ function applyChosenStop() {
   if (!chosen) return;
   const until = alongForChosen(chosen);
   const name = navStopTitle(chosen.stop);
-  sayNav(`Head to ${name}`, until == null ? "" : `${navMiles(until)} to ${name}`, "");
+  if (chosen.stop?.skipRoute) sayNav(`Head back to ${name}`, "Recalculate to turn around.", "");
+  else sayNav(`Head to ${name}`, until == null ? "" : `${navMiles(until)} to ${name}`, "");
   if (until != null) paintNavLine(0, until);
 }
 
@@ -2623,8 +2634,11 @@ async function recalculateFromHere() {
     return;
   }
   const chosen = chosenNavStop();
-  const startAt = chosen ? chosen.index : 0;
-  const rest = state.stops.filter((stop, index) => !stop.useCurrentLocation && index >= startAt);
+  const kept = state.stops.filter((stop) => !stop.useCurrentLocation);
+  const chosenPos = chosen ? kept.findIndex((stop) => stop.id === chosen.stop.id) : 0;
+  kept.forEach((stop, index) => {
+    stop.skipRoute = chosenPos > 0 && index < chosenPos;
+  });
   state.origin = {
     lat: here.lat,
     lon: here.lon,
@@ -2638,9 +2652,9 @@ async function recalculateFromHere() {
       lon: here.lon,
       address: "",
     }),
-    ...rest,
+    ...kept,
   ];
-  navStopCursor = 0;
+  navStopCursor = Math.max(0, chosenPos);
   await calculate();
 }
 
@@ -2691,7 +2705,10 @@ function onNavFix(lat, lon) {
   const toward = towardStop ? navStopTitle(towardStop) : "the stop";
   const until = targetAlong == null ? Infinity : targetAlong;
   const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
-  if (off) {
+  if (chosen?.stop?.skipRoute) {
+    sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
+    paintNavLine(hit.along, Infinity);
+  } else if (off) {
     sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(0, until);
   } else {

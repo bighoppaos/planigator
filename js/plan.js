@@ -47,7 +47,7 @@ export function isOriginStop(stops, index) {
 }
 
 export function scheduledIndexes(stops) {
-  return stops.map((_, index) => index).filter((index) => !isOriginStop(stops, index));
+  return stops.map((_, index) => index).filter((index) => !isOriginStop(stops, index) && !stops[index]?.skipRoute);
 }
 
 export function cardTitle(index, stops) {
