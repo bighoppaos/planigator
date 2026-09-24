@@ -40,6 +40,7 @@ export function truckRouteUrl({
   speedCapMph,
   departAt,
   course,
+  routingMode,
   now = Date.now(),
 }) {
   const profile = TRUCK_PROFILE;
@@ -47,7 +48,6 @@ export function truckRouteUrl({
   if (typeof course === "number" && Number.isFinite(course) && course >= 0 && course <= 360) {
     origin += `;course=${Math.round(course % 360)};minCourseDistance=400`;
   }
-  const straight = metersBetween([from.lat, from.lon], [to.lat, to.lon]);
   const items = [
     pair("transportMode", "truck"),
     pair("origin", origin),
@@ -73,13 +73,6 @@ export function truckRouteUrl({
   if (cap > 1) {
     items.push(pair("vehicle[speedCap]", Math.min(70, Math.max(1, cap * 0.44704)).toFixed(2)));
   }
-  if (straight < 8047) items.push(pair("routingMode", "short"));
+  if (routingMode === "short" || routingMode === "fast") items.push(pair("routingMode", routingMode));
   return `https://router.hereapi.com/v8/routes?${items.join("&")}`;
-}
-
-function metersBetween(a, b) {
-  const lat = ((a[0] + b[0]) / 2) * Math.PI / 180;
-  const y = (b[0] - a[0]) * 111320;
-  const x = (b[1] - a[1]) * 111320 * Math.cos(lat);
-  return Math.hypot(x, y);
 }

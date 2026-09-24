@@ -103,6 +103,7 @@ export function truckRoute(from, to, options = {}) {
       speedCapMph: options.speedCapMph,
       departAt: options.departAt,
       ...(typeof options.course === "number" ? { course: options.course } : {}),
+      ...(options.routingMode === "short" || options.routingMode === "fast" ? { routingMode: options.routingMode } : {}),
     }),
   });
 }

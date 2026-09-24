@@ -16,7 +16,7 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="./styles.css?v=96">
+  <link rel="stylesheet" href="./styles.css?v=97">
 </head>
 <body class="app planner-only nav-test">
   <p class="build-line">Try #6. Not the live plan. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
@@ -33,19 +33,6 @@
   <style>
     .page-refresh { display: none; }
     html.from-home .page-refresh { display: inline; }
-    @keyframes start-nav-colors {
-      0%, 19.99% { background: #1f8a62; border-color: #1f8a62; color: #fff; }
-      20%, 39.99% { background: #2f6fed; border-color: #2f6fed; color: #fff; }
-      40%, 59.99% { background: #e07a3d; border-color: #e07a3d; color: #fff; }
-      60%, 79.99% { background: #f2c14e; border-color: #f2c14e; color: #14201c; }
-      80%, 100% { background: #c23b6e; border-color: #c23b6e; color: #fff; }
-    }
-    #startNav {
-      animation: start-nav-colors 2.5s linear infinite;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      #startNav { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
-    }
   </style>
   <script>
     (function () {
@@ -78,6 +65,6 @@
     }
   </script>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="./js/app.js?v=226"></script>
+  <script type="module" src="./js/app.js?v=227"></script>
 </body>
 </html>

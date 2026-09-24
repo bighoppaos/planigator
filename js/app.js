@@ -118,6 +118,7 @@ function defaultState() {
       military: false,
       kilometers: false,
       arrival: "earliest",
+      routeMode: "fast",
     },
     stops: defaultStops(),
     tripName: "",
@@ -1465,6 +1466,7 @@ async function fillHereLegs() {
       speedCapMph,
       departAt,
       course,
+      routingMode: state.settings.routeMode === "short" ? "short" : "fast",
     });
     state.stops[i].miles = String(Math.round(leg.miles * 10) / 10);
     state.stops[i].hours = String(Math.round(leg.hours * 100) / 100);
@@ -2967,6 +2969,7 @@ function render() {
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
           ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
+          ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
         </div>
         <div class="settings-pairs">
           <div class="set-pair">
@@ -2999,7 +3002,7 @@ function render() {
           </div>
         </div>
         ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
-        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice ? "ok" : ""}">${escapeAttr(state.locationError || state.locationNotice || "")}</p>
+        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
     </section>
 
     ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
@@ -3014,6 +3017,7 @@ function render() {
       <label class="flag-box trip-name">Trip name
         <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
       </label>
+      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short" : "Fast"}</button>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
         ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
@@ -3285,6 +3289,7 @@ function bindSettings() {
       }
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
+      if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
       if (id === "arrival") state.settings.arrival = state.settings.arrival === "latest" ? "earliest" : "latest";
       persist();
       saveActiveTripSettings();
