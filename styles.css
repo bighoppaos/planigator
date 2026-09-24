@@ -1372,23 +1372,27 @@ body.app main { padding-top: 2px; }
 body.route-full { overflow: hidden; }
 .route-rail {
   position: absolute;
-  top: auto;
-  right: 0;
-  bottom: 0;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
   z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  padding: 8px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  width: 60px;
+  padding: 0;
   pointer-events: none;
 }
 .route-rail button[hidden] { display: none; }
 .route-rail button {
   width: 60px;
+  min-width: 0;
+  max-width: 60px;
   height: 60px;
+  flex: 0 0 60px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1412,6 +1416,11 @@ body.route-full { overflow: hidden; }
 #routeStop {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
+}
+.route-stage.is-full .route-rail {
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
