@@ -2073,6 +2073,10 @@ function planBox() {
   return `<section class="result">
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
+      <aside class="route-rail route-rail-left">
+        <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
+        <button type="button" id="routeZoomOut" aria-label="Zoom out"><span>Zoom</span><span>out</span></button>
+      </aside>
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
@@ -2205,6 +2209,7 @@ let pendingTurn = null;
 let routeFull = false;
 let navOn = false;
 let navFollowing = true;
+let navZoom = 15;
 let navWatch = null;
 let navYou = null;
 let navFix = null;
@@ -2377,7 +2382,10 @@ function syncRouteChrome() {
   const exit = document.getElementById("routeExit");
   if (exit) exit.hidden = !routeFull;
   const follow = document.getElementById("routeFollow");
-  if (follow) follow.hidden = !navOn;
+  if (follow) {
+    follow.hidden = !navOn;
+    follow.classList.toggle("on", navOn && navFollowing);
+  }
   const ordinal = document.getElementById("routeStopOrdinal");
   const shown = chosenNavStop();
   if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
@@ -2516,10 +2524,19 @@ function frameNextTurn() {
   });
 }
 
+function changeMapZoom(delta) {
+  if (!routeMap) return;
+  navZoom = Math.min(18, Math.max(3, routeMap.getZoom() + delta));
+  const camera = { zoom: navZoom, duration: 200 };
+  if (navFollowing && navFix) camera.center = [navFix[1], navFix[0]];
+  routeMap.easeTo(camera);
+}
+
 function cycleTripFit() {
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   navFollowing = false;
+  syncRouteChrome();
   if (tripFit === "off" || tripFit === "nextTurn") tripFit = "full";
   else if (tripFit === "full") tripFit = "remaining";
   else tripFit = "nextTurn";
@@ -2587,6 +2604,7 @@ function cycleNavStop(event) {
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   if (tripFit !== "nextTurn") navFollowing = true;
+  syncRouteChrome();
   if (!navOn) beginRouteNav();
   else if (navFix) onNavFix(navFix[0], navFix[1]);
   else applyChosenStop();
@@ -2725,7 +2743,7 @@ function onNavFix(lat, lon) {
     return;
   }
   if (navFollowing) {
-    const camera = { center: [lon, lat], zoom: Math.max(routeMap.getZoom(), 15), duration: 700 };
+    const camera = { center: [lon, lat], zoom: navZoom, duration: 700 };
     if (navCompass != null) camera.bearing = navCompass;
     else if (travel != null) camera.bearing = travel;
     routeMap.easeTo(camera);
@@ -2748,7 +2766,7 @@ function onNavCompass(event) {
   routeMap.easeTo({
     center: [navFix[1], navFix[0]],
     bearing: navCompass,
-    zoom: Math.max(routeMap.getZoom(), 15),
+    zoom: navZoom,
     duration: 120,
   });
 }
@@ -2771,11 +2789,13 @@ async function enableNavCompass() {
 function pauseFollowForDirection() {
   if (!navOn) return;
   navFollowing = false;
+  syncRouteChrome();
   window.clearTimeout(navReturnTimer);
   navReturnTimer = window.setTimeout(() => {
     navReturnTimer = 0;
-    if (!navOn) return;
+    if (!navOn || tripFit === "nextTurn") return;
     navFollowing = true;
+    syncRouteChrome();
     if (navFix) onNavFix(navFix[0], navFix[1]);
   }, 5000);
 }
@@ -2821,6 +2841,7 @@ function freezeTyping(freeze) {
 function beginRouteNav() {
   navOn = true;
   navFollowing = true;
+  navZoom = 15;
   freezeTyping(true);
   syncRouteChrome();
   document.getElementById("routeStage")?.scrollIntoView({ block: "nearest" });
@@ -2929,8 +2950,7 @@ function mountMap() {
     attributionControl: false,
   });
   routeMap = map;
-  const rail = el.querySelector(".route-rail");
-  if (rail) el.appendChild(rail);
+  el.querySelectorAll(".route-rail").forEach((rail) => el.appendChild(rail));
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
@@ -2961,7 +2981,10 @@ function mountMap() {
       source: "left",
       paint: { "line-color": "#3dcaa0", "line-width": 6 },
     });
-    map.on("dragstart", () => { navFollowing = false; });
+    map.on("dragstart", () => {
+      navFollowing = false;
+      syncRouteChrome();
+    });
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
     const markers = routePins().map((pin) => {
       const ink = stopInk(pin.rgb);
@@ -3887,6 +3910,8 @@ function bind() {
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
   $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
   $("#routeStop")?.addEventListener("click", (event) => cycleNavStop(event));
+  $("#routeZoomIn")?.addEventListener("click", () => changeMapZoom(1));
+  $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
   $("#routeFollow")?.addEventListener("click", async () => {
@@ -3896,6 +3921,7 @@ function bind() {
     syncTripFitButton();
     await enableNavCompass();
     navFollowing = true;
+    syncRouteChrome();
     if (navFix) onNavFix(navFix[0], navFix[1]);
   });
   $("#shareNav")?.addEventListener("click", () => shareToNav());

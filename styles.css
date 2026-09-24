@@ -1419,9 +1419,14 @@ body.route-full { overflow: hidden; }
   position: relative;
   z-index: 1;
 }
-#routeStop {
+#routeStop,
+#routeFollow.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
+}
+.route-rail-left {
+  left: 8px;
+  right: auto;
 }
 .route-stage.is-full .route-rail {
   top: max(8px, env(safe-area-inset-top));
@@ -1429,6 +1434,13 @@ body.route-full { overflow: hidden; }
   bottom: max(8px, env(safe-area-inset-bottom));
   width: 60px;
   gap: 6px;
+}
+.route-stage.is-full .route-rail-left {
+  left: max(8px, env(safe-area-inset-left));
+  right: auto;
+}
+.route-stage.is-full .route-nav-banner {
+  left: calc(max(8px, env(safe-area-inset-left)) + 76px);
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
