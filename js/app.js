@@ -2361,7 +2361,8 @@ function syncRouteChrome() {
   const follow = document.getElementById("routeFollow");
   if (follow) follow.hidden = !navOn;
   const ordinal = document.getElementById("routeStopOrdinal");
-  if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
+  const shown = chosenNavStop();
+  if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.index : navStopCursor);
   const banner = document.getElementById("routeNavBanner");
   if (banner) banner.hidden = !navOn;
   if (routeFull) routeMap?.resize();
@@ -2377,7 +2378,27 @@ function setRouteFull(on) {
 function navDestList() {
   return state.stops
     .map((stop, index) => ({ stop, index }))
-    .filter(({ index }) => !isOriginStop(state.stops, index));
+    .filter(({ stop }) => !stop.useCurrentLocation && pointReady(stop));
+}
+
+function chosenNavStop() {
+  const dests = navDestList();
+  if (!dests.length) return null;
+  const cursor = ((navStopCursor % dests.length) + dests.length) % dests.length;
+  return dests[cursor];
+}
+
+function alongForChosen(chosen) {
+  if (!chosen) return null;
+  const leg = navLegs.find((item) => item.stop.id === chosen.stop.id);
+  if (leg) return leg.end;
+  const dests = navDestList();
+  const pos = dests.findIndex((item) => item.stop.id === chosen.stop.id);
+  for (let i = pos + 1; i < dests.length; i += 1) {
+    const next = navLegs.find((item) => item.stop.id === dests[i].stop.id);
+    if (next) return next.start;
+  }
+  return 0;
 }
 
 function ordinalStop(index) {
@@ -2412,13 +2433,64 @@ function cycleNavStop(event) {
 
 function applyChosenStop() {
   rebuildNavLegs();
-  const dests = navDestList();
-  const chosen = dests[Math.min(navStopCursor, Math.max(dests.length - 1, 0))];
+  const chosen = chosenNavStop();
   if (!chosen) return;
-  const targetLeg = navLegs.find((item) => item.stop.id === chosen.stop.id);
+  const until = alongForChosen(chosen);
   const name = navStopTitle(chosen.stop);
-  sayNav(`Head to ${name}`, targetLeg ? `${navMiles(targetLeg.end)} to ${name}` : "", "");
-  if (targetLeg) paintNavLine(0, targetLeg.end);
+  sayNav(`Head to ${name}`, until == null ? "" : `${navMiles(until)} to ${name}`, "");
+  if (until != null) paintNavLine(0, until);
+}
+
+function currentFix() {
+  if (navFix) return Promise.resolve({ lat: navFix[0], lon: navFix[1] });
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const heading = pos.coords.heading;
+        resolve({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          heading: typeof heading === "number" ? heading : undefined,
+        });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, maximumAge: 4000, timeout: 15000 },
+    );
+  });
+}
+
+async function recalculateFromHere() {
+  const here = await currentFix();
+  if (!here) {
+    state.error = "Allow location first, then Recalculate.";
+    state.notice = "";
+    render();
+    return;
+  }
+  const chosen = chosenNavStop();
+  const startAt = chosen ? chosen.index : 0;
+  const rest = state.stops.filter((stop, index) => !stop.useCurrentLocation && index >= startAt);
+  state.origin = {
+    lat: here.lat,
+    lon: here.lon,
+    ...(typeof here.heading === "number" ? { heading: here.heading } : {}),
+  };
+  state.stops = [
+    defaultStop({
+      name: "Current location",
+      useCurrentLocation: true,
+      lat: here.lat,
+      lon: here.lon,
+      address: "",
+    }),
+    ...rest,
+  ];
+  navStopCursor = 0;
+  await calculate();
 }
 
 function showWholeTrip() {
@@ -2462,18 +2534,18 @@ function onNavFix(lat, lon) {
     const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
-    const dests = navDestList();
-    const chosen = dests[Math.min(navStopCursor, Math.max(dests.length - 1, 0))];
-    const targetLeg = chosen ? navLegs.find((item) => item.stop.id === chosen.stop.id) : leg;
-    const towardStop = targetLeg?.stop || leg?.stop;
-    const toward = towardStop ? navStopTitle(towardStop) : "the stop";
-    const leftToStop = targetLeg ? Math.max(0, targetLeg.end - hit.along) : leftOnLeg;
-    if (off) {
-      sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
-      paintNavLine(0, targetLeg ? targetLeg.end : Infinity);
-    } else {
-      sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
-      paintNavLine(hit.along, targetLeg ? targetLeg.end : Infinity);
+  const chosen = chosenNavStop();
+  const targetAlong = alongForChosen(chosen);
+  const towardStop = chosen?.stop || leg?.stop;
+  const toward = towardStop ? navStopTitle(towardStop) : "the stop";
+  const until = targetAlong == null ? Infinity : targetAlong;
+  const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
+  if (off) {
+    sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
+    paintNavLine(0, until);
+  } else {
+    sayNav(String(step?.text || "").trim() || `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+    paintNavLine(hit.along, until);
       if (navFollowing && found && leg?.stop?.id) markDirection(leg.stop.id, found.index);
     }
   }
@@ -3617,7 +3689,7 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => showWholeTrip());
-  $("#routeRecalc")?.addEventListener("click", () => calculate());
+  $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
   const routeStop = $("#routeStop");
   routeStop?.addEventListener("pointerup", (event) => cycleNavStop(event));
   routeStop?.addEventListener("click", (event) => cycleNavStop(event));
