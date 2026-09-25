@@ -2732,9 +2732,28 @@ function syncRouteChrome() {
   if (navOn) freezeTyping(true);
 }
 
+function routeDialogEl() {
+  let dialog = document.getElementById("routeDialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "routeDialog";
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+function screenGap() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;";
+  document.documentElement.appendChild(probe);
+  const top = probe.getBoundingClientRect().top;
+  probe.remove();
+  return top > 1 ? top : 0;
+}
+
 function pinRouteFull() {
   const stage = document.getElementById("routeStage");
   if (!stage || routeFull) return;
+  stage.style.position = "";
   stage.style.top = "";
   stage.style.left = "";
   stage.style.right = "";
@@ -2742,6 +2761,7 @@ function pinRouteFull() {
   stage.style.width = "";
   stage.style.height = "";
   stage.style.transform = "";
+  stage.style.margin = "";
 }
 
 function holdRouteSpace() {
@@ -2754,51 +2774,82 @@ function holdRouteSpace() {
   stage.parentElement?.insertBefore(hold, stage);
 }
 
-function releaseRouteSpace() {
-  document.getElementById("routeHold")?.remove();
-  const main = document.querySelector("body.app main");
-  if (main) main.style.overflow = "";
-  const line = document.querySelector(".build-line");
-  if (line?.dataset.topGap) line.style.marginTop = line.dataset.topGap;
+function nativeRouteFull() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
 }
 
 function placeRouteStage() {
   const stage = document.getElementById("routeStage");
-  const main = document.querySelector("body.app main");
-  if (stage?.parentElement === document.body) {
-    const home = document.querySelector(".result");
-    if (home) home.insertBefore(stage, home.firstChild);
-  }
-  if (!stage || !routeFull) {
+  const dialog = document.getElementById("routeDialog");
+  const native = nativeRouteFull() === stage;
+  if (!stage || !routeFull || native) {
+    if (stage && (stage.parentElement === document.body || stage.parentElement === dialog)) {
+      const home = document.querySelector(".result");
+      if (home) home.insertBefore(stage, home.firstChild);
+    }
+    if (dialog?.open) dialog.close();
     pinRouteFull();
     document.getElementById("routeHold")?.remove();
-    if (main) main.style.overflow = "";
     return;
   }
-  if (main) main.style.overflow = "visible";
   holdRouteSpace();
+  const box = routeDialogEl();
+  if (stage.parentElement !== box) box.appendChild(stage);
+  if (!box.open) {
+    try { box.showModal(); } catch { /* already showing */ }
+  }
+  const gap = screenGap();
+  stage.style.position = "absolute";
+  stage.style.top = gap ? `${-Math.round(gap)}px` : "0";
+  stage.style.left = "0";
+  stage.style.right = "0";
+  stage.style.width = "100%";
+  stage.style.height = gap ? `calc(100% + ${Math.round(gap)}px)` : "100%";
+  stage.style.margin = "0";
+  stage.style.transform = "";
 }
 
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
-  const line = document.querySelector(".build-line");
-  if (next && line && !line.dataset.topGap) line.dataset.topGap = getComputedStyle(line).marginTop;
-  if (next) {
-    holdRouteSpace();
-    const main = document.querySelector("body.app main");
-    if (main) main.style.overflow = "visible";
+  const stage = document.getElementById("routeStage");
+  if (next && stage?.requestFullscreen) {
+    stage.requestFullscreen({ navigationUI: "hide" }).then(() => {
+      routeFull = true;
+      syncRouteChrome();
+      routeMap?.resize();
+    }).catch(() => {
+      routeFull = true;
+      placeRouteStage();
+      syncRouteChrome();
+      requestAnimationFrame(() => routeMap?.resize());
+    });
+    return;
+  }
+  if (!next && nativeRouteFull()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    exit?.call(document)?.catch(() => {});
+    return;
   }
   routeFull = next;
-  const theme = document.querySelector('meta[name="theme-color"]');
-  if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
-  document.documentElement.style.background = routeFull ? "#071525" : "";
-  document.body.style.background = "";
-  if (!routeFull) pinRouteFull();
+  placeRouteStage();
   syncRouteChrome();
-  if (!routeFull) releaseRouteSpace();
+  if (!routeFull && screenGap() > 1) {
+    const y = window.scrollY || 0;
+    window.scrollTo(0, y + 1);
+    window.scrollTo(0, y);
+  }
   requestAnimationFrame(() => routeMap?.resize());
 }
+
+document.addEventListener("fullscreenchange", () => {
+  const on = Boolean(nativeRouteFull());
+  if (on === routeFull) return;
+  routeFull = on;
+  placeRouteStage();
+  syncRouteChrome();
+  routeMap?.resize();
+});
 
 function navDestList() {
   return state.stops
