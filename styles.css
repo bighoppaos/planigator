@@ -1432,7 +1432,6 @@ body.app main { padding-top: 2px; }
 }
 html.route-full,
 body.route-full {
-  overflow: hidden;
   background: #071525;
   overscroll-behavior: none;
 }

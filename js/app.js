@@ -2740,15 +2740,38 @@ function pinRouteFull() {
   if (!routeFull) {
     stage.style.top = "";
     stage.style.left = "";
+    stage.style.right = "";
     stage.style.width = "";
     stage.style.height = "";
     return;
   }
   const view = window.visualViewport;
+  const shift = view ? view.offsetTop : 0;
   stage.style.top = "0px";
   stage.style.left = "0px";
-  stage.style.width = `${Math.round(view ? view.width : window.innerWidth)}px`;
-  stage.style.height = `${Math.round(view ? view.height : window.innerHeight)}px`;
+  stage.style.right = "0px";
+  stage.style.width = "100%";
+  stage.style.height = `${Math.round((view ? view.height : window.innerHeight) + shift)}px`;
+}
+
+function lockRoutePage() {
+  routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
+  const body = document.body;
+  body.style.position = "fixed";
+  body.style.top = `-${routeFullScroll}px`;
+  body.style.left = "0";
+  body.style.right = "0";
+  body.style.width = "100%";
+}
+
+function unlockRoutePage() {
+  const body = document.body;
+  body.style.position = "";
+  body.style.top = "";
+  body.style.left = "";
+  body.style.right = "";
+  body.style.width = "";
+  window.scrollTo(0, routeFullScroll);
 }
 
 function placeRouteStage() {
@@ -2776,20 +2799,20 @@ function watchRouteFull(on) {
 
 function setRouteFull(on) {
   const next = Boolean(on);
-  if (next && !routeFull) routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
+  if (next === routeFull) return;
+  if (next) lockRoutePage();
   routeFull = next;
   const theme = document.querySelector('meta[name="theme-color"]');
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
   document.documentElement.style.background = routeFull ? "#071525" : "";
-  document.body.style.background = routeFull ? "#071525" : "";
+  document.body.style.background = "";
   syncRouteChrome();
   watchRouteFull(routeFull);
   placeRouteStage();
-  if (routeFull) window.scrollTo(0, 0);
-  else window.scrollTo(0, routeFullScroll);
+  if (!routeFull) unlockRoutePage();
   requestAnimationFrame(() => {
+    if (!routeFull) unlockRoutePage();
     placeRouteStage();
-    if (!routeFull) window.scrollTo(0, routeFullScroll);
     routeMap?.resize();
   });
 }
