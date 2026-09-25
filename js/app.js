@@ -2427,12 +2427,25 @@ function directionWithMilesLeft(text, metersLeft) {
   return body ? `${body} ${phrase}` : phrase;
 }
 
+function nextDirectionText(leg, found, hereAlong) {
+  const turn = upcomingTurn(hereAlong);
+  if (!turn?.stop || (turn.stop.id === leg?.stop?.id && turn.index === found?.index)) return "";
+  return String(turn.stop.directions?.[turn.index]?.text || "").trim();
+}
+
+function spokenCurrentDirection(text, metersLeft, leg, found, hereAlong) {
+  const current = directionWithMilesLeft(text, metersLeft);
+  const next = nextDirectionText(leg, found, hereAlong);
+  return next ? `${current} Then ${next}` : current;
+}
+
 function speakNavProgress(leg, found, hereAlong) {
   if (!found || !leg?.stop?.id) return;
   const stepKey = `${leg.stop.id}:${found.index}`;
   const leftMeters = metersLeftInStep(leg, hereAlong - leg.start, found.index);
   const miles = leftMeters / 1609.344;
   const text = String(found.step?.text || "").trim();
+  const phrase = () => spokenCurrentDirection(text, leftMeters, leg, found, hereAlong);
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
     spokenMiles.clear();
@@ -2441,13 +2454,13 @@ function speakNavProgress(leg, found, hereAlong) {
     }
     if (text) {
       window.speechSynthesis?.cancel();
-      speakNav(directionWithMilesLeft(text, leftMeters));
+      speakNav(phrase());
     }
   }
   for (const band of [5, 3, 2, 1]) {
     if (spokenMiles.has(band) || miles > band || miles <= band - 0.4) continue;
     spokenMiles.add(band);
-    speakNav(directionWithMilesLeft(text, leftMeters));
+    speakNav(phrase());
     break;
   }
 }
