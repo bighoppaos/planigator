@@ -2734,19 +2734,55 @@ function syncRouteChrome() {
 
 let routeFullScroll = 0;
 
+function pinRouteFull() {
+  const stage = document.getElementById("routeStage");
+  if (!stage) return;
+  if (!routeFull) {
+    stage.style.top = "";
+    stage.style.left = "";
+    stage.style.width = "";
+    stage.style.height = "";
+    return;
+  }
+  const view = window.visualViewport;
+  const top = view ? view.offsetTop : 0;
+  const height = (view ? view.height : window.innerHeight) + top;
+  stage.style.top = "0px";
+  stage.style.left = "0px";
+  stage.style.width = "100%";
+  stage.style.height = `${Math.round(height)}px`;
+}
+
+function watchRouteFull(on) {
+  const view = window.visualViewport;
+  if (!view) return;
+  view.removeEventListener("resize", pinRouteFull);
+  view.removeEventListener("scroll", pinRouteFull);
+  if (on) {
+    view.addEventListener("resize", pinRouteFull);
+    view.addEventListener("scroll", pinRouteFull);
+  }
+}
+
 function setRouteFull(on) {
   const next = Boolean(on);
-  if (next && !routeFull) routeFullScroll = window.scrollY || 0;
+  if (next && !routeFull) routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
   routeFull = next;
   const theme = document.querySelector('meta[name="theme-color"]');
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
   document.documentElement.style.background = routeFull ? "#071525" : "";
   document.body.style.background = routeFull ? "#071525" : "";
   syncRouteChrome();
-  const bridge = window.webkit?.messageHandlers?.planigatorMapFull;
-  if (bridge) bridge.postMessage(routeFull ? "1" : "0");
-  if (!routeFull) window.scrollTo(0, routeFullScroll);
-  requestAnimationFrame(() => routeMap?.resize());
+  watchRouteFull(routeFull);
+  pinRouteFull();
+  if (!routeFull) {
+    window.scrollTo(0, routeFullScroll);
+    document.documentElement.scrollTop = routeFullScroll;
+  }
+  requestAnimationFrame(() => {
+    pinRouteFull();
+    routeMap?.resize();
+  });
 }
 
 function navDestList() {

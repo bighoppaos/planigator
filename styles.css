@@ -1417,9 +1417,11 @@ body.app main { padding-top: 2px; }
 .route-stage.is-full {
   position: fixed;
   z-index: 80;
-  inset: 0;
-  width: auto;
-  height: auto;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 100dvh;
   margin: 0;
   border-radius: 0;
   background: #071525;
@@ -1433,13 +1435,7 @@ html.route-full,
 body.route-full {
   overflow: hidden;
   background: #071525;
-}
-body.route-full {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  overscroll-behavior: none;
 }
 .route-map .maplibregl-canvas-container { z-index: 0; }
 .route-map .route-rail { z-index: 5; }
