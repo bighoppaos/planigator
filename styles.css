@@ -1429,6 +1429,7 @@ body.app main { padding-top: 2px; }
   overflow: hidden;
   background: #d7e2ea;
   scroll-margin-top: 12px;
+  touch-action: none;
 }
 #routeDialog {
   width: 100%;

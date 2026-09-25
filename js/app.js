@@ -3951,26 +3951,25 @@ function mountMap() {
       source: "left",
       paint: { "line-color": "#3dcaa0", "line-width": 6 },
     });
-    const releaseFollow = () => {
-      navMapTouch = true;
+    const holdCamera = () => { navMapTouch = true; };
+    const releaseCamera = () => {
+      navMapTouch = false;
       navFollowing = false;
       navZoomHold = Date.now() + 1500;
-      map.stop();
       const follow = document.getElementById("routeFollow");
       if (follow) follow.classList.remove("on");
     };
     el.addEventListener("touchstart", (event) => {
       if (event.target.closest("button, a, summary")) return;
-      releaseFollow();
+      holdCamera();
     }, { capture: true, passive: true });
     el.addEventListener("touchend", () => { navMapTouch = false; }, { capture: true });
     el.addEventListener("touchcancel", () => { navMapTouch = false; }, { capture: true });
     map.on("pointerdown", (event) => {
       if (event.originalEvent?.target?.closest?.("button, a, summary")) return;
-      releaseFollow();
+      holdCamera();
     });
-    map.on("dragstart", releaseFollow);
-    map.on("dragend", () => { navMapTouch = false; });
+    map.on("dragstart", releaseCamera);
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
