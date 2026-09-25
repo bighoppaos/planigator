@@ -1426,6 +1426,7 @@ body.app main { padding-top: 2px; }
 .route-stage.is-full .route-map {
   height: 100%;
   border-radius: 0;
+  touch-action: none;
 }
 body.route-full { overflow: hidden; }
 .route-rail {
