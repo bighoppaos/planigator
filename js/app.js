@@ -24,9 +24,45 @@ import {
 } from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
+const DEFAULT_HERO = [
+  "Know how much time you have to spare",
+  "Truck legal GPS navigation on this same page. No app required.",
+  "It's not expensive",
+  "And it's cooler",
+];
+let heroLines = DEFAULT_HERO.slice();
+
+function cleanHeroLines(lines) {
+  if (!Array.isArray(lines)) return [];
+  return lines
+    .map((line) => String(line ?? "").replace(/\s+/g, " ").trim().slice(0, 140))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function paintHeroLines() {
+  const list = $(".hero-mark .pitch");
+  if (!list) return;
+  list.replaceChildren(...heroLines.map((line) => {
+    const item = document.createElement("li");
+    item.textContent = line;
+    return item;
+  }));
+}
+
+function loadHeroLines() {
+  const apply = api("/v1/hero").then((data) => {
+    const lines = cleanHeroLines(data?.lines);
+    if (!lines.length) return;
+    heroLines = lines;
+    paintHeroLines();
+  }).catch(() => {});
+  const timeout = new Promise((resolve) => setTimeout(resolve, 1200));
+  return Promise.race([apply, timeout]);
+}
 
 let plannerRoot = null;
 let writingHash = false;
@@ -4324,6 +4360,7 @@ export function initPlanner(el) {
   applyShareFromLocation();
   const shareCode = new URLSearchParams(location.search).get("s");
   if (shareCode) loadSharedCode(shareCode);
+  loadHeroLines().finally(() => {
   render();
   refreshCredits().then(async () => {
     if (sessionStorage.getItem("planigator.web.signup") === "1") {
@@ -4349,6 +4386,7 @@ export function initPlanner(el) {
     if (!state.locating) render();
     if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
+  });
   });
   const mark = () => { if (state.signedIn) pulseActivity(); };
   document.addEventListener("pointerdown", mark);
@@ -4398,10 +4436,7 @@ function render() {
       <div class="hero-copy">
       <h1>www.planigator.help</h1>
       <ul class="pitch">
-        <li>Know how much time you have to spare</li>
-        <li>Truck legal GPS navigation on this same page. No app required.</li>
-        <li>It's not expensive</li>
-        <li>And it's cooler</li>
+        ${heroLines.map((line) => `<li>${escapeAttr(line)}</li>`).join("")}
       </ul>
       </div>
     </section></div>

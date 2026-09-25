@@ -229,6 +229,7 @@ async function load() {
     list.hidden = true;
     visits.hidden = true;
     document.getElementById("usage").hidden = true;
+    document.getElementById("hero").hidden = true;
     document.getElementById("gifts").hidden = true;
     status.textContent = me.idle
       ? "Signed out after an hour away. Sign in on the planner with the owner Google account, then reload this page."
@@ -244,6 +245,7 @@ async function load() {
       if (document.visibilityState === "visible") noteVisit(false);
     }, 30000);
   }
+  await loadHeroEditor();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const data = await api(`/v1/admin/accounts?tz=${encodeURIComponent(zone)}`);
   const traffic = await api("/v1/admin/visits");
@@ -256,6 +258,61 @@ async function load() {
   renderDays(data.days);
   render(Array.isArray(data.accounts) ? data.accounts : []);
   await loadGifts();
+}
+
+const HERO_MAX = 6;
+const DEFAULT_HERO = [
+  "Know how much time you have to spare",
+  "Truck legal GPS navigation on this same page. No app required.",
+  "It's not expensive",
+  "And it's cooler",
+];
+
+function heroRow(value) {
+  const row = document.createElement("div");
+  row.className = "hero-edit";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 140;
+  input.value = value;
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "Hero bullet");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "hero-remove";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => {
+    const box = document.getElementById("heroLines");
+    if (box.children.length <= 1) {
+      input.value = "";
+      input.focus();
+      return;
+    }
+    row.remove();
+  });
+  row.append(input, remove);
+  return row;
+}
+
+function fillHero(lines) {
+  const next = (Array.isArray(lines) && lines.length ? lines : DEFAULT_HERO).slice(0, HERO_MAX);
+  document.getElementById("heroLines").replaceChildren(...next.map((line) => heroRow(String(line))));
+}
+
+let heroEditorPromise = null;
+
+function loadHeroEditor() {
+  if (heroEditorPromise) return heroEditorPromise;
+  const box = document.getElementById("hero");
+  heroEditorPromise = api("/v1/hero").then((data) => {
+    fillHero(data.lines);
+    box.hidden = false;
+  }).catch((error) => {
+    fillHero(DEFAULT_HERO);
+    box.hidden = false;
+    document.getElementById("heroNote").textContent = error.message || "Could not load the bullets.";
+  });
+  return heroEditorPromise;
 }
 
 function drawGift(gift) {
@@ -275,6 +332,38 @@ async function loadGifts() {
 }
 
 try {
+  document.getElementById("heroAdd")?.addEventListener("click", () => {
+    const box = document.getElementById("heroLines");
+    const note = document.getElementById("heroNote");
+    if (box.children.length >= HERO_MAX) {
+      note.textContent = "Six lines is the most.";
+      return;
+    }
+    const row = heroRow("");
+    box.append(row);
+    row.querySelector("input")?.focus();
+    note.textContent = "";
+  });
+  document.getElementById("heroForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const note = document.getElementById("heroNote");
+    const lines = [...document.querySelectorAll("#heroLines input")]
+      .map((input) => input.value.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, HERO_MAX);
+    if (!lines.length) {
+      note.textContent = "Add at least one line.";
+      return;
+    }
+    note.textContent = "Saving…";
+    try {
+      const saved = await api("/v1/admin/hero", { method: "POST", body: JSON.stringify({ lines }) });
+      fillHero(saved.lines);
+      note.textContent = "Saved. Refresh the front page to see them.";
+    } catch (error) {
+      note.textContent = error.message || "Could not save.";
+    }
+  });
   await load();
   setInterval(load, 30000);
   document.getElementById("giftForm")?.addEventListener("submit", async (event) => {
@@ -294,5 +383,6 @@ try {
   document.addEventListener("pointerdown", mark);
   document.addEventListener("keydown", mark);
 } catch {
+  document.getElementById("hero").hidden = true;
   status.textContent = "This list is only for the owner account. Sign in on the planner as that Google account, then reload.";
 }
