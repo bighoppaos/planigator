@@ -1542,6 +1542,14 @@ button.lookup.lookup-flash {
 @media (prefers-reduced-motion: reduce) {
   #startNav, #endNav, button.lookup.lookup-flash { animation: none; background: #1f8a62; border-color: #1f8a62; color: #fff; }
 }
+.truck-pin {
+  width: 16px;
+  height: 16px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #e07a3d;
+  box-shadow: 0 0 0 6px rgb(224 122 61 / 0.35);
+}
 .turn-pin {
   width: 14px;
   height: 14px;

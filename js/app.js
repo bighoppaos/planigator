@@ -2083,6 +2083,7 @@ function planBox() {
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
+        <button type="button" id="routeTruck" hidden aria-label="Next truck stop" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Truck</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       <div class="route-place-row" id="routePlaceRow">
@@ -2207,6 +2208,7 @@ function pinLabel(label) {
 }
 
 let routeMap = null;
+let truckMarker = null;
 let routeMapReady = false;
 let turnMarker = null;
 let pendingTurn = null;
@@ -2237,6 +2239,7 @@ function clearRouteMap() {
     routeMap.remove();
     routeMap = null;
   }
+  truckMarker = null;
 }
 
 function navStopTitle(stop) {
@@ -2510,6 +2513,11 @@ function syncRouteChrome() {
   if (full) full.hidden = routeFull;
   const exit = document.getElementById("routeExit");
   if (exit) exit.hidden = !routeFull;
+  const truckRail = document.getElementById("routeTruck");
+  if (truckRail) {
+    truckRail.hidden = !routeFull;
+    truckRail.disabled = state.estimating || (!state.unlimited && state.credits === 0);
+  }
   const follow = document.getElementById("routeFollow");
   if (follow) {
     follow.hidden = !navOn;
@@ -2873,6 +2881,34 @@ function truckNoteText(hit) {
   return [hit.name, place, ahead, off].filter(Boolean).join(" · ");
 }
 
+function frameTruckStop(hit) {
+  const maplibre = window.maplibregl;
+  const lat = Number(hit?.lat);
+  const lon = Number(hit?.lon);
+  if (!routeMap || !maplibre || !navFix || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  navFollowing = false;
+  tripFit = "off";
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  syncRouteChrome();
+  if (truckMarker) truckMarker.remove();
+  const pin = document.createElement("span");
+  pin.className = "truck-pin";
+  truckMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([lon, lat]).addTo(routeMap);
+  const coordinates = [[navFix[1], navFix[0]], [lon, lat]];
+  const bounds = coordinates.reduce(
+    (box, coord) => box.extend(coord),
+    new maplibre.LngLatBounds(coordinates[0], coordinates[0]),
+  );
+  routeMap.stop();
+  routeMap.fitBounds(bounds, {
+    padding: { top: 70, bottom: 120, left: 88, right: 88 },
+    maxZoom: 15,
+    bearing: 0,
+    duration: 600,
+  });
+}
+
 function showTruckHit(hit) {
   truckHit = hit;
   const note = document.getElementById("nextTruckNote");
@@ -2925,11 +2961,13 @@ function addTruckAsNextStop() {
   if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
 }
 
-async function findNextTruckStop() {
+async function findNextTruckStop(options = {}) {
   const button = document.getElementById("nextTruck");
+  const rail = document.getElementById("routeTruck");
   const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
   if (button) button.disabled = true;
+  if (rail) rail.disabled = true;
   if (add) add.hidden = true;
   truckHit = null;
   if (note) {
@@ -2960,6 +2998,7 @@ async function findNextTruckStop() {
       milesAhead: data.milesAhead,
       milesOff: data.milesOff,
     });
+    if (options.frame) frameTruckStop(truckHit);
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const calc = document.getElementById("calculate");
@@ -2968,7 +3007,9 @@ async function findNextTruckStop() {
     if (add) add.hidden = true;
     if (note) note.textContent = error.message || "No truck stop within 2 miles of the route.";
   } finally {
-    if (button) button.disabled = state.estimating || (!state.unlimited && state.credits === 0);
+    const blocked = state.estimating || (!state.unlimited && state.credits === 0);
+    if (button) button.disabled = blocked;
+    if (rail) rail.disabled = blocked;
   }
 }
 
@@ -4203,6 +4244,7 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
+  $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
