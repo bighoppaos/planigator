@@ -2189,21 +2189,29 @@ const satelliteStyle = {
 };
 
 function pickMapStyle() {
+  const overlay = {
+    type: "raster",
+    tileSize: 256,
+    maxzoom: 19,
+    attribution: "Esri, HERE, Garmin, USGS",
+  };
   return {
     version: 8,
     sources: {
       satellite: satelliteStyle.sources.satellite,
-      labels: {
-        type: "raster",
-        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Reference_Overlay/MapServer/tile/{z}/{y}/{x}"],
-        tileSize: 256,
-        maxzoom: 19,
-        attribution: "Esri, HERE, Garmin, USGS",
+      streets: {
+        ...overlay,
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"],
+      },
+      places: {
+        ...overlay,
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places_Alternate/MapServer/tile/{z}/{y}/{x}"],
       },
     },
     layers: [
       { id: "satellite", type: "raster", source: "satellite" },
-      { id: "labels", type: "raster", source: "labels" },
+      { id: "streets", type: "raster", source: "streets" },
+      { id: "places", type: "raster", source: "places" },
     ],
   };
 }
@@ -2254,14 +2262,14 @@ function mountLookupMaps() {
         bounds.extend([Number(pin.lon), Number(pin.lat)]);
       });
       if (pick && chooseHere) {
-        map.jumpTo({ center: [chooseHere.lon, chooseHere.lat], zoom: 14 });
+        map.jumpTo({ center: [chooseHere.lon, chooseHere.lat], zoom: 16 });
         const dot = document.createElement("span");
         dot.className = "route-you";
         new maplibre.Marker({ element: dot, anchor: "center" }).setLngLat([chooseHere.lon, chooseHere.lat]).addTo(map);
       } else if (pins.length) map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
       else {
         const center = lookupCenter(stop);
-        if (center) map.jumpTo({ center, zoom: 14 });
+        if (center) map.jumpTo({ center, zoom: pick ? 16 : 14 });
       }
       if (pick) bindMapPick(map, stop.id);
       map.resize();
