@@ -2736,28 +2736,16 @@ let routeFullScroll = 0;
 
 function pinRouteFull() {
   const stage = document.getElementById("routeStage");
-  if (!stage) return;
-  if (!routeFull) {
-    stage.style.top = "";
-    stage.style.left = "";
-    stage.style.right = "";
-    stage.style.width = "";
-    stage.style.height = "";
-    stage.style.transform = "";
-    return;
-  }
-  const view = window.visualViewport;
-  const top = view ? view.offsetTop : 0;
-  const height = view ? view.height : window.innerHeight;
-  stage.style.top = `${Math.round(top)}px`;
-  stage.style.left = "0px";
-  stage.style.right = "0px";
-  stage.style.width = "100%";
-  stage.style.height = `${Math.round(height)}px`;
+  if (!stage || routeFull) return;
+  stage.style.top = "";
+  stage.style.left = "";
+  stage.style.right = "";
+  stage.style.width = "";
+  stage.style.height = "";
   stage.style.transform = "";
 }
 
-function releaseRoutePage() {
+function settleRoutePage() {
   const body = document.body;
   body.style.position = "";
   body.style.top = "";
@@ -2768,8 +2756,14 @@ function releaseRoutePage() {
   document.documentElement.style.overflow = "";
   const main = document.querySelector("body.app main");
   if (main) main.style.overflow = "";
+  const meta = document.querySelector('meta[name="viewport"]');
+  const content = meta?.getAttribute("content") || "";
+  if (meta) meta.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
   window.scrollTo(0, routeFullScroll);
-  requestAnimationFrame(() => window.scrollTo(0, routeFullScroll));
+  requestAnimationFrame(() => {
+    if (meta && content) meta.setAttribute("content", content);
+    window.scrollTo(0, routeFullScroll);
+  });
 }
 
 function placeRouteStage() {
@@ -2784,17 +2778,6 @@ function placeRouteStage() {
   pinRouteFull();
 }
 
-function watchRouteFull(on) {
-  const view = window.visualViewport;
-  if (!view) return;
-  view.removeEventListener("resize", pinRouteFull);
-  view.removeEventListener("scroll", pinRouteFull);
-  if (on) {
-    view.addEventListener("resize", pinRouteFull);
-    view.addEventListener("scroll", pinRouteFull);
-  }
-}
-
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
@@ -2804,22 +2787,12 @@ function setRouteFull(on) {
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
   document.documentElement.style.background = routeFull ? "#071525" : "";
   document.body.style.background = "";
-  if (next) {
-    document.documentElement.style.overflow = "visible";
-    document.body.style.overflow = "visible";
-    const main = document.querySelector("body.app main");
-    if (main) main.style.overflow = "visible";
-  }
-  syncRouteChrome();
-  watchRouteFull(routeFull);
   placeRouteStage();
-  if (!routeFull) releaseRoutePage();
-  else if (window.scrollY !== routeFullScroll) window.scrollTo(0, routeFullScroll);
+  syncRouteChrome();
+  if (!routeFull) settleRoutePage();
   requestAnimationFrame(() => {
-    placeRouteStage();
-    if (!routeFull) releaseRoutePage();
-    else if (window.scrollY !== routeFullScroll) window.scrollTo(0, routeFullScroll);
-    routeMap?.resize();
+    if (routeFull) routeMap?.resize();
+    else settleRoutePage();
   });
 }
 
