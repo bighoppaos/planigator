@@ -3680,8 +3680,10 @@ function endRouteNav() {
 
 function focusDirectionWindow(stopId, index) {
   const scrolling = document.querySelector("#routeDirections .dir-scroll");
+  const box = document.getElementById("routeDirections");
   if (!scrolling) return;
   const hide = navOn && Number.isFinite(index);
+  box?.classList.toggle("dir-three", hide);
   scrolling.querySelectorAll("li").forEach((li) => {
     const button = li.querySelector("[data-dir-stop]");
     if (!hide) {
@@ -3809,6 +3811,10 @@ function markDirection(stopId, index) {
 function revealDirection(button) {
   const list = button?.closest(".dir-scroll");
   if (!list) return;
+  if (list.closest(".dir-three")) {
+    list.scrollTop = 0;
+    return;
+  }
   const listBox = list.getBoundingClientRect();
   const buttonBox = button.getBoundingClientRect();
   const delta = (buttonBox.top + buttonBox.height / 2) - (listBox.top + listBox.height / 2);
