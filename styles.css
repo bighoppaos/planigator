@@ -753,6 +753,7 @@ button.set-box::before {
 }
 @keyframes arrival-spin { to { transform: rotate(360deg); } }
 button.set-box[data-toggle="arrival"]:disabled { opacity: 1; cursor: wait; }
+button[data-delete]:disabled { opacity: 1; cursor: wait; }
 @media (prefers-reduced-motion: reduce) {
   .arrival-spin { animation: none; border-right-color: currentColor; opacity: 0.45; }
 }

@@ -4514,6 +4514,8 @@ function bind() {
       }
       window.clearTimeout(deleteArmTimer);
       state.confirmDeleteId = null;
+      button.disabled = true;
+      button.innerHTML = `<span class="arrival-spin" aria-hidden="true"></span>Confirm delete`;
       deleteTrip(id);
     });
   });
