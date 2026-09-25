@@ -2407,6 +2407,7 @@ let pendingTurn = null;
 let routeFull = false;
 let navOn = false;
 let navFollowing = true;
+let navMapTouch = false;
 let navZoom = 15;
 let navZoomHold = 0;
 let navWatch = null;
@@ -3585,7 +3586,7 @@ function paintNavMotion(now) {
     navYou.setLngLat([lon, lat]);
     navShown = { lat, lon };
   }
-  if (navFollowing && tripFit !== "nextTurn" && routeMap && navShown && Date.now() >= navZoomHold) {
+  if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && navShown && Date.now() >= navZoomHold) {
     const camera = { center: [navShown.lon, navShown.lat], zoom: navZoom };
     if (navCompass != null) camera.bearing = navCompass;
     else if (navTravel != null) camera.bearing = navTravel;
@@ -3950,16 +3951,26 @@ function mountMap() {
       source: "left",
       paint: { "line-color": "#3dcaa0", "line-width": 6 },
     });
-    map.on("pointerdown", (event) => {
-      if (!event.originalEvent) return;
+    const releaseFollow = () => {
+      navMapTouch = true;
+      navFollowing = false;
       navZoomHold = Date.now() + 1500;
       map.stop();
-    });
-    map.on("dragstart", () => {
-      navFollowing = false;
       const follow = document.getElementById("routeFollow");
-      if (follow) follow.classList.toggle("on", false);
+      if (follow) follow.classList.remove("on");
+    };
+    el.addEventListener("touchstart", (event) => {
+      if (event.target.closest("button, a, summary")) return;
+      releaseFollow();
+    }, { capture: true, passive: true });
+    el.addEventListener("touchend", () => { navMapTouch = false; }, { capture: true });
+    el.addEventListener("touchcancel", () => { navMapTouch = false; }, { capture: true });
+    map.on("pointerdown", (event) => {
+      if (event.originalEvent?.target?.closest?.("button, a, summary")) return;
+      releaseFollow();
     });
+    map.on("dragstart", releaseFollow);
+    map.on("dragend", () => { navMapTouch = false; });
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
