@@ -1492,11 +1492,39 @@ body.route-full { overflow: hidden; }
   left: max(8px, env(safe-area-inset-left));
   right: auto;
 }
-.route-stage.is-full .route-nav-banner {
-  top: auto;
-  bottom: max(8px, env(safe-area-inset-bottom));
+.route-bottom {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 22px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.route-place-row {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  pointer-events: none;
+}
+.route-stage.is-full .route-bottom {
   left: calc(max(8px, env(safe-area-inset-left)) + 76px);
   right: calc(max(8px, env(safe-area-inset-right)) + 76px);
+  bottom: max(8px, env(safe-area-inset-bottom));
+}
+.route-stage.is-full .route-nav-banner {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
@@ -1504,21 +1532,6 @@ body.route-full { overflow: hidden; }
   height: 60px;
   flex-basis: 60px;
   font-size: 12px;
-}
-.route-place-row {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: calc(100% - 16px);
-  pointer-events: none;
-}
-.route-stage.is-full .route-place-row {
-  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 78px);
 }
 .route-place,
 .route-drive {

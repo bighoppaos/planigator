@@ -2120,15 +2120,17 @@ function planBox() {
         <button type="button" id="routeTruck" hidden aria-label="Next truck stop" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Truck</span><span>stop</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
+      </div>
+      <div class="route-bottom">
       <div class="route-place-row" id="routePlaceRow">
         <p class="route-drive" id="routeDrive" hidden></p>
         <p class="route-place" id="routePlace" hidden></p>
-      </div>
       </div>
       <div class="route-nav-banner" id="routeNavBanner" hidden>
         <strong id="routeNavTitle"></strong>
         <p id="routeNavDetail"></p>
         <p id="routeNavNote"></p>
+      </div>
       </div>
     </div>
     ${directionsBlock()}
@@ -3497,7 +3499,7 @@ function mountMap() {
     attributionControl: false,
   });
   routeMap = map;
-  el.querySelectorAll(".route-rail, .route-place-row").forEach((node) => el.appendChild(node));
+  el.querySelectorAll(".route-rail").forEach((node) => el.appendChild(node));
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
