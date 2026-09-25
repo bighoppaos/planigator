@@ -2743,35 +2743,33 @@ function pinRouteFull() {
     stage.style.right = "";
     stage.style.width = "";
     stage.style.height = "";
+    stage.style.transform = "";
     return;
   }
   const view = window.visualViewport;
-  const shift = view ? view.offsetTop : 0;
-  stage.style.top = "0px";
+  const top = view ? view.offsetTop : 0;
+  const height = view ? view.height : window.innerHeight;
+  stage.style.top = `${Math.round(top)}px`;
   stage.style.left = "0px";
   stage.style.right = "0px";
   stage.style.width = "100%";
-  stage.style.height = `${Math.round((view ? view.height : window.innerHeight) + shift)}px`;
+  stage.style.height = `${Math.round(height)}px`;
+  stage.style.transform = "";
 }
 
-function lockRoutePage() {
-  routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
-  const body = document.body;
-  body.style.position = "fixed";
-  body.style.top = `-${routeFullScroll}px`;
-  body.style.left = "0";
-  body.style.right = "0";
-  body.style.width = "100%";
-}
-
-function unlockRoutePage() {
+function releaseRoutePage() {
   const body = document.body;
   body.style.position = "";
   body.style.top = "";
   body.style.left = "";
   body.style.right = "";
   body.style.width = "";
+  body.style.overflow = "";
+  document.documentElement.style.overflow = "";
+  const main = document.querySelector("body.app main");
+  if (main) main.style.overflow = "";
   window.scrollTo(0, routeFullScroll);
+  requestAnimationFrame(() => window.scrollTo(0, routeFullScroll));
 }
 
 function placeRouteStage() {
@@ -2800,19 +2798,27 @@ function watchRouteFull(on) {
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
-  if (next) lockRoutePage();
+  if (next) routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
   routeFull = next;
   const theme = document.querySelector('meta[name="theme-color"]');
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
   document.documentElement.style.background = routeFull ? "#071525" : "";
   document.body.style.background = "";
+  if (next) {
+    document.documentElement.style.overflow = "visible";
+    document.body.style.overflow = "visible";
+    const main = document.querySelector("body.app main");
+    if (main) main.style.overflow = "visible";
+  }
   syncRouteChrome();
   watchRouteFull(routeFull);
   placeRouteStage();
-  if (!routeFull) unlockRoutePage();
+  if (!routeFull) releaseRoutePage();
+  else if (window.scrollY !== routeFullScroll) window.scrollTo(0, routeFullScroll);
   requestAnimationFrame(() => {
-    if (!routeFull) unlockRoutePage();
     placeRouteStage();
+    if (!routeFull) releaseRoutePage();
+    else if (window.scrollY !== routeFullScroll) window.scrollTo(0, routeFullScroll);
     routeMap?.resize();
   });
 }
