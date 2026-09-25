@@ -2929,6 +2929,7 @@ function setRouteFull(on) {
     exit?.call(document)?.catch(() => {});
   }
   routeFull = next;
+  if (routeFull) clearTypingUndo();
   placeRouteStage();
   syncRouteChrome();
   requestAnimationFrame(() => {
@@ -3655,6 +3656,18 @@ function endRouteNav() {
   syncRouteChrome();
 }
 
+function clearTypingUndo() {
+  const active = document.activeElement;
+  if (active && active !== document.body && active.blur) active.blur();
+  window.getSelection()?.removeAllRanges();
+  try {
+    document.designMode = "on";
+    document.designMode = "off";
+  } catch {
+    // Older browsers can refuse designMode. The blur still drops the keyboard.
+  }
+}
+
 function freezeTyping(freeze) {
   document.querySelectorAll("textarea, input").forEach((el) => {
     if (freeze) {
@@ -3666,9 +3679,14 @@ function freezeTyping(freeze) {
       delete el.dataset.undoFreeze;
     }
   });
-  const active = document.activeElement;
-  if (active && active !== document.body && active.blur) active.blur();
+  if (freeze) clearTypingUndo();
 }
+
+document.addEventListener("beforeinput", (event) => {
+  if (!navOn && !routeFull) return;
+  if (event.inputType !== "historyUndo" && event.inputType !== "historyRedo") return;
+  event.preventDefault();
+}, true);
 
 function beginRouteNav() {
   navOn = true;
