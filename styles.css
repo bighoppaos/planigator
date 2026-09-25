@@ -1335,6 +1335,21 @@ body.app main { padding-top: 2px; }
   gap: 12px;
   padding: 12px 16px;
 }
+.lookup-sheet > .flag-box {
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  margin: 0 16px 8px;
+}
+#useMapSpot { margin: 8px 16px 16px; }
+#useMapSpot:disabled { opacity: 0.45; }
+.map-spot {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #2f6fed;
+  box-shadow: 0 0 0 6px rgb(47 111 237 / 0.28);
+}
 .lookup-pin {
   border: 0;
   background: var(--mint);

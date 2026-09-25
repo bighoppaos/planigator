@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=122";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
-import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
+import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
 
@@ -2128,16 +2128,20 @@ function lookupMapPreview(stop) {
   </div>`;
 }
 
+let chooseMap = false;
+let mapSpot = null;
+
 function lookupMapSheet() {
   const stop = state.stops.find((item) => item.id === state.openLookupStopId);
-  if (!stop || !lookupPins(stop).length) return "";
-  return `<div class="lookup-sheet" role="dialog" aria-modal="true" aria-label="Choose a stop">
+  if (!stop || (!chooseMap && !lookupPins(stop).length)) return "";
+  return `<div class="lookup-sheet" role="dialog" aria-modal="true" aria-label="Choose from map">
     <div class="lookup-sheet-bar">
-      <strong>Choose a stop</strong>
+      <strong>${chooseMap ? "Choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"></div>
-    <p class="fine">Move around, then tap a pin.</p>
+    ${chooseMap ? `<p class="flag-box">Step 1: Long press a spot. Step 2: Touch "Use this spot"</p>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-pick="1"` : ""}></div>
+    ${chooseMap ? `<button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button>` : ""}
   </div>`;
 }
 
@@ -2165,7 +2169,8 @@ function mountLookupMaps() {
   document.querySelectorAll("[data-lookup-map]").forEach((el) => {
     const stop = state.stops.find((item) => item.id === el.getAttribute("data-lookup-map"));
     const pins = lookupPins(stop);
-    if (!pins.length) return;
+    const pick = el.getAttribute("data-pick") === "1";
+    if (!pins.length && !pick) return;
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
       container: el,
@@ -2201,11 +2206,107 @@ function mountLookupMaps() {
           .addTo(map);
         bounds.extend([Number(pin.lon), Number(pin.lat)]);
       });
-      map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
+      if (pins.length) map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
+      else {
+        const center = lookupCenter(stop);
+        if (center) map.jumpTo({ center, zoom: 14 });
+      }
+      if (pick) bindMapPick(map, stop.id);
       map.resize();
     });
     lookupMaps.push(map);
   });
+}
+
+let mapPickMarker = null;
+
+function lookupCenter(stop) {
+  if (Number.isFinite(Number(stop?.lat)) && Number.isFinite(Number(stop?.lon))) return [Number(stop.lon), Number(stop.lat)];
+  const here = originPoint();
+  if (here) return [here.lon, here.lat];
+  if (navFix) return [navFix[1], navFix[0]];
+  return [-98.35, 39.5];
+}
+
+function openChooseMap(id) {
+  chooseMap = true;
+  mapSpot = null;
+  if (mapPickMarker) {
+    mapPickMarker.remove();
+    mapPickMarker = null;
+  }
+  state.openLookupStopId = id;
+  render();
+}
+
+function markMapSpot(map, lngLat) {
+  const lat = Number(lngLat?.lat);
+  const lon = Number(lngLat?.lng);
+  if (!map || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  mapSpot = { lat, lon };
+  const maplibre = window.maplibregl;
+  if (!maplibre) return;
+  if (mapPickMarker) mapPickMarker.remove();
+  const pin = document.createElement("span");
+  pin.className = "map-spot";
+  mapPickMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([lon, lat]).addTo(map);
+  const button = document.getElementById("useMapSpot");
+  if (button) button.disabled = false;
+}
+
+function bindMapPick(map) {
+  map.getContainer()?.addEventListener("contextmenu", (event) => event.preventDefault());
+  map.on("contextmenu", (event) => {
+    event.preventDefault?.();
+    markMapSpot(map, event.lngLat);
+  });
+  let timer = 0;
+  let start = null;
+  map.on("touchstart", (event) => {
+    start = event.lngLat;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      if (start) markMapSpot(map, start);
+    }, 550);
+  });
+  map.on("touchmove", () => {
+    window.clearTimeout(timer);
+    start = null;
+  });
+  map.on("touchend", () => window.clearTimeout(timer));
+}
+
+async function useChosenSpot() {
+  const id = state.openLookupStopId;
+  const spot = mapSpot;
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop || !spot) return;
+  let label = "Chosen on the map";
+  try {
+    const data = await spotAddress(spot.lat, spot.lon);
+    if (data?.label) label = String(data.label).trim() || label;
+  } catch {
+    // The point still works without a street label.
+  }
+  stop.address = label;
+  stop.verifiedLabel = label;
+  stop.lat = spot.lat;
+  stop.lon = spot.lon;
+  stop.suggestions = [];
+  stop.miles = "";
+  stop.hours = "";
+  state.plan = null;
+  state.openLookupStopId = "";
+  chooseMap = false;
+  mapSpot = null;
+  if (mapPickMarker) {
+    mapPickMarker.remove();
+    mapPickMarker = null;
+  }
+  clearUsingNote(id);
+  setLookupMessage(id, "Using that address.", { ok: true });
+  persist();
+  render();
 }
 
 function pinLabel(label) {
@@ -3485,7 +3586,7 @@ function stopCard(stop, index) {
       </div>
       <div class="address-row">
         <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
-        <button type="button" class="flag-box" data-act="paste">Paste an<br>address</button>
+        <button type="button" class="flag-box" data-act="map">Choose from map</button>
       </div>
       <div class="lookup-row">
         <button type="button" class="flag-box lookup${lookupFlash ? " lookup-flash" : ""}" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
@@ -4257,8 +4358,11 @@ function bind() {
   });
   document.getElementById("closeLookupMap")?.addEventListener("click", () => {
     state.openLookupStopId = "";
+    chooseMap = false;
+    mapSpot = null;
     render();
   });
+  document.getElementById("useMapSpot")?.addEventListener("click", () => useChosenSpot());
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
@@ -4418,7 +4522,7 @@ function bind() {
       return text === "Using that address." || text === "Using this address.";
     });
     if (usingNote) armUsingNote(id);
-    card.querySelector("[data-act=paste]")?.addEventListener("click", () => pasteAddress(id));
+    card.querySelector("[data-act=map]")?.addEventListener("click", () => openChooseMap(id));
     card.querySelectorAll("[data-suggest]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-suggest"))));
     });
