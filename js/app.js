@@ -3965,6 +3965,8 @@ function mountMap() {
     }, { capture: true, passive: true });
     el.addEventListener("touchend", () => { navMapTouch = false; }, { capture: true });
     el.addEventListener("touchcancel", () => { navMapTouch = false; }, { capture: true });
+    el.addEventListener("pointerup", () => { navMapTouch = false; }, { capture: true });
+    el.addEventListener("pointercancel", () => { navMapTouch = false; }, { capture: true });
     map.on("pointerdown", (event) => {
       if (event.originalEvent?.target?.closest?.("button, a, summary")) return;
       holdCamera();
