@@ -2702,6 +2702,30 @@ function directionWithMilesLeft(text, metersLeft) {
   return cleaned ? `${cleaned} ${phrase}` : phrase;
 }
 
+function maneuverText(text) {
+  return withoutGo(text)
+    .replace(/\s+for\s+[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:mi|ft|feet|foot|mile|miles)\b\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inDistance(meters) {
+  const miles = meters / 1609.344;
+  if (miles < 0.1) {
+    const feet = Math.max(1, Math.round(meters * 3.28084));
+    return `in ${feet} ${feet === 1 ? "foot" : "feet"}`;
+  }
+  const rounded = miles >= 100 ? Math.round(miles) : Math.round(miles * 10) / 10;
+  const unit = rounded === 1 ? "mile" : "miles";
+  return `in ${rounded} ${unit}`;
+}
+
+function approachPhrase(nextText, metersLeft) {
+  const maneuver = maneuverText(nextText);
+  if (!maneuver) return "";
+  return `${maneuver} ${inDistance(metersLeft)}`;
+}
+
 function upcomingDirection(leg, index) {
   const steps = Array.isArray(leg?.stop?.directions) ? leg.stop.directions : [];
   const next = steps[index + 1];
@@ -2727,13 +2751,11 @@ function speakNavProgress(leg, found, hereAlong) {
     for (const band of bands) {
       if (miles <= band) spokenMiles.add(band);
     }
-    if (text) {
+    const next = upcomingDirection(leg, found.index);
+    const said = (next && approachPhrase(next, leftMeters)) || (text ? phrase() : "");
+    if (said) {
       window.speechSynthesis?.cancel();
-      speakNav(phrase());
-    }
-    if (miles <= 1) {
-      const next = upcomingDirection(leg, found.index);
-      if (next) speakNav(next);
+      speakNav(said);
     }
   }
   for (const band of bands) {
@@ -2745,9 +2767,10 @@ function speakNavProgress(leg, found, hereAlong) {
     spokenMiles.add(band);
     const next = upcomingDirection(leg, found.index);
     if (!next) break;
-    const unit = band === 1 ? "mile" : "miles";
+    const said = approachPhrase(next, band * 1609.344);
+    if (!said) break;
     window.speechSynthesis?.cancel();
-    speakNav(`In ${band} ${unit}. ${next}`);
+    speakNav(said);
     break;
   }
 }
@@ -3201,6 +3224,15 @@ function metersLeftInStep(leg, alongInLeg, index) {
   return Math.max(0, length - Math.max(0, alongInLeg - cursor));
 }
 
+function nextManeuverText(stopId, index) {
+  const at = state.stops.findIndex((item) => item.id === stopId);
+  const stop = at >= 0 ? state.stops[at] : null;
+  const steps = Array.isArray(stop?.directions) ? stop.directions : [];
+  if (steps[index + 1]?.text) return String(steps[index + 1].text);
+  const follow = at >= 0 ? state.stops[at + 1] : null;
+  return String(follow?.directions?.[0]?.text || "");
+}
+
 function paintDirectionMiles(stopId, index, meters) {
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     const current = button.getAttribute("data-dir-stop") === stopId && button.getAttribute("data-dir-index") === String(index);
@@ -3212,7 +3244,9 @@ function paintDirectionMiles(stopId, index, meters) {
       if (slot?.getAttribute("data-full")) slot.textContent = slot.getAttribute("data-full");
       return;
     }
-    if (link && original) link.textContent = directionWithMilesLeft(original, meters);
+    const nextText = nextManeuverText(stopId, index);
+    const approach = approachPhrase(nextText, meters);
+    if (link) link.textContent = approach || directionWithMilesLeft(original, meters);
     if (slot) slot.textContent = "";
   });
 }
@@ -3642,8 +3676,9 @@ function onNavFix(lat, lon) {
   } else {
     const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
     const title = String(step?.text || "").trim();
+    const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
     setStopChip(leftToStop, toward);
-    sayNav(title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+    sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
