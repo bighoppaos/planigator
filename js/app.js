@@ -553,8 +553,8 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
       : state.signedIn
-        ? "Those 40 free credits are used. Save a card for 10 more. That card is not charged when they run out."
-        : "Sign in with Google for 40 free credits. Save a card for 10 more. That card is not charged when they run out.";
+        ? "Those 40 free credits are used. Save a card for 40 more. That card is not charged when they run out."
+        : "Sign in with Google for 40 free credits. Save a card for 40 more. That card is not charged when they run out.";
     render();
     return;
   }
@@ -1222,7 +1222,7 @@ async function watchPackGrant() {
 function maybeCelebrateCard() {
   if (cardCelebrated || !state.signedIn || !state.cardCredits) return false;
   cardCelebrated = true;
-  state.signupNote = "10 free credits are yours.";
+  state.signupNote = "40 free credits are yours.";
   state.notice = "";
   state.cardCredits = 0;
   popConfetti();
@@ -3554,7 +3554,7 @@ function authBlock() {
       ? `<p class="fine">Card on file · ${escapeAttr(state.cardBrand)} •••• ${escapeAttr(state.cardLast4)}</p><button type="button" class="secondary" id="deleteCard">Delete card</button>`
       : state.unlimited
         ? ""
-        : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : state.cardGrantUsed ? "Save a card" : "Save a card for 10 more free credits"}</button><p class="fine">${state.cardGrantUsed ? "Adding another card does not add another 10. " : ""}We do not charge that card when the free credits run out.</p>`;
+        : `<button type="button" class="secondary" id="saveCard" ${state.savingCard ? "disabled" : ""}>${state.savingCard ? "Opening the card form…" : state.cardGrantUsed ? "Save a card" : "Save a card for 40 more free credits"}</button><p class="fine">${state.cardGrantUsed ? "Adding another card does not add another 40. " : ""}We do not charge that card when the free credits run out.</p>`;
   const cardSaved = state.cardSavedNote
     ? `<p class="fine">Card saved. Free credits show up after Stripe confirms that card has not been used.</p>`
     : "";
@@ -3750,7 +3750,7 @@ function render() {
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
       ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
-      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 40. The first saved card gives 10 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 40. The first saved card gives 40 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
