@@ -4051,19 +4051,6 @@ function mountMap() {
     routeMapReady = true;
     if (pendingTurn) applyTurnZoom(map, pendingTurn);
     else map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
-    map.once("idle", () => {
-      if (routeMap !== map) return;
-      const placed = [];
-      markers.forEach((marker) => {
-        const point = map.project(marker.getLngLat());
-        let lift = 0;
-        for (const other of placed) {
-          if (Math.abs(other.x - point.x) < 72 && Math.abs(other.y - (point.y - lift)) < 26) lift += 26;
-        }
-        if (lift) marker.setOffset([0, -lift]);
-        placed.push({ x: point.x, y: point.y - lift });
-      });
-    });
   });
 }
 
