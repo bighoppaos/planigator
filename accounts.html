@@ -18,6 +18,23 @@
   <main>
     <h1>Accounts</h1>
     <p id="status" class="muted">Loading…</p>
+    <section id="usage" class="card" hidden>
+      <h2>Credits each day</h2>
+      <p id="usageNote" class="muted">Loading credits…</p>
+      <div class="account-scroll">
+        <table class="account-table">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>You</th>
+              <th>Anyone else</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="usageRows"></tbody>
+        </table>
+      </div>
+    </section>
     <section id="visits" class="card" hidden>
       <h2>On the page</h2>
       <p id="here" class="muted">Loading visits…</p>
@@ -53,6 +70,6 @@
       </table>
     </div>
   </main>
-  <script type="module" src="./js/accounts.js?v=7"></script>
+  <script type="module" src="./js/accounts.js?v=8"></script>
 </body>
 </html>

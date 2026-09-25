@@ -111,6 +111,56 @@ function drawRanges() {
   });
 }
 
+function localDayKey(ms = Date.now()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(ms));
+  const pick = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+}
+
+function dayLabel(iso) {
+  const [year, month, day] = String(iso || "").split("-").map(Number);
+  if (!year || !month || !day) return iso || "—";
+  const date = new Date(year, month - 1, day);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
+  });
+}
+
+function renderDays(days) {
+  const box = document.getElementById("usage");
+  const body = document.getElementById("usageRows");
+  const note = document.getElementById("usageNote");
+  box.hidden = false;
+  const list = Array.isArray(days) ? days : [];
+  const today = list.find((day) => day.day === localDayKey());
+  const you = Number(today?.you) || 0;
+  const others = Number(today?.others) || 0;
+  note.textContent = list.length
+    ? `Today you used ${you}. Anyone else used ${others}.`
+    : "No credits used yet.";
+  body.replaceChildren();
+  for (const day of list) {
+    const yours = Number(day.you) || 0;
+    const rest = Number(day.others) || 0;
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(dayLabel(day.day)),
+      cell(String(yours)),
+      cell(String(rest)),
+      cell(String(yours + rest)),
+    );
+    body.append(tr);
+  }
+}
+
 function cell(value) {
   const td = document.createElement("td");
   td.textContent = value;
@@ -178,6 +228,7 @@ async function load() {
   if (me.idle || !me.signedIn) {
     list.hidden = true;
     visits.hidden = true;
+    document.getElementById("usage").hidden = true;
     document.getElementById("gifts").hidden = true;
     status.textContent = me.idle
       ? "Signed out after an hour away. Sign in on the planner with the owner Google account, then reload this page."
@@ -193,7 +244,8 @@ async function load() {
       if (document.visibilityState === "visible") noteVisit(false);
     }, 30000);
   }
-  const data = await api("/v1/admin/accounts");
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const data = await api(`/v1/admin/accounts?tz=${encodeURIComponent(zone)}`);
   const traffic = await api("/v1/admin/visits");
   visits.hidden = false;
   const onPage = Number(traffic.here) || 0;
@@ -201,6 +253,7 @@ async function load() {
   visitHits = Array.isArray(traffic.hits) ? traffic.hits : [];
   drawRanges();
   drawVisits();
+  renderDays(data.days);
   render(Array.isArray(data.accounts) ? data.accounts : []);
   await loadGifts();
 }
