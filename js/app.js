@@ -4308,6 +4308,7 @@ function render() {
         <li>Know how much time you have to spare</li>
         <li>Truck legal GPS navigation on this same page. No app required.</li>
         <li>Way cheaper than all other truck apps</li>
+        <li>And it's cooler</li>
       </ul>
       </div>
     </section></div>
