@@ -4050,7 +4050,7 @@ function render() {
       <label class="flag-box trip-name">Trip name
         <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
       </label>
-      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short" : "Fast"}</button>
+      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
         ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}

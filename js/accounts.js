@@ -47,7 +47,10 @@ function drawVisits() {
   const bars = [];
   for (let start = first; start < now; start += size) {
     const end = start + size;
-    const count = visitHits.filter((stamp) => stamp >= start && stamp < end && stamp >= now - span).length;
+    const count = visitHits.filter((item) => {
+      const stamp = visitStamp(item);
+      return stamp >= start && stamp < end && stamp >= now - span;
+    }).length;
     bars.push({ start, count });
   }
   const peak = Math.max(1, ...bars.map((bar) => bar.count));
@@ -69,8 +72,27 @@ function drawVisits() {
   }
   const note = document.createElement("p");
   note.className = "muted";
-  note.textContent = `${total} ${total === 1 ? "visit" : "visits"} in the last ${name}.`;
+  note.textContent = visitNote(name, total, now, span);
   chart.append(note);
+}
+
+function visitStamp(item) {
+  return typeof item === "number" ? item : Number(item?.t) || 0;
+}
+
+function visitNote(name, total, now, span) {
+  const inFrame = visitHits.filter((item) => {
+    const stamp = visitStamp(item);
+    return stamp >= now - span && stamp <= now;
+  });
+  const you = inFrame.filter((item) => item?.who === "you").length;
+  const others = inFrame.filter((item) => item?.who === "account").length;
+  const guests = inFrame.filter((item) => item?.who === "guest").length;
+  const earlier = inFrame.length - you - others - guests;
+  const word = total === 1 ? "visit" : "visits";
+  let text = `${total} ${word} in the last ${name}. ${you} were you. ${others} were another account. ${guests} were not signed in.`;
+  if (earlier) text += ` ${earlier} are from before this page could tell who.`;
+  return text;
 }
 
 function drawRanges() {
@@ -106,6 +128,17 @@ function person(account) {
   return account.email || account.name || "Someone";
 }
 
+function loginLabel(account) {
+  const ms = Number(account.lastLogin);
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function loggedInLabel(account) {
   if (!account.loggedIn) return "No";
   if (Number(account.browsers) > 1) return `Yes · ${account.browsers} browsers`;
@@ -132,6 +165,7 @@ function render(accounts) {
       cell(account.unlimited ? "Unlimited" : String(account.left ?? 0)),
       cell(cardLabel(account)),
       cell(loggedInLabel(account)),
+      cell(loginLabel(account)),
     );
     rows.append(tr);
   }
@@ -164,7 +198,7 @@ async function load() {
   visits.hidden = false;
   const onPage = Number(traffic.here) || 0;
   hereLine.textContent = onPage === 1 ? "1 person is on the page." : `${onPage} people are on the page.`;
-  visitHits = Array.isArray(traffic.hits) ? traffic.hits.map(Number) : [];
+  visitHits = Array.isArray(traffic.hits) ? traffic.hits : [];
   drawRanges();
   drawVisits();
   render(Array.isArray(data.accounts) ? data.accounts : []);
