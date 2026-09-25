@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=123";
+} from "./plan.js?v=124";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
@@ -127,6 +127,7 @@ function defaultState() {
     idleNote: "",
     locationError: "",
     locationNotice: "",
+    chooseStart: false,
     lookupMessage: "",
     lookupStopId: "",
     lookupOk: false,
@@ -388,7 +389,7 @@ function markGovernedStale() {
 
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = state.stops.filter((stop, index) => !isOriginStop(state.stops, index) && !stop.skipRoute).length;
+  const count = Math.max(0, state.stops.length - 1);
   const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
     ? "unlimited credits left"
@@ -539,27 +540,22 @@ function applyShareFromLocation() {
   return true;
 }
 
-async function ensureHereOrigin() {
-  if (state.stops.some((stop) => stop.useCurrentLocation)) return;
-  const places = state.stops.filter((stop) => !stop.useCurrentLocation && !stop.skipRoute);
-  if (places.length !== 1) return;
-  const here = await currentFix();
-  if (!here) throw new Error("Allow location first, then Calculate.");
-  state.origin = { lat: here.lat, lon: here.lon };
-  if (typeof here.heading === "number" && Number.isFinite(here.heading) && here.heading >= 0) {
-    state.origin.heading = here.heading;
-  }
-  state.stops.unshift(defaultStop({
-    useCurrentLocation: true,
-    name: "Current location",
-    start: Date.now(),
-    end: Date.now(),
-    lat: here.lat,
-    lon: here.lon,
-  }));
+function needsStartChoice() {
+  if (state.stops.some((stop) => stop.useCurrentLocation)) return false;
+  const places = state.stops.filter((stop) => !stop.useCurrentLocation);
+  if (places.length >= 2) return false;
+  return (places[0]?.name || "").trim().toLowerCase() !== "start";
 }
 
 async function calculate({ silent = false, skipHash = false } = {}) {
+  if (!silent && needsStartChoice()) {
+    state.chooseStart = true;
+    state.error = "";
+    state.notice = "";
+    render();
+    return;
+  }
+  state.chooseStart = false;
   if (!silent && !state.unlimited && state.credits === 0) {
     state.error = state.cardOnFile
       ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
@@ -570,14 +566,6 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     return;
   }
   if (!silent) {
-    try {
-      await ensureHereOrigin();
-    } catch (error) {
-      state.error = error.message || "Allow location first, then Calculate.";
-      state.notice = "";
-      render();
-      return;
-    }
     state.estimating = true;
     state.error = "";
     state.notice = "Asking HERE© for a truck-legal route…";
@@ -906,6 +894,7 @@ function updateStop(id, patch) {
 }
 
 function startFromAddress() {
+  state.chooseStart = false;
   state.origin = null;
   state.locationError = "";
   state.locationNotice = "";
@@ -1138,6 +1127,7 @@ function showLocateProgress(label, notice) {
 }
 
 function locate() {
+  state.chooseStart = false;
   if (!window.isSecureContext) {
     state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
     state.locationNotice = "";
@@ -3890,9 +3880,10 @@ function render() {
         </label>
       </div>
         <div class="settings-grid action-grid">
-          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
-          <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}" id="fromAddress">Start from an address</button>
+          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+          <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="fromAddress">Start from an address</button>
           <button type="button" class="set-box" id="newTrip">new/clear trip</button>
+          ${state.chooseStart ? `<p class="fine start-choice-note">Choose Start from my location or Start from an address.</p>` : ""}
           ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
           ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
         </div>

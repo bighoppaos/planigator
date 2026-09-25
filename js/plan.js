@@ -42,10 +42,8 @@ export function isOriginStop(stops, index) {
   const stop = stops[index];
   if (!stop) return false;
   if (stop.useCurrentLocation) return true;
-  if (stops.some((item) => item.useCurrentLocation)) return false;
-  const places = stops.filter((item) => !item.useCurrentLocation);
-  if (places.length < 2) return false;
-  return stops.findIndex((item) => !item.useCurrentLocation) === index;
+  return !stops.some((item) => item.useCurrentLocation)
+    && stops.findIndex((item) => !item.useCurrentLocation) === index;
 }
 
 export function scheduledIndexes(stops) {
