@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=122";
+} from "./plan.js?v=123";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
@@ -388,7 +388,7 @@ function markGovernedStale() {
 
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = Math.max(0, state.stops.length - 1);
+  const count = state.stops.filter((stop, index) => !isOriginStop(state.stops, index) && !stop.skipRoute).length;
   const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
     ? "unlimited credits left"
@@ -539,6 +539,26 @@ function applyShareFromLocation() {
   return true;
 }
 
+async function ensureHereOrigin() {
+  if (state.stops.some((stop) => stop.useCurrentLocation)) return;
+  const places = state.stops.filter((stop) => !stop.useCurrentLocation && !stop.skipRoute);
+  if (places.length !== 1) return;
+  const here = await currentFix();
+  if (!here) throw new Error("Allow location first, then Calculate.");
+  state.origin = { lat: here.lat, lon: here.lon };
+  if (typeof here.heading === "number" && Number.isFinite(here.heading) && here.heading >= 0) {
+    state.origin.heading = here.heading;
+  }
+  state.stops.unshift(defaultStop({
+    useCurrentLocation: true,
+    name: "Current location",
+    start: Date.now(),
+    end: Date.now(),
+    lat: here.lat,
+    lon: here.lon,
+  }));
+}
+
 async function calculate({ silent = false, skipHash = false } = {}) {
   if (!silent && !state.unlimited && state.credits === 0) {
     state.error = state.cardOnFile
@@ -550,6 +570,14 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     return;
   }
   if (!silent) {
+    try {
+      await ensureHereOrigin();
+    } catch (error) {
+      state.error = error.message || "Allow location first, then Calculate.";
+      state.notice = "";
+      render();
+      return;
+    }
     state.estimating = true;
     state.error = "";
     state.notice = "Asking HERE© for a truck-legal route…";
@@ -814,9 +842,15 @@ function addStop(afterId) {
   render();
 }
 
+function stopCanRemove(index) {
+  if (isOriginStop(state.stops, index)) return false;
+  const addressCount = state.stops.filter((stop) => !stop.useCurrentLocation).length;
+  return addressCount > 1 || state.stops.some((stop) => stop.useCurrentLocation);
+}
+
 function removeStop(id) {
   const index = state.stops.findIndex((stop) => stop.id === id);
-  if (index < 0 || isOriginStop(state.stops, index)) return;
+  if (index < 0 || !stopCanRemove(index)) return;
   const next = state.stops.filter((stop) => stop.id !== id);
   state.stops = next;
   persist();
@@ -3575,7 +3609,7 @@ function stopCard(stop, index) {
   const title = cardTitle(index, state.stops);
   const typedAddress = (stop.address || "").trim();
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
-  const canRemove = !originStop;
+  const canRemove = stopCanRemove(index);
   const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
