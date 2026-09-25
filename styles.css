@@ -1468,6 +1468,27 @@ body.route-full {
   pointer-events: none;
 }
 .route-rail button[hidden] { display: none; }
+.truck-slot {
+  position: relative;
+  display: flex;
+  pointer-events: none;
+}
+.route-rail #routeTruckAdd {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  max-width: 148px;
+  height: auto;
+  min-height: 44px;
+  flex: none;
+  border-radius: 12px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: normal;
+}
 .route-rail button {
   width: 48px;
   min-width: 0;

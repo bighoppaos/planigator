@@ -2112,7 +2112,10 @@ function planBox() {
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
-        <button type="button" id="routeTruck" hidden aria-label="Next truck stop" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Truck</span><span>stop</span></button>
+        <div class="truck-slot">
+          <button type="button" id="routeTruckAdd" hidden>Add and recalculate</button>
+          <button type="button" id="routeTruck" hidden aria-label="Next truck stop" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Truck</span><span>stop</span></button>
+        </div>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -2799,6 +2802,7 @@ function syncRouteChrome() {
   const shown = chosenNavStop();
   if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
   placeDirections(routeFull);
+  syncTruckAdd();
   const start = document.getElementById("startNav");
   if (start) {
     start.disabled = navOn;
@@ -3290,6 +3294,12 @@ function showTruckHit(hit) {
     note.textContent = hit ? truckNoteText(hit) : "";
   }
   if (add) add.hidden = !hit;
+  syncTruckAdd();
+}
+
+function syncTruckAdd() {
+  const add = document.getElementById("routeTruckAdd");
+  if (add) add.hidden = !(routeFull && truckHit);
 }
 
 function addTruckAsNextStop() {
@@ -3331,6 +3341,13 @@ function addTruckAsNextStop() {
   if (calc) calc.innerHTML = calculateButtonLabel();
   const ordinal = document.getElementById("routeStopOrdinal");
   if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
+  syncTruckAdd();
+}
+
+async function addTruckAndRecalculate() {
+  if (!truckHit) return;
+  addTruckAsNextStop();
+  await recalculateFromHere();
 }
 
 async function findNextTruckStop(options = {}) {
@@ -4687,6 +4704,7 @@ function bind() {
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
+  $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;
