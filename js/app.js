@@ -2728,7 +2728,6 @@ function syncRouteChrome() {
     start.textContent = navOn ? "Navigation in progress" : "Start navigation";
   }
   syncTripFitButton();
-  if (routeFull) routeMap?.resize();
   if (navOn) freezeTyping(true);
 }
 
@@ -3530,9 +3529,15 @@ function mountMap() {
       source: "left",
       paint: { "line-color": "#3dcaa0", "line-width": 6 },
     });
+    map.on("pointerdown", (event) => {
+      if (!event.originalEvent) return;
+      navZoomHold = Date.now() + 1500;
+      map.stop();
+    });
     map.on("dragstart", () => {
       navFollowing = false;
-      syncRouteChrome();
+      const follow = document.getElementById("routeFollow");
+      if (follow) follow.classList.toggle("on", false);
     });
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
