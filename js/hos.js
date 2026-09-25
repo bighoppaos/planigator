@@ -56,6 +56,7 @@ export function durationLabel(hours) {
 
 export function stamp(ms, military = false) {
   const formatter = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",

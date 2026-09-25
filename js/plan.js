@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=125";
+} from "./hos.js?v=126";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
