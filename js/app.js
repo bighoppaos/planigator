@@ -2837,6 +2837,38 @@ function syncRouteChrome() {
   }
   syncTripFitButton();
   if (navOn) freezeTyping(true);
+  requestAnimationFrame(seatRails);
+}
+
+let railSeatObserver = null;
+let railSeatBox = null;
+
+function seatRails() {
+  const rails = document.querySelectorAll(".route-stage .route-rail");
+  if (!routeFull) {
+    rails.forEach((rail) => {
+      rail.style.bottom = "";
+      rail.style.top = "";
+    });
+    railSeatObserver?.disconnect();
+    railSeatObserver = null;
+    railSeatBox = null;
+    return;
+  }
+  const map = document.getElementById("routeMap");
+  const box = document.getElementById("routeDirections");
+  if (!map || !box) return;
+  const lift = map.getBoundingClientRect().bottom - box.getBoundingClientRect().top + 8;
+  const bottom = `${Math.max(8, Math.round(lift))}px`;
+  rails.forEach((rail) => {
+    rail.style.top = "auto";
+    rail.style.bottom = bottom;
+  });
+  if (typeof ResizeObserver === "undefined" || railSeatBox === box) return;
+  railSeatObserver?.disconnect();
+  railSeatBox = box;
+  railSeatObserver = new ResizeObserver(() => seatRails());
+  railSeatObserver.observe(box);
 }
 
 function safeTopPad() {
@@ -2889,6 +2921,7 @@ function fitRouteCover() {
   stage.style.height = `${Math.round(height)}px`;
   stage.style.margin = "0";
   stage.style.zIndex = "80";
+  seatRails();
 }
 
 function watchRouteCover(on) {

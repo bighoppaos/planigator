@@ -1539,10 +1539,11 @@ body.route-full {
   right: auto;
 }
 .route-stage.is-full .route-rail {
-  top: max(8px, env(safe-area-inset-top));
+  top: auto;
   right: max(8px, env(safe-area-inset-right));
   bottom: max(8px, env(safe-area-inset-bottom));
   width: 60px;
+  height: auto;
   gap: 6px;
 }
 .route-stage.is-full .route-rail-left {
@@ -1571,8 +1572,8 @@ body.route-full {
   pointer-events: none;
 }
 .route-stage.is-full .route-bottom {
-  left: calc(max(8px, env(safe-area-inset-left)) + 76px);
-  right: calc(max(8px, env(safe-area-inset-right)) + 76px);
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
   bottom: max(8px, env(safe-area-inset-bottom));
 }
 .route-stop-miles {
