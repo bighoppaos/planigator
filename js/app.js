@@ -2555,6 +2555,12 @@ function rebuildNavLegs() {
   navLegs = next;
 }
 
+function passedManeuver(step) {
+  const text = String(step?.text || "");
+  if (/\b(continue|head|depart|arrive)\b/i.test(text)) return false;
+  return /\b(turn|u-turn|exit|ramp|roundabout|keep)\b/i.test(text);
+}
+
 function navStep(leg, alongInLeg) {
   const steps = Array.isArray(leg.stop.directions) ? leg.stop.directions : [];
   if (!steps.length) return null;
@@ -2565,7 +2571,10 @@ function navStep(leg, alongInLeg) {
   let cursor = 0;
   for (let i = 0; i < steps.length; i += 1) {
     const len = lengths[i] * scale;
-    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) return { step: steps[i], index: i };
+    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) {
+      const index = passedManeuver(steps[i]) && i + 1 < steps.length ? i + 1 : i;
+      return { step: steps[index], index };
+    }
     cursor += len;
   }
   return { step: steps[0], index: 0 };
