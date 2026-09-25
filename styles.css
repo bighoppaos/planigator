@@ -633,12 +633,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .directions li span { color: var(--muted); }
 .directions .dir-leg {
   list-style: none;
+  counter-increment: none;
   margin-left: -1.2em;
   font-weight: 700;
 }
 .directions button.dir-step {
-  display: inline;
-  width: auto;
+  display: block;
+  width: fit-content;
   max-width: 100%;
   background: none;
   border: 0;
