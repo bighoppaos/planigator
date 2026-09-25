@@ -876,6 +876,10 @@ button[data-delete]:disabled { opacity: 1; cursor: wait; }
   min-width: 0;
 }
 
+.set-pair > .set-box:only-child {
+  grid-column: 1 / -1;
+}
+
 .set-box[data-toggle="leaveNow"],
 .set-box[data-toggle="startAnytime"],
 .set-box[data-toggle="endAnytime"] {

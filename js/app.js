@@ -413,12 +413,6 @@ function settingToggle(id, label, on) {
   return `<button type="button" class="set-box${on ? " on" : ""}" data-toggle="${id}">${escapeAttr(label)}</button>`;
 }
 
-function settingArrival(value) {
-  const label = value === "latest" ? "Latest" : "Earliest";
-  const spin = state.arrivalBusy ? `<span class="arrival-spin" aria-hidden="true"></span>` : "";
-  return `<button type="button" class="set-box" data-toggle="arrival"${state.arrivalBusy ? " disabled" : ""}><span class="set-name">Arrival</span><strong class="set-value">${spin}${escapeAttr(label)}</strong></button>`;
-}
-
 function settingValue(id, label, value, fill = false) {
   return `<button type="button" class="set-box${fill ? " set-fill" : ""}" data-pick="${id}"><span class="set-name">${escapeAttr(label)}</span><strong class="set-value">${escapeAttr(value)}</strong></button>`;
 }
@@ -4048,7 +4042,6 @@ function render() {
               <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
               <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
             </div>
-            ${settingArrival(s.arrival)}
           </div>
           <div class="set-pair">
             ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
@@ -4361,15 +4354,8 @@ function bindSettings() {
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
       if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
-      if (id === "arrival") state.settings.arrival = state.settings.arrival === "latest" ? "earliest" : "latest";
       persist();
       saveActiveTripSettings();
-      if (id === "arrival" && state.plan) {
-        state.arrivalBusy = true;
-        render();
-        setTimeout(() => calculate({ silent: true }), 0);
-        return;
-      }
       render();
     });
   });
