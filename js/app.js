@@ -3023,6 +3023,23 @@ function upcomingTurn(hereAlong) {
   return last ? { along: last.end, stop: last.stop, index: 0 } : null;
 }
 
+function turnListPad(base) {
+  const map = document.getElementById("routeMap");
+  if (!map) return base;
+  const mapBox = map.getBoundingClientRect();
+  let top = mapBox.bottom;
+  for (const id of ["routeDirections", "routeStopMiles", "routePlaceRow"]) {
+    const el = document.getElementById(id);
+    if (!el || el.hidden) continue;
+    const box = el.getBoundingClientRect();
+    if (box.height < 2 || box.top >= mapBox.bottom) continue;
+    if (box.top < top) top = box.top;
+  }
+  const cover = mapBox.bottom - top;
+  if (cover <= 0) return base;
+  return Math.max(base, Math.round(cover + 48));
+}
+
 function frameNextTurn() {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre) return;
@@ -3050,10 +3067,11 @@ function frameNextTurn() {
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
   const pad = routeFull ? 88 : 56;
+  const bottom = turnListPad(pad);
   navZoomHold = Date.now() + 900;
   routeMap.stop();
   routeMap.fitBounds(bounds, {
-    padding: { top: pad, right: pad + 36, bottom: pad, left: pad },
+    padding: { top: pad, right: pad + 36, bottom, left: pad },
     maxZoom: 17,
     bearing: navCompass != null ? navCompass : routeMap.getBearing(),
     duration: 700,
