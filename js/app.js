@@ -84,14 +84,14 @@ function defaultStop(overrides = {}) {
 }
 
 function defaultStops() {
-  const pickup = defaultStop({ name: "Pickup" });
-  const dropStart = pickup.start + 8 * 3600 * 1000;
+  const first = defaultStop({ name: "Stop 1" });
+  const secondStart = first.start + 8 * 3600 * 1000;
   return [
-    pickup,
+    first,
     defaultStop({
-      name: "Drop",
-      start: dropStart,
-      end: dropStart + 4 * 3600 * 1000,
+      name: "Stop 2",
+      start: secondStart,
+      end: secondStart + 4 * 3600 * 1000,
     }),
   ];
 }
@@ -824,8 +824,9 @@ function addStop(afterId) {
 }
 
 function removeStop(id) {
+  const index = state.stops.findIndex((stop) => stop.id === id);
+  if (index < 0 || isOriginStop(state.stops, index)) return;
   const next = state.stops.filter((stop) => stop.id !== id);
-  if (next.filter((_, index) => !isOriginStop(next, index)).length < 1) return;
   state.stops = next;
   persist();
   if (state.plan) calculate({ silent: true });
@@ -3467,7 +3468,7 @@ function stopCard(stop, index) {
   const title = cardTitle(index, state.stops);
   const typedAddress = (stop.address || "").trim();
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
-  const canRemove = !originStop && dests.length > 1;
+  const canRemove = !originStop;
   const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
