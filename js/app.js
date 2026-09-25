@@ -84,16 +84,7 @@ function defaultStop(overrides = {}) {
 }
 
 function defaultStops() {
-  const first = defaultStop({ name: "Stop 1" });
-  const secondStart = first.start + 8 * 3600 * 1000;
-  return [
-    first,
-    defaultStop({
-      name: "Stop 2",
-      start: secondStart,
-      end: secondStart + 4 * 3600 * 1000,
-    }),
-  ];
+  return [defaultStop({ name: "Stop 1" })];
 }
 
 function defaultState() {
