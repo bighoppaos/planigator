@@ -2188,6 +2188,26 @@ const satelliteStyle = {
   layers: [{ id: "satellite", type: "raster", source: "satellite" }],
 };
 
+function pickMapStyle() {
+  return {
+    version: 8,
+    sources: {
+      satellite: satelliteStyle.sources.satellite,
+      labels: {
+        type: "raster",
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Reference_Overlay/MapServer/tile/{z}/{y}/{x}"],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "Esri, HERE, Garmin, USGS",
+      },
+    },
+    layers: [
+      { id: "satellite", type: "raster", source: "satellite" },
+      { id: "labels", type: "raster", source: "labels" },
+    ],
+  };
+}
+
 function mountLookupMaps() {
   lookupMaps.forEach((map) => map.remove());
   lookupMaps = [];
@@ -2201,7 +2221,7 @@ function mountLookupMaps() {
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
       container: el,
-      style: satelliteStyle,
+      style: pick ? pickMapStyle() : satelliteStyle,
       attributionControl: false,
       interactive: live,
     });
