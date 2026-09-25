@@ -4305,14 +4305,8 @@ function render() {
       <div class="hero-copy">
       <h1>www.planigator.help</h1>
       <ul class="pitch">
-        <li>The only truck navigator in the web browser. No app to install. Plan it, turn by turn, and drive it from the same page.</li>
-        <li>One page for the truck-legal plan, the auto-zooming turn list, and navigation</li>
-        <li>See how much leeway time you have</li>
-        <li>See when to leave</li>
-        <li>See when to take your 30 and your 10</li>
-        <li>Share the trip link with anyone</li>
-        <li>Pick governed speed</li>
-        <li>And more</li>
+        <li>Know how much time you have to spare</li>
+        <li>GPS navigation on this same page. No app required.</li>
       </ul>
       </div>
     </section></div>
