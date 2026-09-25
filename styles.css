@@ -692,6 +692,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .dir-scroll .dir-leg {
   margin-left: 0;
 }
+.dir-scroll li.dir-far { display: none; }
 
 .here-leg {
   display: flex;

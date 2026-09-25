@@ -2005,13 +2005,14 @@ function polylineMeters(path) {
 
 function stepLengthMeters(step) {
   const text = String(step?.text || "");
-  const feet = text.match(/Go for\s+([0-9][0-9,]*(?:\.[0-9]+)?)\s*ft\b/i);
-  if (feet) return Number(feet[1].replace(/,/g, "")) * 0.3048;
+  const number = "([0-9][0-9,]*(?:\\.[0-9]+)?)";
+  const feet = text.match(new RegExp(`(?:Go\\s+)?for\\s+${number}\\s*(?:ft|feet|foot)\\b`, "i"));
+  const spokenMi = text.match(new RegExp(`(?:Go\\s+)?for\\s+${number}\\s*(?:mi|mile|miles)\\b`, "i"));
+  const spokenFeet = feet ? Number(feet[1].replace(/,/g, "")) * 0.3048 : 0;
+  const spokenMiles = spokenMi ? Number(spokenMi[1].replace(/,/g, "")) * 1609.344 : 0;
   const miles = Number(step?.miles);
-  if (Number.isFinite(miles) && miles > 0) return miles * 1609.344;
-  const spoken = text.match(/Go for\s+([0-9][0-9,]*(?:\.[0-9]+)?)\s*mi\b/i);
-  if (spoken) return Number(spoken[1].replace(/,/g, "")) * 1609.344;
-  return 0;
+  const stored = Number.isFinite(miles) && miles > 0 ? miles * 1609.344 : 0;
+  return Math.max(spokenFeet, spokenMiles, stored);
 }
 
 function pointAlong(path, meters) {
@@ -2050,7 +2051,7 @@ function directionFocus(stop, index) {
   const lengths = steps.map(stepLengthMeters);
   const sum = lengths.reduce((total, length) => total + length, 0);
   const total = polylineMeters(path);
-  const scale = sum > 1 ? total / sum : 1;
+  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
   let along = 0;
   for (let i = 0; i < index; i += 1) along += lengths[i] * scale;
   if (lengths[index] === 0 && index === steps.length - 1) along = total;
@@ -2101,7 +2102,7 @@ function directionsBlock() {
       const shown = withoutGo(text);
       const already = /Go for\s+[0-9]/i.test(text);
       const extra = !already && Number(step.miles) > 0.05 ? ` <span class="dir-miles" data-full="${escapeAttr(formatMiles(step.miles))}">${formatMiles(step.miles)}</span>` : "";
-      return `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span>${extra}</button></li>`;
+      return `<li value="${index + 1}"><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span>${extra}</button></li>`;
     }).join("")}
   `).join("");
   return `<details class="directions call-log-box" id="routeDirections" open>
@@ -2583,7 +2584,7 @@ function navStep(leg, alongInLeg) {
   const lengths = steps.map(stepLengthMeters);
   const sum = lengths.reduce((total, length) => total + length, 0);
   const total = polylineMeters(leg.path);
-  const scale = sum > 1 ? total / sum : 1;
+  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
   let cursor = 0;
   for (let i = 0; i < steps.length; i += 1) {
     const len = lengths[i] * scale;
@@ -3010,7 +3011,7 @@ function upcomingTurn(hereAlong) {
     const lengths = steps.map(stepLengthMeters);
     const sum = lengths.reduce((total, length) => total + length, 0);
     const total = Math.max(0, leg.end - leg.start);
-    const scale = sum > 1 ? total / sum : 1;
+    const scale = sum > 1 ? Math.max(1, total / sum) : 1;
     let along = leg.start;
     for (let i = 0; i < steps.length; i += 1) {
       if (along > hereAlong + 8) return { along, stop: leg.stop, index: i };
@@ -3135,7 +3136,7 @@ function metersLeftInStep(leg, alongInLeg, index) {
   const lengths = steps.map(stepLengthMeters);
   const sum = lengths.reduce((total, length) => total + length, 0);
   const total = polylineMeters(leg.path);
-  const scale = sum > 1 ? total / sum : 1;
+  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
   let cursor = 0;
   for (let i = 0; i < index; i += 1) cursor += (lengths[i] || 0) * scale;
   const length = (lengths[index] || 0) * scale;
@@ -3674,6 +3675,27 @@ function endRouteNav() {
   }
   if (routeMap) routeMap.easeTo({ bearing: 0, duration: 400 });
   syncRouteChrome();
+  focusDirectionWindow(null, null);
+}
+
+function focusDirectionWindow(stopId, index) {
+  const scrolling = document.querySelector("#routeDirections .dir-scroll");
+  if (!scrolling) return;
+  const hide = navOn && Number.isFinite(index);
+  scrolling.querySelectorAll("li").forEach((li) => {
+    const button = li.querySelector("[data-dir-stop]");
+    if (!hide) {
+      li.classList.remove("dir-far");
+      return;
+    }
+    if (!button) {
+      li.classList.add("dir-far");
+      return;
+    }
+    const same = button.getAttribute("data-dir-stop") === stopId;
+    const n = Number(button.getAttribute("data-dir-index"));
+    li.classList.toggle("dir-far", !(same && Math.abs(n - index) <= 1));
+  });
 }
 
 function clearTypingUndo() {
@@ -3779,6 +3801,7 @@ function markDirection(stopId, index) {
   if (!button) return null;
   button.classList.add("on");
   button.setAttribute("aria-pressed", "true");
+  focusDirectionWindow(stopId, index);
   revealDirection(button);
   return button;
 }
