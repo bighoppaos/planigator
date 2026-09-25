@@ -4409,7 +4409,6 @@ function bind() {
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
   else if (Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
-  else currentFix().then((here) => { if (here) refreshPlace(here.lat, here.lon); });
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     button.addEventListener("click", () => {
       pauseFollowForDirection();
