@@ -247,26 +247,7 @@ export class TruckerHOSClock {
     };
     const natural = arrivalIfLeaveAt(this.now);
     if (natural >= open - 60 * 1000) return;
-    if (!isAnytimeEnd(this.endMinutes)) {
-      const dayEnd = nextDailyEnd(this.endMinutes, this.now);
-      if (dayEnd <= open + 60 * 1000 && natural < open - 60 * 1000) return;
-    }
-    let lo = this.now;
-    let hi = open;
-    let best = this.now;
-    for (let i = 0; i < 28 && hi - lo > 1000; i += 1) {
-      const mid = Math.floor(lo + (hi - lo) / 2);
-      if (arrivalIfLeaveAt(mid) <= open) {
-        best = mid;
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    const earlyArrive = arrivalIfLeaveAt(best);
-    if (earlyArrive > open + 60 * 1000) return;
-    if (best > this.now + 60 * 1000) this.waitUntil(best);
-    if (open - earlyArrive > 1000) this.notBeforeArrival = open;
+    // Arrive as soon as the drive allows and wait at the stop.
   }
 
   /** Latest departure that still arrives at or before `deadline`.

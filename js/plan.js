@@ -13,7 +13,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=124";
+} from "./hos.js?v=125";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -311,6 +311,7 @@ export function schedules({
     result[index] = {
       start: pieces[0].start,
       end: arrive,
+      finishAt: usable != null && usable > arrive + 60 * 1000 ? usable : 0,
       tripHours: drive,
       leadingPauses: leading,
       pieces,
@@ -446,9 +447,22 @@ export function timeline({
     const title = cardTitle(index, stops);
     const deadline = stops[index].anytime ? null : latestArrive(stops[index]);
     const late = deadline != null && block.end > deadline + 60 * 1000;
+    const prevIndex = order > 0 ? destinations[order - 1] : null;
     block.leadingPauses.forEach((rest) => {
-      events.push(restEvent(rest, stops[index].id));
+      const owner = rest.kind === "rest" && prevIndex != null ? stops[prevIndex].id : stops[index].id;
+      events.push(restEvent(rest, owner));
     });
+    if (block.finishAt) {
+      events.push({
+        id: `finish-${stops[index].id}`,
+        kind: "finish",
+        start: block.finishAt,
+        end: block.finishAt,
+        timePhrase: "Finish stop",
+        rgb: LEEWAY_RGB,
+        stopID: stops[index].id,
+      });
+    }
     const totalDrive = Math.max(block.pieces.reduce((sum, piece) => sum + piece.routeHours, 0), 0.001);
     let leftoverMiles = stopMiles;
     block.pieces.forEach((piece, pieceIndex) => {
@@ -517,7 +531,6 @@ export function timeline({
     void order;
   });
   leewayGaps({ stops, blocks, now, endMinutes }).forEach((gap) => {
-    const isLastSlack = gap.after >= 0 && destinations[destinations.length - 1] === gap.after;
     events.push({
       id: gap.id,
       kind: "leeway",
@@ -530,7 +543,12 @@ export function timeline({
       stopID: gap.after >= 0 ? stops[gap.after].id : destinations[0] != null ? stops[destinations[0]].id : null,
     });
   });
-  return { events: events.sort((a, b) => a.start - b.start), blocks };
+  const shown = events.filter((event) => {
+    if (event.kind !== "finish") return true;
+    const slack = events.find((gap) => gap.kind === "leeway" && gap.stopID === event.stopID && gap.after !== -1);
+    return !slack || slack.end <= event.start + 60 * 1000;
+  });
+  return { events: shown.sort((a, b) => a.start - b.start), blocks };
 }
 
 function restEvent(rest, stopID) {
