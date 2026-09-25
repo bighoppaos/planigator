@@ -128,6 +128,7 @@ function defaultState() {
     locationError: "",
     locationNotice: "",
     chooseStart: false,
+    arrivalBusy: false,
     lookupMessage: "",
     lookupStopId: "",
     lookupOk: false,
@@ -414,7 +415,8 @@ function settingToggle(id, label, on) {
 
 function settingArrival(value) {
   const label = value === "latest" ? "Latest" : "Earliest";
-  return `<button type="button" class="set-box" data-toggle="arrival"><span class="set-name">Arrival</span><strong class="set-value">${label}</strong></button>`;
+  const spin = state.arrivalBusy ? `<span class="arrival-spin" aria-hidden="true"></span>` : "";
+  return `<button type="button" class="set-box" data-toggle="arrival"${state.arrivalBusy ? " disabled" : ""}><span class="set-name">Arrival</span><strong class="set-value">${spin}${escapeAttr(label)}</strong></button>`;
 }
 
 function settingValue(id, label, value, fill = false) {
@@ -591,6 +593,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     now: Date.now(),
   });
   if (result.error) {
+    state.arrivalBusy = false;
     state.plan = silent ? state.plan : null;
     state.error = result.error;
     if (!silent) state.notice = "";
@@ -600,9 +603,19 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   }
   state.plan = result;
   state.error = "";
+  state.arrivalBusy = false;
   if (!silent) state.speedNote = "";
   if (!skipHash && state.signedIn) {
     saveTrip();
+    if (silent) {
+      render();
+      persist();
+      putTrips(state.trips).then(() => {
+        markTripsUploaded();
+        persist();
+      }).catch(() => {});
+      return;
+    }
     try {
       await putTrips(state.trips);
       markTripsUploaded();
@@ -4209,8 +4222,13 @@ function bindSettings() {
       if (id === "arrival") state.settings.arrival = state.settings.arrival === "latest" ? "earliest" : "latest";
       persist();
       saveActiveTripSettings();
-      if (id === "arrival" && state.plan) calculate({ silent: true });
-      else render();
+      if (id === "arrival" && state.plan) {
+        state.arrivalBusy = true;
+        render();
+        setTimeout(() => calculate({ silent: true }), 0);
+        return;
+      }
+      render();
     });
   });
   document.querySelectorAll("button[data-pick]").forEach((el) => {

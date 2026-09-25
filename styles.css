@@ -740,6 +740,22 @@ button.set-box::before {
   position: absolute;
   inset: 0;
 }
+.arrival-spin {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 4px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  animation: arrival-spin 0.6s linear infinite;
+}
+@keyframes arrival-spin { to { transform: rotate(360deg); } }
+button.set-box[data-toggle="arrival"]:disabled { opacity: 1; cursor: wait; }
+@media (prefers-reduced-motion: reduce) {
+  .arrival-spin { animation: none; border-right-color: currentColor; opacity: 0.45; }
+}
 
 .set-box {
   min-height: 0;
