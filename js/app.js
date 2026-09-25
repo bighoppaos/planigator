@@ -2732,22 +2732,13 @@ function syncRouteChrome() {
   if (navOn) freezeTyping(true);
 }
 
-function routeDialogEl() {
-  let dialog = document.getElementById("routeDialog");
-  if (dialog) return dialog;
-  dialog = document.createElement("dialog");
-  dialog.id = "routeDialog";
-  document.body.appendChild(dialog);
-  return dialog;
-}
-
-function screenGap() {
+function safeTopPad() {
   const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;";
+  probe.style.cssText = "position:absolute;visibility:hidden;padding-top:env(safe-area-inset-top);";
   document.documentElement.appendChild(probe);
-  const top = probe.getBoundingClientRect().top;
+  const pad = parseFloat(getComputedStyle(probe).paddingTop) || 0;
   probe.remove();
-  return top > 1 ? top : 0;
+  return pad;
 }
 
 function pinRouteFull() {
@@ -2762,6 +2753,7 @@ function pinRouteFull() {
   stage.style.height = "";
   stage.style.transform = "";
   stage.style.margin = "";
+  stage.style.zIndex = "";
 }
 
 function holdRouteSpace() {
@@ -2774,82 +2766,71 @@ function holdRouteSpace() {
   stage.parentElement?.insertBefore(hold, stage);
 }
 
-function nativeRouteFull() {
-  return document.fullscreenElement || document.webkitFullscreenElement || null;
+function fitRouteCover() {
+  const stage = document.getElementById("routeStage");
+  if (!stage || !routeFull) return;
+  const view = window.visualViewport;
+  const lift = Math.max(safeTopPad(), view?.offsetTop || 0);
+  const top = (window.scrollY || 0) + (view?.offsetTop || 0) - lift;
+  const height = (view?.height || window.innerHeight) + lift;
+  stage.style.position = "absolute";
+  stage.style.top = `${Math.round(top)}px`;
+  stage.style.left = "0px";
+  stage.style.right = "auto";
+  stage.style.bottom = "auto";
+  stage.style.width = `${Math.round(view?.width || window.innerWidth)}px`;
+  stage.style.height = `${Math.round(height)}px`;
+  stage.style.margin = "0";
+  stage.style.zIndex = "80";
+}
+
+function watchRouteCover(on) {
+  const view = window.visualViewport;
+  if (!view) return;
+  view.removeEventListener("resize", fitRouteCover);
+  view.removeEventListener("scroll", fitRouteCover);
+  if (on) {
+    view.addEventListener("resize", fitRouteCover);
+    view.addEventListener("scroll", fitRouteCover);
+  }
 }
 
 function placeRouteStage() {
   const stage = document.getElementById("routeStage");
   const dialog = document.getElementById("routeDialog");
-  const native = nativeRouteFull() === stage;
-  if (!stage || !routeFull || native) {
+  if (dialog?.open) dialog.close();
+  if (!stage || !routeFull) {
+    watchRouteCover(false);
     if (stage && (stage.parentElement === document.body || stage.parentElement === dialog)) {
       const home = document.querySelector(".result");
       if (home) home.insertBefore(stage, home.firstChild);
     }
-    if (dialog?.open) dialog.close();
     pinRouteFull();
     document.getElementById("routeHold")?.remove();
     return;
   }
   holdRouteSpace();
-  const box = routeDialogEl();
-  if (stage.parentElement !== box) box.appendChild(stage);
-  if (!box.open) {
-    try { box.showModal(); } catch { /* already showing */ }
-  }
-  const gap = screenGap();
-  stage.style.position = "absolute";
-  stage.style.top = gap ? `${-Math.round(gap)}px` : "0";
-  stage.style.left = "0";
-  stage.style.right = "0";
-  stage.style.width = "100%";
-  stage.style.height = gap ? `calc(100% + ${Math.round(gap)}px)` : "100%";
-  stage.style.margin = "0";
-  stage.style.transform = "";
+  if (stage.parentElement !== document.body) document.body.appendChild(stage);
+  fitRouteCover();
+  watchRouteCover(true);
 }
 
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
-  const stage = document.getElementById("routeStage");
-  if (next && stage?.requestFullscreen) {
-    stage.requestFullscreen({ navigationUI: "hide" }).then(() => {
-      routeFull = true;
-      syncRouteChrome();
-      routeMap?.resize();
-    }).catch(() => {
-      routeFull = true;
-      placeRouteStage();
-      syncRouteChrome();
-      requestAnimationFrame(() => routeMap?.resize());
-    });
-    return;
-  }
-  if (!next && nativeRouteFull()) {
+  const native = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!next && native) {
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     exit?.call(document)?.catch(() => {});
-    return;
   }
   routeFull = next;
   placeRouteStage();
   syncRouteChrome();
-  if (!routeFull && screenGap() > 1) {
-    const y = window.scrollY || 0;
-    window.scrollTo(0, y + 1);
-    window.scrollTo(0, y);
-  }
-  requestAnimationFrame(() => routeMap?.resize());
+  requestAnimationFrame(() => {
+    if (routeFull) fitRouteCover();
+    routeMap?.resize();
+  });
 }
-
-document.addEventListener("fullscreenchange", () => {
-  const on = Boolean(nativeRouteFull());
-  if (on === routeFull) return;
-  routeFull = on;
-  placeRouteStage();
-  syncRouteChrome();
-  routeMap?.resize();
-});
 
 function navDestList() {
   return state.stops
