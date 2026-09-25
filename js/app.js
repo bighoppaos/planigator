@@ -4306,7 +4306,7 @@ function render() {
       <h1>www.planigator.help</h1>
       <ul class="pitch">
         <li>Know how much time you have to spare</li>
-        <li>GPS navigation on this same page. No app required.</li>
+        <li>Truck legal GPS navigation on this same page. No app required.</li>
       </ul>
       </div>
     </section></div>
