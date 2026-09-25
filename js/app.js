@@ -2732,63 +2732,71 @@ function syncRouteChrome() {
   if (navOn) freezeTyping(true);
 }
 
-let routeFullScroll = 0;
-
 function pinRouteFull() {
   const stage = document.getElementById("routeStage");
   if (!stage || routeFull) return;
   stage.style.top = "";
   stage.style.left = "";
   stage.style.right = "";
+  stage.style.bottom = "";
   stage.style.width = "";
   stage.style.height = "";
   stage.style.transform = "";
 }
 
-function holdRoutePage() {
-  routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
-  const body = document.body;
-  body.style.position = "fixed";
-  body.style.top = `-${routeFullScroll}px`;
-  body.style.left = "0";
-  body.style.right = "0";
-  body.style.width = "100%";
+function holdRouteSpace() {
+  const stage = document.getElementById("routeStage");
+  if (!stage || document.getElementById("routeHold")) return;
+  const hold = document.createElement("div");
+  hold.id = "routeHold";
+  hold.style.height = `${stage.offsetHeight}px`;
+  hold.style.margin = "0 12px 14px";
+  stage.parentElement?.insertBefore(hold, stage);
 }
 
-function settleRoutePage() {
-  const body = document.body;
-  body.style.position = "";
-  body.style.top = "";
-  body.style.left = "";
-  body.style.right = "";
-  body.style.width = "";
-  window.scrollTo(0, routeFullScroll);
+function releaseRouteSpace() {
+  document.getElementById("routeHold")?.remove();
+  const main = document.querySelector("body.app main");
+  if (main) main.style.overflow = "";
+  const line = document.querySelector(".build-line");
+  if (line?.dataset.topGap) line.style.marginTop = line.dataset.topGap;
 }
 
 function placeRouteStage() {
   const stage = document.getElementById("routeStage");
-  if (!stage) return;
-  if (routeFull) {
-    if (stage.parentElement !== document.body) document.body.appendChild(stage);
-  } else if (stage.parentElement === document.body) {
+  const main = document.querySelector("body.app main");
+  if (stage?.parentElement === document.body) {
     const home = document.querySelector(".result");
     if (home) home.insertBefore(stage, home.firstChild);
   }
-  pinRouteFull();
+  if (!stage || !routeFull) {
+    pinRouteFull();
+    document.getElementById("routeHold")?.remove();
+    if (main) main.style.overflow = "";
+    return;
+  }
+  if (main) main.style.overflow = "visible";
+  holdRouteSpace();
 }
 
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
-  if (next) holdRoutePage();
+  const line = document.querySelector(".build-line");
+  if (next && line && !line.dataset.topGap) line.dataset.topGap = getComputedStyle(line).marginTop;
+  if (next) {
+    holdRouteSpace();
+    const main = document.querySelector("body.app main");
+    if (main) main.style.overflow = "visible";
+  }
   routeFull = next;
   const theme = document.querySelector('meta[name="theme-color"]');
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
   document.documentElement.style.background = routeFull ? "#071525" : "";
   document.body.style.background = "";
-  placeRouteStage();
+  if (!routeFull) pinRouteFull();
   syncRouteChrome();
-  if (!routeFull) settleRoutePage();
+  if (!routeFull) releaseRouteSpace();
   requestAnimationFrame(() => routeMap?.resize());
 }
 

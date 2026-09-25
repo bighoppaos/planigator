@@ -29,6 +29,7 @@ html, body {
   margin: 0;
   padding: 0;
   max-width: 100%;
+  overflow-anchor: none;
   overflow-wrap: break-word;
   word-break: normal;
   -webkit-text-size-adjust: 100%;
@@ -1417,10 +1418,11 @@ body.app main { padding-top: 2px; }
   position: fixed;
   z-index: 80;
   top: 0;
-  left: 0;
   right: 0;
-  width: 100%;
-  height: -webkit-fill-available;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  height: auto;
   margin: 0;
   border-radius: 0;
   background: #071525;
