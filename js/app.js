@@ -438,11 +438,12 @@ function pointReady(stop) {
 function markGovernedStale() {
   if (!state.plan) return;
   state.speedNote = "Recalculate to update the HERE miles for this governed speed.";
+  staleRouteLegs();
 }
 
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = Math.max(0, state.stops.length - 1);
+  const count = hereLegCount();
   const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
     ? "unlimited credits left"
@@ -665,12 +666,12 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     try {
       await putTrips(state.trips);
       markTripsUploaded();
-      if (!silent) state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
+      if (!silent) state.notice = routeNotice(true);
     } catch (error) {
       if (!silent) state.notice = error.message || "Saved on this device. The account copy did not update.";
     }
   } else if (!silent) {
-    state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}).`;
+    state.notice = routeNotice(false);
   }
   render();
   persist();
@@ -1509,11 +1510,103 @@ function chooseSuggestion(id, index) {
   if (state.openLookupStopId === id) state.openLookupStopId = "";
   stop.miles = "";
   stop.hours = "";
+  clearNextLeg(stop);
   state.plan = null;
   clearUsingNote(id);
   setLookupMessage(id, "Using that address.", { ok: true });
   persist();
   render();
+}
+
+function routeNotice(saved) {
+  const kept = Number(state.keptLegs) || 0;
+  const stayed = kept ? " The other legs stayed." : "";
+  const base = `HERE© truck route (${TRUCK_PROFILE.summary}).${stayed}`;
+  return saved ? `${base} Trip saved to your account.` : base;
+}
+
+function routingStamp() {
+  const mode = state.settings.routeMode === "short" ? "short" : "fast";
+  const cap = state.settings.governed ? String(mph()) : "off";
+  return `${mode}|${cap}`;
+}
+
+function staleRouteLegs() {
+  for (const stop of state.stops) {
+    if (Array.isArray(stop.path) && stop.path.length > 1) stop.legStamp = "stale";
+  }
+}
+
+function asPair(value) {
+  if (Array.isArray(value)) {
+    const lat = Number(value[0]);
+    const lon = Number(value[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) return [lat, lon];
+  }
+  if (value && typeof value === "object") {
+    const lat = Number(value.lat);
+    const lon = Number(value.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) return [lat, lon];
+  }
+  return null;
+}
+
+function pointsNear(a, b, limit) {
+  const left = asPair(a);
+  const right = asPair(b);
+  if (!left || !right) return false;
+  return metersBetween(left, right) <= limit;
+}
+
+function stopPoint(stop) {
+  if (!stop) return null;
+  if (stop.useCurrentLocation) return asPair(originPoint());
+  return asPair(stop);
+}
+
+function legFits(stop, from, to) {
+  if (!from || !to) return false;
+  if (String(stop?.miles ?? "") === "" || String(stop?.hours ?? "") === "") return false;
+  if (!Array.isArray(stop.path) || stop.path.length < 2) return false;
+  if (stop.legStamp === "stale") return false;
+  if (stop.legStamp && stop.legStamp !== routingStamp()) return false;
+  const storedFrom = asPair(stop.legFrom);
+  const storedTo = asPair(stop.legTo);
+  if (storedFrom && storedTo) return pointsNear(storedFrom, from, 50) && pointsNear(storedTo, to, 50);
+  const path = stop.path;
+  return pointsNear(path[0], from, 80) && pointsNear(path[path.length - 1], to, 2000);
+}
+
+function routeLegList() {
+  const stops = state.stops.filter((stop) => !stop.skipRoute);
+  const legs = [];
+  for (let i = 1; i < stops.length; i += 1) {
+    legs.push({ stop: stops[i], from: stopPoint(stops[i - 1]), to: stopPoint(stops[i]) });
+  }
+  return legs;
+}
+
+function hereLegCount() {
+  const legs = routeLegList();
+  if (!legs.length) return 0;
+  const fresh = legs.filter((leg) => !legFits(leg.stop, leg.from, leg.to)).length;
+  return fresh === 0 ? legs.length : fresh;
+}
+
+function clearNextLeg(stop) {
+  const index = state.stops.findIndex((item) => item.id === stop?.id);
+  const next = state.stops[index + 1];
+  if (!next) return;
+  next.miles = "";
+  next.hours = "";
+}
+
+function rememberLeg(stop, from, to) {
+  const fromPair = asPair(from);
+  const toPair = asPair(to);
+  if (fromPair) stop.legFrom = fromPair;
+  if (toPair) stop.legTo = toPair;
+  stop.legStamp = routingStamp();
 }
 
 async function fillHereLegs() {
@@ -1548,8 +1641,16 @@ async function fillHereLegs() {
     }
     routedPoints.push({ lat: Number(stop.lat), lon: Number(stop.lon) });
   }
+  const fresh = [];
+  const reusable = [];
   for (let i = 1; i < routed.length; i += 1) {
     if (!routedPoints[i - 1] || !routedPoints[i]) continue;
+    if (legFits(routed[i], routedPoints[i - 1], routedPoints[i])) reusable.push(i);
+    else fresh.push(i);
+  }
+  const todo = fresh.length ? fresh : reusable;
+  state.keptLegs = fresh.length ? reusable.length : 0;
+  for (const i of todo) {
     const heading = state.origin?.heading;
     const course = routed[i - 1]?.useCurrentLocation && typeof heading === "number" ? heading : undefined;
     const leg = await truckRoute(routedPoints[i - 1], routedPoints[i], {
@@ -1562,7 +1663,11 @@ async function fillHereLegs() {
     routed[i].hours = String(Math.round(leg.hours * 100) / 100);
     routed[i].path = Array.isArray(leg.points) ? leg.points : [];
     routed[i].directions = Array.isArray(leg.directions) ? leg.directions : [];
+    rememberLeg(routed[i], routedPoints[i - 1], routedPoints[i]);
     if (leg.credits != null) state.credits = leg.credits;
+  }
+  if (fresh.length) {
+    for (const i of reusable) rememberLeg(routed[i], routedPoints[i - 1], routedPoints[i]);
   }
   persist();
 }
@@ -2416,6 +2521,7 @@ async function useChosenSpot() {
   stop.suggestions = [];
   stop.miles = "";
   stop.hours = "";
+  clearNextLeg(stop);
   state.plan = null;
   state.openLookupStopId = "";
   chooseMap = false;
@@ -4881,7 +4987,10 @@ function bindSettings() {
       }
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
-      if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
+      if (id === "routeMode") {
+        state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
+        staleRouteLegs();
+      }
       persist();
       saveActiveTripSettings();
       render();
