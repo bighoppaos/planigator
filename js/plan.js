@@ -9,7 +9,7 @@ import {
   clampedMaxHours,
   clampedHoursBeforeThirty,
   TruckerHOSClock,
-} from "./hos.js?v=122";
+} from "./hos.js?v=123";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -293,7 +293,11 @@ export function schedules({
     }
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
-    if (open != null && clock.now < open && !clock.overnightRestStillMakes(open, close)) clock.waitUntil(open);
+    const usable = open == null ? null : clock.usableAt(open, close);
+    if (usable != null && clock.now < usable) {
+      const restCovers = clock.overnightRestStillMakes(open, close);
+      if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
+    }
     if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
       start: pieces[0].start,
@@ -327,6 +331,11 @@ export function milesForStops(stops, mph) {
     if (stop.hours > 0.0001) return stop.hours * Math.max(1, mph);
     return 0;
   });
+}
+
+function leewayPhrase(arriveLatest, end, stop) {
+  if (stop && !stop.anytime && Math.abs(end - latestArrive(stop)) < 60 * 1000) return "Leeway for latest arrival";
+  return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
 }
 
 function leewayGaps({ stops, blocks, now }) {
@@ -424,7 +433,7 @@ export function timeline({
             start: afterEnd,
             end: piece.start,
             tripHours: gap / 3600 / 1000,
-            timePhrase: arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival",
+            timePhrase: leewayPhrase(arriveLatest, piece.start, stops[index]),
             rgb: LEEWAY_RGB,
             after: index,
             stopID: stops[index].id,
@@ -484,7 +493,7 @@ export function timeline({
       start: gap.start,
       end: gap.end,
       tripHours: gap.hours,
-      timePhrase: arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival",
+      timePhrase: leewayPhrase(arriveLatest, gap.end, gap.after >= 0 ? stops[gap.after] : null),
       rgb: LEEWAY_RGB,
       after: gap.after,
       stopID: gap.after >= 0 ? stops[gap.after].id : destinations[0] != null ? stops[destinations[0]].id : null,

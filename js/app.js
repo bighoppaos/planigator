@@ -9,7 +9,7 @@ import {
   stamp,
   shortStamp,
   resolvedLeaveAt,
-} from "./hos.js?v=122";
+} from "./hos.js?v=123";
 import {
   newId,
   cardTitle,
@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=126";
+} from "./plan.js?v=127";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=1";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
@@ -3776,7 +3776,6 @@ function stopCard(stop, index) {
   const typedAddress = (stop.address || "").trim();
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = stopCanRemove(index);
-  const laterStop = destIndex >= 0 && destIndex < dests.length - 1;
   return `
     <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
       <div class="stop-head">
@@ -3816,11 +3815,10 @@ function stopCard(stop, index) {
         ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
     </article>
-    ${leewayInto(stop.id).map(chip).join("")}
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
     ${around.self ? chip(around.self) : ""}
-    ${laterStop ? "" : around.after.map(chip).join("")}
+    ${around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;

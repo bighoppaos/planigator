@@ -227,6 +227,16 @@ export class TruckerHOSClock {
     this.onDutyToday += hours;
   }
 
+  /** First moment the stop can be used: the window open, or the next driving-day
+   *  start when that open is after the driving day has ended. */
+  usableAt(open, close) {
+    if (open == null) return null;
+    if (isAnytimeEnd(this.endMinutes) || isInsideDriveWindow(open, this.startMinutes, this.endMinutes)) return open;
+    const morning = nextWorkStart(this.startMinutes, open);
+    if (close != null && morning > close + 60 * 1000) return open;
+    return morning;
+  }
+
   holdForArrival(open, driveHours, hoursOfEleven) {
     const arrivalIfLeaveAt = (startMs) => {
       const probe = this.clone();
@@ -235,7 +245,12 @@ export class TruckerHOSClock {
       probe.driveReporting(driveHours, hoursOfEleven, [0], [0]);
       return probe.now;
     };
-    if (arrivalIfLeaveAt(this.now) >= open - 60 * 1000) return;
+    const natural = arrivalIfLeaveAt(this.now);
+    if (natural >= open - 60 * 1000) return;
+    if (!isAnytimeEnd(this.endMinutes)) {
+      const dayEnd = nextDailyEnd(this.endMinutes, this.now);
+      if (dayEnd <= open + 60 * 1000 && natural < open - 60 * 1000) return;
+    }
     let lo = this.now;
     let hi = open;
     let best = this.now;
