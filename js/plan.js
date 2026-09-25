@@ -9,7 +9,7 @@ import {
   clampedMaxHours,
   clampedHoursBeforeThirty,
   TruckerHOSClock,
-} from "./hos.js?v=121";
+} from "./hos.js?v=122";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -292,7 +292,8 @@ export function schedules({
       });
     }
     const arrive = pieces[pieces.length - 1].end;
-    if (open != null && clock.now < open) clock.waitUntil(open);
+    const close = stop.anytime ? null : latestArrive(stop);
+    if (open != null && clock.now < open && !clock.overnightRestStillMakes(open, close)) clock.waitUntil(open);
     if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
       start: pieces[0].start,
@@ -352,7 +353,9 @@ function leewayGaps({ stops, blocks, now }) {
     let gapEnd;
     if (position + 1 < destinations.length && blocks[destinations[position + 1]]) {
       const next = blocks[destinations[position + 1]];
-      gapEnd = next.leadingPauses[0]?.start ?? next.start;
+      const lead = next.leadingPauses[0];
+      if (lead?.kind === "rest" && lead.start > block.end + 60 * 1000 && lead.start - block.end < 10 * 3600 * 1000) return;
+      gapEnd = lead?.start ?? next.start;
     } else if (!stops[index].anytime) {
       gapEnd = Math.max(block.end, latestArrive(stops[index]));
     } else {

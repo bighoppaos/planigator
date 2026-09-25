@@ -210,6 +210,17 @@ export class TruckerHOSClock {
     }
   }
 
+  /** A 10-hour rest from here still ends inside [open, close], so the short
+   *  wait until the window opens should not push the rest later. */
+  overnightRestStillMakes(open, close) {
+    if (open == null || this.now >= open - 60 * 1000) return false;
+    if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
+    const resumed = resumeAfterRest(this.startMinutes, this.endMinutes, this.now + 10 * 3600 * 1000);
+    if (resumed + 60 * 1000 < open) return false;
+    if (close != null && resumed > close + 60 * 1000) return false;
+    return true;
+  }
+
   sit(hours) {
     if (hours <= 0.001) return;
     this.now += hours * 3600 * 1000;
@@ -345,7 +356,18 @@ export class TruckerHOSClock {
       remainingSit = 0;
       remainingDelay = 0;
       flushDrive();
-      const restStart = this.now;
+      let restStart = this.now;
+      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes) && !isAnytimeStart(this.startMinutes)) {
+        const untilFourteen = Math.max(0, onDutyCap - this.onDutyToday);
+        const fourteenAt = this.now + untilFourteen * 3600 * 1000;
+        const morning = nextWorkStart(this.startMinutes, this.now + 60 * 1000);
+        const tenBeforeMorning = morning - 10 * 3600 * 1000;
+        const aligned = Math.min(fourteenAt, tenBeforeMorning);
+        if (aligned > restStart + 60 * 1000 && aligned + 10 * 3600 * 1000 <= morning + 60 * 1000) {
+          restStart = aligned;
+          this.now = aligned;
+        }
+      }
       this.takeRest();
       events.push({ kind: "rest", start: restStart, end: this.now });
       piece += 1;
