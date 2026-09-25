@@ -2719,21 +2719,32 @@ function speakNavProgress(leg, found, hereAlong) {
   const miles = leftMeters / 1609.344;
   const text = String(found.step?.text || "").trim();
   const phrase = () => directionWithMilesLeft(text, leftMeters);
+  const bands = [5, 4, 3, 2, 1];
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
     spokenMiles.clear();
-    if (miles <= 5) spokenMiles.add(5);
+    for (const band of bands) {
+      if (miles <= band) spokenMiles.add(band);
+    }
     if (text) {
       window.speechSynthesis?.cancel();
       speakNav(phrase());
     }
   }
-  if (spokenMiles.has(5) || miles > 5) return;
-  spokenMiles.add(5);
-  const next = upcomingDirection(leg, found.index);
-  if (!next) return;
-  window.speechSynthesis?.cancel();
-  speakNav(next);
+  for (const band of bands) {
+    if (spokenMiles.has(band) || miles > band) continue;
+    if (miles <= band - 0.4) {
+      spokenMiles.add(band);
+      continue;
+    }
+    spokenMiles.add(band);
+    const next = upcomingDirection(leg, found.index);
+    if (!next) break;
+    const unit = band === 1 ? "mile" : "miles";
+    window.speechSynthesis?.cancel();
+    speakNav(`In ${band} ${unit}. ${next}`);
+    break;
+  }
 }
 
 let placeAt = null;
