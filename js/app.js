@@ -2140,7 +2140,7 @@ function lookupMapSheet() {
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
     ${chooseMap ? `<div class="map-pick-steps"><p class="flag-box">Step 1: Long press a spot. Step 2: Touch "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
-    <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-pick="1"` : ""}></div>
+    <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
 
@@ -2168,7 +2168,7 @@ function mountLookupMaps() {
   document.querySelectorAll("[data-lookup-map]").forEach((el) => {
     const stop = state.stops.find((item) => item.id === el.getAttribute("data-lookup-map"));
     const pins = lookupPins(stop);
-    const pick = el.getAttribute("data-pick") === "1";
+    const pick = el.getAttribute("data-map-pick") === "1";
     if (!pins.length && !pick) return;
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
@@ -4197,7 +4197,7 @@ function bindSettings() {
       else render();
     });
   });
-  document.querySelectorAll("[data-pick]").forEach((el) => {
+  document.querySelectorAll("button[data-pick]").forEach((el) => {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-pick");
       if (id === "mph") {
