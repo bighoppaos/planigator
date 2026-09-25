@@ -545,8 +545,11 @@ export function timeline({
   });
   const shown = events.filter((event) => {
     if (event.kind !== "finish") return true;
-    const slack = events.find((gap) => gap.kind === "leeway" && gap.stopID === event.stopID && gap.after !== -1);
-    return !slack || slack.end <= event.start + 60 * 1000;
+    const past = events.some((gap) => gap.kind === "leeway"
+      && gap.stopID === event.stopID
+      && gap.after !== -1
+      && gap.end > event.start + 60 * 1000);
+    return !past;
   });
   return { events: shown.sort((a, b) => a.start - b.start), blocks };
 }
