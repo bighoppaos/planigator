@@ -2588,7 +2588,8 @@ function navStep(leg, alongInLeg) {
   for (let i = 0; i < steps.length; i += 1) {
     const len = lengths[i] * scale;
     if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) {
-      const index = passedManeuver(steps[i]) && i + 1 < steps.length ? i + 1 : i;
+      const into = alongInLeg - cursor;
+      const index = passedManeuver(steps[i]) && i + 1 < steps.length && into > 45 ? i + 1 : i;
       return { step: steps[index], index };
     }
     cursor += len;
