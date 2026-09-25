@@ -106,6 +106,61 @@ export function notBefore(stop) {
   return stop.window && !stop.anytime ? stop.start : null;
 }
 
+function arrivalIfDepart(clock, startMs, drive, cap) {
+  const probe = clock.clone();
+  probe.notBeforeArrival = 0;
+  if (startMs > probe.now + 60 * 1000) probe.waitUntil(startMs);
+  probe.driveReporting(drive, cap, [0], [0]);
+  return probe.now;
+}
+
+/** Latest moment we can be at this stop and still reach the next deadline. */
+function latestStay(clock, drive, cap, nextDeadline, ownLatest) {
+  const earliest = clock.now;
+  let hi = ownLatest == null ? nextDeadline : ownLatest;
+  if (nextDeadline != null) hi = Math.min(hi, nextDeadline);
+  if (!(hi > earliest + 60 * 1000)) return earliest;
+  const can = (arriveAt) => arrivalIfDepart(clock, arriveAt, drive, cap) <= nextDeadline + 60 * 1000;
+  if (!can(earliest)) return earliest;
+  let lo = earliest;
+  let best = earliest;
+  for (let i = 0; i < 28 && hi - lo > 60 * 1000; i += 1) {
+    const mid = Math.floor(lo + (hi - lo) / 2);
+    if (can(mid)) {
+      best = mid;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return best;
+}
+
+function downstreamLimits({ stops, driveHours, clocks, cap }) {
+  const dest = scheduledIndexes(stops);
+  const limits = new Map();
+  let nextIndex = null;
+  let nextDeadline = null;
+  for (let position = dest.length - 1; position >= 0; position -= 1) {
+    const index = dest[position];
+    const own = stops[index].anytime ? null : latestArrive(stops[index]);
+    const floor = notBefore(stops[index]);
+    let limit = own;
+    if (nextIndex != null && nextDeadline != null) {
+      const clock = clocks.get(index);
+      if (clock) {
+        const latest = latestStay(clock, inboundDrive(nextIndex, driveHours), cap, nextDeadline, own);
+        limit = own == null ? latest : Math.min(own, latest);
+      }
+    }
+    if (floor != null && limit != null && limit < floor) limit = floor;
+    limits.set(index, limit);
+    nextIndex = index;
+    nextDeadline = limit;
+  }
+  return limits;
+}
+
 export function schedules({
   stops,
   driveHours,
@@ -115,7 +170,40 @@ export function schedules({
   endMinutes = DEFAULT_END_MINUTES,
   hoursBeforeThirty = DEFAULT_HOURS_BEFORE_THIRTY,
   arriveLatest = false,
+  deadlineFor = null,
+  captureClocks = null,
 }) {
+  if (arriveLatest && !deadlineFor) {
+    const clocks = new Map();
+    schedules({
+      stops,
+      driveHours,
+      maxHoursBeforeReset,
+      leaveAt,
+      startMinutes,
+      endMinutes,
+      hoursBeforeThirty,
+      arriveLatest: false,
+      captureClocks: clocks,
+    });
+    const limits = downstreamLimits({
+      stops,
+      driveHours,
+      clocks,
+      cap: clampedMaxHours(maxHoursBeforeReset),
+    });
+    return schedules({
+      stops,
+      driveHours,
+      maxHoursBeforeReset,
+      leaveAt,
+      startMinutes,
+      endMinutes,
+      hoursBeforeThirty,
+      arriveLatest: true,
+      deadlineFor: limits,
+    });
+  }
   const result = {};
   const clock = new TruckerHOSClock({
     now: leaveAt,
@@ -127,8 +215,9 @@ export function schedules({
   stops.forEach((stop, index) => {
     if (isOriginStop(stops, index)) return;
     const drive = inboundDrive(index, driveHours);
+    const limited = deadlineFor?.get(index);
     const open = arriveLatest
-      ? (stop.anytime ? null : latestArrive(stop))
+      ? (stop.anytime ? null : (limited != null ? limited : latestArrive(stop)))
       : notBefore(stop);
     if (open != null) {
       if (arriveLatest) clock.holdToArriveBy(open, drive, cap);
@@ -204,6 +293,7 @@ export function schedules({
     }
     const arrive = pieces[pieces.length - 1].end;
     if (open != null && clock.now < open) clock.waitUntil(open);
+    if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
       start: pieces[0].start,
       end: arrive,
