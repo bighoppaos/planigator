@@ -23,7 +23,7 @@ import {
   planPlainText,
 } from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
-import { EXAMPLE_TRIP } from "./example-trip.js?v=3";
+import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
 
 const STORAGE = "planigator.web.v1";
