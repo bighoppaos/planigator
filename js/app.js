@@ -2701,6 +2701,17 @@ function directionWithMilesLeft(text, metersLeft) {
   return cleaned ? `${cleaned} ${phrase}` : phrase;
 }
 
+function upcomingDirection(leg, index) {
+  const steps = Array.isArray(leg?.stop?.directions) ? leg.stop.directions : [];
+  const next = steps[index + 1];
+  if (next?.text) return withoutGo(String(next.text).trim());
+  const at = navLegs.indexOf(leg);
+  const follow = at >= 0 ? navLegs[at + 1] : null;
+  const first = follow?.stop?.directions?.[0];
+  if (first?.text) return withoutGo(String(first.text).trim());
+  return "";
+}
+
 function speakNavProgress(leg, found, hereAlong) {
   if (!found || !leg?.stop?.id) return;
   const stepKey = `${leg.stop.id}:${found.index}`;
@@ -2711,20 +2722,18 @@ function speakNavProgress(leg, found, hereAlong) {
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
     spokenMiles.clear();
-    for (const band of [5, 3, 2, 1]) {
-      if (miles < band - 0.15 || (miles <= band && miles > band - 0.4)) spokenMiles.add(band);
-    }
+    if (miles <= 5) spokenMiles.add(5);
     if (text) {
       window.speechSynthesis?.cancel();
       speakNav(phrase());
     }
   }
-  for (const band of [5, 3, 2, 1]) {
-    if (spokenMiles.has(band) || miles > band || miles <= band - 0.4) continue;
-    spokenMiles.add(band);
-    speakNav(phrase());
-    break;
-  }
+  if (spokenMiles.has(5) || miles > 5) return;
+  spokenMiles.add(5);
+  const next = upcomingDirection(leg, found.index);
+  if (!next) return;
+  window.speechSynthesis?.cancel();
+  speakNav(next);
 }
 
 let placeAt = null;
