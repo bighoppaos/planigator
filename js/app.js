@@ -2941,7 +2941,7 @@ function frameNextTurn() {
   routeMap.fitBounds(bounds, {
     padding: { top: pad, right: pad + 36, bottom: pad, left: pad },
     maxZoom: 17,
-    bearing: 0,
+    bearing: navCompass != null ? navCompass : routeMap.getBearing(),
     duration: 700,
   });
 }
@@ -3394,11 +3394,16 @@ function onNavCompass(event) {
   }
   if (heading == null || Number.isNaN(heading)) return;
   navCompass = heading;
-  if (!navOn || !navFollowing || tripFit === "nextTurn" || !routeMap || !navFix) return;
+  if (!navOn || !routeMap || !navFix) return;
   if (Date.now() < navZoomHold) return;
   const now = Date.now();
   if (now - navCompassTimer < 120) return;
   navCompassTimer = now;
+  if (tripFit === "nextTurn") {
+    routeMap.easeTo({ bearing: navCompass, duration: 120 });
+    return;
+  }
+  if (!navFollowing) return;
   routeMap.easeTo({
     center: [navFix[1], navFix[0]],
     bearing: navCompass,
@@ -3514,18 +3519,19 @@ function applyTurnZoom(map, focus) {
     metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getWest()]),
     metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getSouth(), bounds.getEast()]),
   );
+  const turnBearing = navCompass != null ? navCompass : map.getBearing();
   if (span < 30) {
     map.easeTo({
       center: [focus.lon, focus.lat],
       zoom: 16,
-      bearing: 0,
+      bearing: turnBearing,
       duration: reduce ? 0 : 800,
     });
   } else {
     map.fitBounds(bounds, {
       padding: 64,
       maxZoom: 16,
-      bearing: 0,
+      bearing: turnBearing,
       animate: !reduce,
       duration: reduce ? 0 : 800,
     });
