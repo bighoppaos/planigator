@@ -2139,9 +2139,8 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "Choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<p class="flag-box">Step 1: Long press a spot. Step 2: Touch "Use this spot"</p>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<div class="map-pick-steps"><p class="flag-box">Step 1: Long press a spot. Step 2: Touch "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-pick="1"` : ""}></div>
-    ${chooseMap ? `<button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button>` : ""}
   </div>`;
 }
 
@@ -2206,7 +2205,12 @@ function mountLookupMaps() {
           .addTo(map);
         bounds.extend([Number(pin.lon), Number(pin.lat)]);
       });
-      if (pins.length) map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
+      if (pick && chooseHere) {
+        map.jumpTo({ center: [chooseHere.lon, chooseHere.lat], zoom: 14 });
+        const dot = document.createElement("span");
+        dot.className = "route-you";
+        new maplibre.Marker({ element: dot, anchor: "center" }).setLngLat([chooseHere.lon, chooseHere.lat]).addTo(map);
+      } else if (pins.length) map.fitBounds(bounds, { padding: live ? 64 : 28, maxZoom: pins.length === 1 ? 14 : 12, animate: false });
       else {
         const center = lookupCenter(stop);
         if (center) map.jumpTo({ center, zoom: 14 });
@@ -2220,7 +2224,10 @@ function mountLookupMaps() {
 
 let mapPickMarker = null;
 
+let chooseHere = null;
+
 function lookupCenter(stop) {
+  if (chooseHere) return [chooseHere.lon, chooseHere.lat];
   if (Number.isFinite(Number(stop?.lat)) && Number.isFinite(Number(stop?.lon))) return [Number(stop.lon), Number(stop.lat)];
   const here = originPoint();
   if (here) return [here.lon, here.lat];
@@ -2228,13 +2235,21 @@ function lookupCenter(stop) {
   return [-98.35, 39.5];
 }
 
-function openChooseMap(id) {
+async function openChooseMap(id) {
+  const button = document.querySelector(`[data-stop="${id}"] [data-act=map]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Finding you…";
+  }
   chooseMap = true;
   mapSpot = null;
+  chooseHere = null;
   if (mapPickMarker) {
     mapPickMarker.remove();
     mapPickMarker = null;
   }
+  const here = await currentFix();
+  if (here) chooseHere = { lat: here.lat, lon: here.lon };
   state.openLookupStopId = id;
   render();
 }
