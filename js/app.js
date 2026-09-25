@@ -2745,6 +2745,16 @@ function pinRouteFull() {
   stage.style.transform = "";
 }
 
+function holdRoutePage() {
+  routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
+  const body = document.body;
+  body.style.position = "fixed";
+  body.style.top = `-${routeFullScroll}px`;
+  body.style.left = "0";
+  body.style.right = "0";
+  body.style.width = "100%";
+}
+
 function settleRoutePage() {
   const body = document.body;
   body.style.position = "";
@@ -2752,18 +2762,7 @@ function settleRoutePage() {
   body.style.left = "";
   body.style.right = "";
   body.style.width = "";
-  body.style.overflow = "";
-  document.documentElement.style.overflow = "";
-  const main = document.querySelector("body.app main");
-  if (main) main.style.overflow = "";
-  const meta = document.querySelector('meta[name="viewport"]');
-  const content = meta?.getAttribute("content") || "";
-  if (meta) meta.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
   window.scrollTo(0, routeFullScroll);
-  requestAnimationFrame(() => {
-    if (meta && content) meta.setAttribute("content", content);
-    window.scrollTo(0, routeFullScroll);
-  });
 }
 
 function placeRouteStage() {
@@ -2781,7 +2780,7 @@ function placeRouteStage() {
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
-  if (next) routeFullScroll = window.scrollY || document.documentElement.scrollTop || 0;
+  if (next) holdRoutePage();
   routeFull = next;
   const theme = document.querySelector('meta[name="theme-color"]');
   if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
@@ -2790,10 +2789,7 @@ function setRouteFull(on) {
   placeRouteStage();
   syncRouteChrome();
   if (!routeFull) settleRoutePage();
-  requestAnimationFrame(() => {
-    if (routeFull) routeMap?.resize();
-    else settleRoutePage();
-  });
+  requestAnimationFrame(() => routeMap?.resize());
 }
 
 function navDestList() {
