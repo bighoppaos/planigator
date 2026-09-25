@@ -2088,7 +2088,7 @@ function directionsBlock() {
       return `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span>${extra}</button></li>`;
     }).join("")}
   `).join("");
-  return `<details class="directions call-log-box" open>
+  return `<details class="directions call-log-box" id="routeDirections" open>
     <summary>auto zooming directions</summary>
     <div class="dir-scroll">
       <ol>${items}</ol>
@@ -2117,17 +2117,14 @@ function planBox() {
       </aside>
       </div>
       <div class="route-bottom">
+      <p class="route-stop-miles" id="routeStopMiles" hidden></p>
       <div class="route-place-row" id="routePlaceRow">
         <p class="route-drive" id="routeDrive" hidden></p>
         <p class="route-place" id="routePlace" hidden></p>
       </div>
-      <div class="route-nav-banner" id="routeNavBanner" hidden>
-        <strong id="routeNavTitle"></strong>
-        <p id="routeNavDetail"></p>
-        <p id="routeNavNote"></p>
-      </div>
       </div>
     </div>
+    <div id="routeDirectionsHome"></div>
     ${directionsBlock()}
     ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
@@ -2694,6 +2691,20 @@ function sayNav(title, sub, note) {
   if (head) head.textContent = title;
   if (detail) detail.textContent = sub;
   if (status) status.textContent = note || "";
+  const miles = document.getElementById("routeStopMiles");
+  if (!miles) return;
+  const toStop = navOn && /\sto\s/.test(sub || "");
+  miles.hidden = !toStop;
+  miles.textContent = toStop ? sub : "";
+}
+
+function placeDirections(full) {
+  const list = document.getElementById("routeDirections");
+  const home = document.getElementById("routeDirectionsHome");
+  const miles = document.getElementById("routeStopMiles");
+  if (!list || !home || !miles) return;
+  if (full) miles.after(list);
+  else home.after(list);
 }
 
 function syncRouteChrome() {
@@ -2718,8 +2729,7 @@ function syncRouteChrome() {
   const ordinal = document.getElementById("routeStopOrdinal");
   const shown = chosenNavStop();
   if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
-  const banner = document.getElementById("routeNavBanner");
-  if (banner) banner.hidden = !navOn || !routeFull;
+  placeDirections(routeFull);
   const start = document.getElementById("startNav");
   if (start) {
     start.disabled = navOn;
