@@ -21,6 +21,17 @@
   }
 }
 
+html.force-dark {
+  color-scheme: dark;
+  --bg: #10181d;
+  --ink: #eef3f0;
+  --muted: #a8b4ae;
+  --card: #182229;
+  --line: #2a3a42;
+  --mint: #3dcaa0;
+  --navy: #d7e4dc;
+}
+
 * { box-sizing: border-box; }
 
 sup { font-size: 0.65em; }
@@ -1652,6 +1663,7 @@ body.route-full {
   align-items: flex-start;
 }
 #nextTruck,
+#darkMode,
 #nextTruckNote,
 #addTruckStop {
   width: fit-content;

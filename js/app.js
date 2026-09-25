@@ -123,6 +123,7 @@ function defaultState() {
     confirmDeleteId: null,
     speedNote: "",
     boxFont: 13,
+    darkMode: false,
     signupNote: "",
     idleNote: "",
     locationError: "",
@@ -181,6 +182,7 @@ function loadState() {
     if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
     const boxFont = Number(saved.boxFont);
     if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
+    state.darkMode = saved.darkMode === true;
   } catch {
     return state;
   }
@@ -188,6 +190,7 @@ function loadState() {
 }
 
 const state = loadState();
+applyDarkMode();
 settleLoadedStops(state.stops);
 
 function settleLoadedStops(stops) {
@@ -230,6 +233,18 @@ function saveActiveTripSettings() {
   }, 400);
 }
 
+function applyDarkMode() {
+  document.documentElement.classList.toggle("force-dark", state.darkMode === true);
+}
+
+function toggleDarkMode() {
+  state.darkMode = state.darkMode !== true;
+  applyDarkMode();
+  const button = document.getElementById("darkMode");
+  if (button) button.classList.toggle("on", state.darkMode);
+  persist();
+}
+
 function persist() {
   localStorage.setItem(STORAGE, JSON.stringify({
     settings: settingsForSave(),
@@ -240,6 +255,7 @@ function persist() {
     origin: state.origin,
     plan: slimPlan(state.plan),
     boxFont: state.boxFont,
+    darkMode: state.darkMode === true,
   }));
 }
 
@@ -2129,7 +2145,7 @@ function planBox() {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">Dark mode</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -4727,6 +4743,7 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
+  $("#darkMode")?.addEventListener("click", () => toggleDarkMode());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
