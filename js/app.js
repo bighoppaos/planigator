@@ -2573,8 +2573,8 @@ function rebuildNavLegs() {
 
 function passedManeuver(step) {
   const text = String(step?.text || "");
-  if (/\b(continue|head|depart|arrive)\b/i.test(text)) return false;
-  return /\b(turn|u-turn|exit|ramp|roundabout|keep)\b/i.test(text);
+  if (/\b(exit|ramp|continue|head|depart|arrive)\b/i.test(text)) return false;
+  return /\b(turn|u-turn|roundabout|keep)\b/i.test(text);
 }
 
 function navStep(leg, alongInLeg) {
