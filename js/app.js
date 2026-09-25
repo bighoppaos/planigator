@@ -2702,6 +2702,7 @@ function sayNav(title, sub, note) {
 function syncRouteChrome() {
   const stage = document.getElementById("routeStage");
   if (stage) stage.classList.toggle("is-full", routeFull);
+  document.documentElement.classList.toggle("route-full", routeFull);
   document.body.classList.toggle("route-full", routeFull);
   const full = document.getElementById("routeFull");
   if (full) full.hidden = routeFull;
@@ -2731,9 +2732,20 @@ function syncRouteChrome() {
   if (navOn) freezeTyping(true);
 }
 
+let routeFullScroll = 0;
+
 function setRouteFull(on) {
-  routeFull = Boolean(on);
+  const next = Boolean(on);
+  if (next && !routeFull) routeFullScroll = window.scrollY || 0;
+  routeFull = next;
+  const theme = document.querySelector('meta[name="theme-color"]');
+  if (theme) theme.setAttribute("content", routeFull ? "#071525" : "#1f8a62");
+  document.documentElement.style.background = routeFull ? "#071525" : "";
+  document.body.style.background = routeFull ? "#071525" : "";
   syncRouteChrome();
+  const bridge = window.webkit?.messageHandlers?.planigatorMapFull;
+  if (bridge) bridge.postMessage(routeFull ? "1" : "0");
+  if (!routeFull) window.scrollTo(0, routeFullScroll);
   requestAnimationFrame(() => routeMap?.resize());
 }
 
