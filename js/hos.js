@@ -355,7 +355,7 @@ export class TruckerHOSClock {
       flushDrive();
       const restStart = this.now;
       this.takeRest();
-      events.push({ kind: "rest", start: restStart, end: this.now });
+      events.push({ kind: "rest", start: restStart, end: restStart + 10 * 3600 * 1000 });
       piece += 1;
       restPasses += 1;
       drivenSinceRest = 0;

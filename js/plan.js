@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=126";
+} from "./hos.js?v=127";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -461,6 +461,23 @@ export function timeline({
       const owner = rest.kind === "rest" && prevIndex != null ? stops[prevIndex].id : stops[index].id;
       events.push(restEvent(rest, owner));
     });
+    const firstPiece = block.pieces[0];
+    const lastLead = block.leadingPauses[block.leadingPauses.length - 1];
+    if (lastLead && firstPiece && firstPiece.start > lastLead.end + 60 * 1000) {
+      const ownerIndex = lastLead.kind === "rest" && prevIndex != null ? prevIndex : index;
+      const owner = stops[ownerIndex];
+      events.push({
+        id: `leeway-after-rest-${owner.id}`,
+        kind: "leeway",
+        start: lastLead.end,
+        end: firstPiece.start,
+        tripHours: (firstPiece.start - lastLead.end) / 3600 / 1000,
+        timePhrase: leewayPhrase(arriveLatest, lastLead.end, firstPiece.start, owner, endMinutes),
+        rgb: LEEWAY_RGB,
+        after: ownerIndex,
+        stopID: owner.id,
+      });
+    }
     if (block.finishAt) {
       events.push({
         id: `finish-${stops[index].id}`,
