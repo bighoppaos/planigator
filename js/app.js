@@ -2425,6 +2425,68 @@ function navStopTitle(stop) {
   return name || "Stop";
 }
 
+let stopChipLines = [];
+let stopChipIndex = 0;
+let stopChipTimer = 0;
+
+function hoursForMeters(meters) {
+  const totalMiles = Number(state.plan?.miles);
+  const totalHours = Number(state.plan?.driveHours);
+  const leftMiles = Math.max(0, meters) / 1609.344;
+  if (totalMiles > 0 && totalHours > 0) return totalHours * (leftMiles / totalMiles);
+  return leftMiles / mph();
+}
+
+function etaLabel(ms) {
+  const date = new Date(ms);
+  const now = new Date();
+  const clock = formatClockMinutes(date.getHours() * 60 + date.getMinutes());
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (sameDay) return `ETA ${clock}`;
+  const day = date.toLocaleDateString("en-US", { weekday: "short" });
+  return `ETA ${day} ${clock}`;
+}
+
+function paintStopChip() {
+  const chip = document.getElementById("routeStopMiles");
+  if (!chip) return;
+  if (!navOn || !stopChipLines.length) {
+    chip.hidden = true;
+    chip.textContent = "";
+    return;
+  }
+  chip.hidden = false;
+  chip.textContent = stopChipLines[stopChipIndex % stopChipLines.length];
+}
+
+function setStopChip(meters, name) {
+  if (!(meters >= 0) || !name) {
+    stopChipLines = [];
+    stopChipIndex = 0;
+    if (stopChipTimer) window.clearInterval(stopChipTimer);
+    stopChipTimer = 0;
+    paintStopChip();
+    return;
+  }
+  const hours = hoursForMeters(meters);
+  const lines = [`${navMiles(meters)} to ${name}`];
+  if (hours > 0) {
+    lines.push(etaLabel(Date.now() + hours * 3600 * 1000));
+    lines.push(`${hoursLabel(hours)} to ${name}`);
+  }
+  if (lines.length !== stopChipLines.length) stopChipIndex = 0;
+  stopChipLines = lines;
+  paintStopChip();
+  if (stopChipTimer || lines.length < 2) return;
+  stopChipTimer = window.setInterval(() => {
+    if (stopChipLines.length < 2) return;
+    stopChipIndex = (stopChipIndex + 1) % stopChipLines.length;
+    paintStopChip();
+  }, 3000);
+}
+
 function navMiles(meters) {
   const miles = meters / 1609.344;
   if (miles < 0.1) return `${Math.max(1, Math.round(meters * 3.28084))} ft`;
@@ -2691,11 +2753,6 @@ function sayNav(title, sub, note) {
   if (head) head.textContent = title;
   if (detail) detail.textContent = sub;
   if (status) status.textContent = note || "";
-  const miles = document.getElementById("routeStopMiles");
-  if (!miles) return;
-  const toStop = navOn && /\sto\s/.test(sub || "");
-  miles.hidden = !toStop;
-  miles.textContent = toStop ? sub : "";
 }
 
 function placeDirections(full) {
@@ -3408,6 +3465,7 @@ function onNavFix(lat, lon) {
   rebuildNavLegs();
   if (navLine.length < 2) {
     paintDrive(null);
+    setStopChip(-1, "");
     sayNav("No road line yet", "Calculate the trip, then start navigation again.", "");
   } else {
     const hit = navNearest(lat, lon, navLine);
@@ -3426,14 +3484,17 @@ function onNavFix(lat, lon) {
   const until = targetAlong == null ? Infinity : targetAlong;
   const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
   if (chosen?.stop?.skipRoute) {
+    setStopChip(-1, "");
     sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
     paintNavLine(hit.along, Infinity);
   } else if (off) {
+    setStopChip(-1, "");
     sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(0, until);
   } else {
     const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
     const title = String(step?.text || "").trim();
+    setStopChip(leftToStop, toward);
     sayNav(title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`, `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
     paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
@@ -3500,6 +3561,7 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  setStopChip(-1, "");
   stopNavMotion();
   resetNavVoice();
   navFollowing = false;
