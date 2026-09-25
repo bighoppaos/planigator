@@ -2394,6 +2394,7 @@ let routeFull = false;
 let navOn = false;
 let navFollowing = true;
 let navZoom = 15;
+let navZoomHold = 0;
 let navWatch = null;
 let navYou = null;
 let navFix = null;
@@ -2857,10 +2858,18 @@ function frameNextTurn() {
 
 function changeMapZoom(delta) {
   if (!routeMap) return;
-  navZoom = Math.min(18, Math.max(3, routeMap.getZoom() + delta));
+  navZoomHold = Date.now() + 1200;
+  routeMap.stop();
+  navZoom = Math.min(18, Math.max(3, routeMap.getZoom() + delta * 2));
   const camera = { zoom: navZoom, duration: 200 };
   if (navFollowing && navFix) camera.center = [navFix[1], navFix[0]];
   routeMap.easeTo(camera);
+}
+
+function holdUserZoom(event) {
+  if (!event.originalEvent || !routeMap) return;
+  navZoom = routeMap.getZoom();
+  navZoomHold = Date.now() + 1200;
 }
 
 function cycleTripFit() {
@@ -3273,10 +3282,12 @@ function onNavFix(lat, lon) {
     }
   }
   if (tripFit === "nextTurn") {
+    if (Date.now() < navZoomHold) return;
     frameNextTurn();
     return;
   }
   if (navFollowing) {
+    if (Date.now() < navZoomHold) return;
     const camera = { center: [lon, lat], zoom: navZoom, duration: 700 };
     if (navCompass != null) camera.bearing = navCompass;
     else if (travel != null) camera.bearing = travel;
@@ -3294,6 +3305,7 @@ function onNavCompass(event) {
   if (heading == null || Number.isNaN(heading)) return;
   navCompass = heading;
   if (!navOn || !navFollowing || tripFit === "nextTurn" || !routeMap || !navFix) return;
+  if (Date.now() < navZoomHold) return;
   const now = Date.now();
   if (now - navCompassTimer < 120) return;
   navCompassTimer = now;
@@ -3520,6 +3532,8 @@ function mountMap() {
       navFollowing = false;
       syncRouteChrome();
     });
+    map.on("zoomstart", holdUserZoom);
+    map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
     const markers = routePins().map((pin) => {
       const ink = stopInk(pin.rgb);
