@@ -1352,7 +1352,7 @@ body.app main { padding-top: 2px; }
 }
 #useMapSpot {
   width: 100%;
-  min-height: calc(2 * 1.1em + 8px);
+  min-height: calc(2 * 1.1em + 2px);
 }
 #useMapSpot:disabled { opacity: 0.45; }
 .map-spot {
