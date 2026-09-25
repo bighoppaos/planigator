@@ -2755,6 +2755,18 @@ function sayNav(title, sub, note) {
   if (status) status.textContent = note || "";
 }
 
+let directionsAutoKey = "";
+
+function openDirectionsNear(stopId, index, metersLeft) {
+  if (!routeFull || metersLeft / 1609.344 > 5) return;
+  const list = document.getElementById("routeDirections");
+  if (!list || list.open) return;
+  const key = `${stopId}:${index}`;
+  if (directionsAutoKey === key) return;
+  directionsAutoKey = key;
+  list.open = true;
+}
+
 function placeDirections(full) {
   const list = document.getElementById("routeDirections");
   const home = document.getElementById("routeDirectionsHome");
@@ -3500,6 +3512,7 @@ function onNavFix(lat, lon) {
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
         paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+        openDirectionsNear(leg.stop.id, found.index, leftInStep);
       }
       speakNavProgress(leg, found, hit.along);
     }
@@ -3561,6 +3574,7 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  directionsAutoKey = "";
   setStopChip(-1, "");
   stopNavMotion();
   resetNavVoice();
