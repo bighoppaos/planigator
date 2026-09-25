@@ -2394,6 +2394,10 @@ let navZoomHold = 0;
 let navWatch = null;
 let navYou = null;
 let navFix = null;
+let navMotion = 0;
+let navShown = null;
+let navAim = null;
+let navTravel = null;
 let navCompass = null;
 let navCompassTimer = 0;
 let navReturnTimer = 0;
@@ -3319,9 +3323,17 @@ function showWholeTrip() {
   routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 14, bearing: 0, duration: 600 });
 }
 
-function onNavFix(lat, lon) {
+function stopNavMotion() {
+  if (navMotion) cancelAnimationFrame(navMotion);
+  navMotion = 0;
+  navShown = null;
+  navAim = null;
+  navTravel = null;
+}
+
+function placeNavDot(lat, lon) {
   const maplibre = window.maplibregl;
-  if (!routeMap || !maplibre || !navOn) return;
+  if (!routeMap || !maplibre) return;
   if (!navYou) {
     const dot = document.createElement("span");
     dot.className = "route-you";
@@ -3329,8 +3341,59 @@ function onNavFix(lat, lon) {
   } else {
     navYou.setLngLat([lon, lat]);
   }
+  navShown = { lat, lon };
+}
+
+function aimNavDot(lat, lon) {
+  const from = navShown;
+  if (!from) {
+    placeNavDot(lat, lon);
+    return;
+  }
+  if (metersBetween([from.lat, from.lon], [lat, lon]) > 300) {
+    navAim = null;
+    placeNavDot(lat, lon);
+    return;
+  }
+  const now = performance.now();
+  const dur = navAim ? Math.min(1100, Math.max(200, now - navAim.start)) : 1000;
+  navAim = { lat, lon, fromLat: from.lat, fromLon: from.lon, start: now, dur };
+}
+
+function paintNavMotion(now) {
+  if (!navOn) {
+    navMotion = 0;
+    return;
+  }
+  if (navAim && navYou) {
+    const u = Math.min(1, (now - navAim.start) / navAim.dur);
+    const lat = navAim.fromLat + (navAim.lat - navAim.fromLat) * u;
+    const lon = navAim.fromLon + (navAim.lon - navAim.fromLon) * u;
+    navYou.setLngLat([lon, lat]);
+    navShown = { lat, lon };
+  }
+  if (navFollowing && tripFit !== "nextTurn" && routeMap && navShown && Date.now() >= navZoomHold) {
+    const camera = { center: [navShown.lon, navShown.lat], zoom: navZoom };
+    if (navCompass != null) camera.bearing = navCompass;
+    else if (navTravel != null) camera.bearing = navTravel;
+    routeMap.jumpTo(camera);
+  }
+  navMotion = requestAnimationFrame(paintNavMotion);
+}
+
+function startNavMotion() {
+  if (navMotion) return;
+  navMotion = requestAnimationFrame(paintNavMotion);
+}
+
+function onNavFix(lat, lon) {
+  const maplibre = window.maplibregl;
+  if (!routeMap || !maplibre || !navOn) return;
+  aimNavDot(lat, lon);
+  startNavMotion();
   let travel = null;
   if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
+  if (travel != null) navTravel = travel;
   navFix = [lat, lon];
   refreshPlace(lat, lon);
   rebuildNavLegs();
@@ -3376,13 +3439,6 @@ function onNavFix(lat, lon) {
     frameNextTurn();
     return;
   }
-  if (navFollowing) {
-    if (Date.now() < navZoomHold) return;
-    const camera = { center: [lon, lat], zoom: navZoom, duration: 700 };
-    if (navCompass != null) camera.bearing = navCompass;
-    else if (travel != null) camera.bearing = travel;
-    routeMap.easeTo(camera);
-  }
 }
 
 function onNavCompass(event) {
@@ -3401,15 +3457,7 @@ function onNavCompass(event) {
   navCompassTimer = now;
   if (tripFit === "nextTurn") {
     routeMap.easeTo({ bearing: navCompass, duration: 120 });
-    return;
   }
-  if (!navFollowing) return;
-  routeMap.easeTo({
-    center: [navFix[1], navFix[0]],
-    bearing: navCompass,
-    zoom: navZoom,
-    duration: 120,
-  });
 }
 
 async function enableNavCompass() {
@@ -3443,6 +3491,7 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  stopNavMotion();
   resetNavVoice();
   navFollowing = false;
   window.clearTimeout(navReturnTimer);
@@ -3492,12 +3541,13 @@ function beginRouteNav() {
     navWatch = navigator.geolocation.watchPosition(
       (pos) => onNavFix(pos.coords.latitude, pos.coords.longitude),
       () => sayNav("Allow location", "Planigator needs location to show you on this trip.", ""),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
     );
   } else if (navFix) {
     onNavFix(navFix[0], navFix[1]);
   }
   enableNavCompass();
+  startNavMotion();
 }
 
 function applyTurnZoom(map, focus) {
