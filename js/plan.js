@@ -9,7 +9,11 @@ import {
   clampedMaxHours,
   clampedHoursBeforeThirty,
   TruckerHOSClock,
-} from "./hos.js?v=123";
+  nextDailyEnd,
+  isAnytimeEnd,
+  isInsideDriveWindow,
+  isPastDailyEnd,
+} from "./hos.js?v=124";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -294,9 +298,14 @@ export function schedules({
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
-    if (usable != null && clock.now < usable) {
-      const restCovers = clock.overnightRestStillMakes(open, close);
-      if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
+    if (usable != null && clock.now < usable && !isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes)) {
+      const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now);
+      if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) && dayEnd + 60 * 1000 < usable) {
+        clock.waitUntil(dayEnd);
+      } else {
+        const restCovers = clock.overnightRestStillMakes(open, close);
+        if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
+      }
     }
     if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
@@ -333,12 +342,21 @@ export function milesForStops(stops, mph) {
   });
 }
 
-function leewayPhrase(arriveLatest, end, stop) {
-  if (stop && !stop.anytime && Math.abs(end - latestArrive(stop)) < 60 * 1000) return "Leeway for latest arrival";
+function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
+  if (stop && !stop.anytime) {
+    const latest = latestArrive(stop);
+    const open = notBefore(stop);
+    const arrivedInside = open == null || start + 60 * 1000 >= open;
+    if (arrivedInside && Math.abs(end - latest) < 60 * 1000) return "Leeway for latest arrival";
+    if (arrivedInside && !isAnytimeEnd(endMinutes)) {
+      const dayEnd = nextDailyEnd(endMinutes, start);
+      if (Math.abs(end - dayEnd) < 60 * 1000 && end <= latest + 60 * 1000) return "Leeway for latest arrival";
+    }
+  }
   return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
 }
 
-function leewayGaps({ stops, blocks, now }) {
+function leewayGaps({ stops, blocks, now, endMinutes }) {
   const destinations = scheduledIndexes(stops);
   const gaps = [];
   const first = destinations[0];
@@ -363,10 +381,23 @@ function leewayGaps({ stops, blocks, now }) {
     if (position + 1 < destinations.length && blocks[destinations[position + 1]]) {
       const next = blocks[destinations[position + 1]];
       const lead = next.leadingPauses[0];
-      if (lead?.kind === "rest" && lead.start > block.end + 60 * 1000 && lead.start - block.end < 10 * 3600 * 1000) return;
-      gapEnd = lead?.start ?? next.start;
+      const open = notBefore(stops[index]);
+      const close = stops[index].anytime ? null : latestArrive(stops[index]);
+      const arrivedInside = open == null || block.end + 60 * 1000 >= open;
+      if (arrivedInside && close != null && !isAnytimeEnd(endMinutes)) {
+        const dayEnd = nextDailyEnd(endMinutes, block.end);
+        const latest = Math.min(close, dayEnd);
+        gapEnd = latest > block.end + 60 * 1000 ? latest : (lead?.start ?? next.start);
+      } else {
+        gapEnd = lead?.start ?? next.start;
+      }
     } else if (!stops[index].anytime) {
-      gapEnd = Math.max(block.end, latestArrive(stops[index]));
+      const close = latestArrive(stops[index]);
+      const open = notBefore(stops[index]);
+      const arrivedInside = open == null || block.end + 60 * 1000 >= open;
+      gapEnd = arrivedInside && !isAnytimeEnd(endMinutes)
+        ? Math.min(close, nextDailyEnd(endMinutes, block.end))
+        : Math.max(block.end, close);
     } else {
       gapEnd = block.end;
     }
@@ -433,7 +464,7 @@ export function timeline({
             start: afterEnd,
             end: piece.start,
             tripHours: gap / 3600 / 1000,
-            timePhrase: leewayPhrase(arriveLatest, piece.start, stops[index]),
+            timePhrase: leewayPhrase(arriveLatest, afterEnd, piece.start, stops[index], endMinutes),
             rgb: LEEWAY_RGB,
             after: index,
             stopID: stops[index].id,
@@ -485,7 +516,7 @@ export function timeline({
     });
     void order;
   });
-  leewayGaps({ stops, blocks, now }).forEach((gap) => {
+  leewayGaps({ stops, blocks, now, endMinutes }).forEach((gap) => {
     const isLastSlack = gap.after >= 0 && destinations[destinations.length - 1] === gap.after;
     events.push({
       id: gap.id,
@@ -493,7 +524,7 @@ export function timeline({
       start: gap.start,
       end: gap.end,
       tripHours: gap.hours,
-      timePhrase: leewayPhrase(arriveLatest, gap.end, gap.after >= 0 ? stops[gap.after] : null),
+      timePhrase: leewayPhrase(arriveLatest, gap.start, gap.end, gap.after >= 0 ? stops[gap.after] : null, endMinutes),
       rgb: LEEWAY_RGB,
       after: gap.after,
       stopID: gap.after >= 0 ? stops[gap.after].id : destinations[0] != null ? stops[destinations[0]].id : null,

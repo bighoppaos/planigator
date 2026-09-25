@@ -371,18 +371,7 @@ export class TruckerHOSClock {
       remainingSit = 0;
       remainingDelay = 0;
       flushDrive();
-      let restStart = this.now;
-      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes) && !isAnytimeStart(this.startMinutes)) {
-        const untilFourteen = Math.max(0, onDutyCap - this.onDutyToday);
-        const fourteenAt = this.now + untilFourteen * 3600 * 1000;
-        const morning = nextWorkStart(this.startMinutes, this.now + 60 * 1000);
-        const tenBeforeMorning = morning - 10 * 3600 * 1000;
-        const aligned = Math.min(fourteenAt, tenBeforeMorning);
-        if (aligned > restStart + 60 * 1000 && aligned + 10 * 3600 * 1000 <= morning + 60 * 1000) {
-          restStart = aligned;
-          this.now = aligned;
-        }
-      }
+      const restStart = this.now;
       this.takeRest();
       events.push({ kind: "rest", start: restStart, end: this.now });
       piece += 1;
