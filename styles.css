@@ -1694,6 +1694,33 @@ button.lookup.lookup-flash {
   #fromAddress.choose-start { animation: none; outline: 2px solid #1f8a62; }
   .start-choice-note { animation: none; background: #1f8a62; color: #fff; }
 }
+.truck-pin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.truck-pin-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 180px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgb(7 21 37 / 0.92);
+  color: #fffdf8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+}
+.truck-pin-label span {
+  max-width: 168px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .truck-pin {
   width: 16px;
   height: 16px;

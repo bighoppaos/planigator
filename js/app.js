@@ -3268,9 +3268,23 @@ function frameTruckStop(hit) {
   navReturnTimer = 0;
   syncRouteChrome();
   if (truckMarker) truckMarker.remove();
+  const wrap = document.createElement("span");
+  wrap.className = "truck-pin-wrap";
+  const label = document.createElement("span");
+  label.className = "truck-pin-label";
+  const name = document.createElement("span");
+  name.textContent = hit.name || "Truck stop";
+  const miles = document.createElement("span");
+  const ahead = Number(hit.milesAhead);
+  const meters = Number.isFinite(ahead)
+    ? ahead * 1609.344
+    : metersBetween(navFix, [lat, lon]);
+  miles.textContent = navMiles(meters);
+  label.append(name, miles);
   const pin = document.createElement("span");
   pin.className = "truck-pin";
-  truckMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([lon, lat]).addTo(routeMap);
+  wrap.append(label, pin);
+  truckMarker = new maplibre.Marker({ element: wrap, anchor: "bottom" }).setLngLat([lon, lat]).addTo(routeMap);
   const coordinates = [[navFix[1], navFix[0]], [lon, lat]];
   const bounds = coordinates.reduce(
     (box, coord) => box.extend(coord),
@@ -3278,7 +3292,7 @@ function frameTruckStop(hit) {
   );
   routeMap.stop();
   routeMap.fitBounds(bounds, {
-    padding: { top: 70, bottom: 120, left: 88, right: 88 },
+    padding: { top: 120, bottom: 120, left: 88, right: 88 },
     maxZoom: 15,
     bearing: 0,
     duration: 600,
