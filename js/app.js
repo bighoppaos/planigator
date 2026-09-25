@@ -2095,16 +2095,16 @@ function directionsBlock() {
     groups.push({ id: stop.id, title, steps: stop.directions });
   }
   if (!groups.length) return "";
-  const items = groups.map((group) => `
-    <li class="dir-leg">${escapeAttr(group.title)}</li>
-    ${group.steps.map((step, index) => {
-      const text = String(step.text || "");
-      const shown = withoutGo(text);
-      const already = /Go for\s+[0-9]/i.test(text);
-      const extra = !already && Number(step.miles) > 0.05 ? ` <span class="dir-miles" data-full="${escapeAttr(formatMiles(step.miles))}">${formatMiles(step.miles)}</span>` : "";
-      return `<li value="${index + 1}"><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span>${extra}</button></li>`;
-    }).join("")}
-  `).join("");
+  const flat = [];
+  for (const group of groups) {
+    group.steps.forEach((step, index) => flat.push({ group, step, index }));
+  }
+  const items = flat.map((item, flatIndex) => {
+    const text = String(item.step.text || "");
+    const shown = shownDirection(item.step, flat[flatIndex + 1]?.step);
+    const leg = item.index === 0 ? `<li class="dir-leg">${escapeAttr(item.group.title)}</li>` : "";
+    return `${leg}<li value="${item.index + 1}"><button type="button" class="dir-step" data-dir-stop="${escapeAttr(item.group.id)}" data-dir-index="${item.index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span></button></li>`;
+  }).join("");
   return `<details class="directions call-log-box" id="routeDirections" open>
     <summary>auto zooming directions</summary>
     <div class="dir-scroll">
@@ -2722,8 +2722,15 @@ function inDistance(meters) {
 
 function approachPhrase(nextText, metersLeft) {
   const maneuver = maneuverText(nextText);
-  if (!maneuver) return "";
+  if (!maneuver || !(metersLeft > 0)) return "";
   return `${maneuver} ${inDistance(metersLeft)}`;
+}
+
+function shownDirection(step, nextStep, meters) {
+  const distance = Number.isFinite(meters) ? meters : stepLengthMeters(step);
+  const approach = approachPhrase(String(nextStep?.text || ""), distance);
+  if (approach) return approach;
+  return withoutGo(String(step?.text || ""));
 }
 
 function upcomingDirection(leg, index) {
@@ -3224,6 +3231,15 @@ function metersLeftInStep(leg, alongInLeg, index) {
   return Math.max(0, length - Math.max(0, alongInLeg - cursor));
 }
 
+function directionStep(stopId, index) {
+  const at = state.stops.findIndex((item) => item.id === stopId);
+  const stop = at >= 0 ? state.stops[at] : null;
+  const steps = Array.isArray(stop?.directions) ? stop.directions : [];
+  if (steps[index]) return steps[index];
+  const follow = at >= 0 ? state.stops[at + 1] : null;
+  return follow?.directions?.[0] || null;
+}
+
 function nextManeuverText(stopId, index) {
   const at = state.stops.findIndex((item) => item.id === stopId);
   const stop = at >= 0 ? state.stops[at] : null;
@@ -3240,7 +3256,10 @@ function paintDirectionMiles(stopId, index, meters) {
     const slot = button.querySelector(".dir-miles");
     const original = link?.getAttribute("data-original") || "";
     if (!current) {
-      if (link && original) link.textContent = withoutGo(original);
+      const idx = Number(button.getAttribute("data-dir-index"));
+      const rowStop = button.getAttribute("data-dir-stop");
+      const step = directionStep(rowStop, idx);
+      if (link) link.textContent = shownDirection(step, { text: nextManeuverText(rowStop, idx) });
       if (slot?.getAttribute("data-full")) slot.textContent = slot.getAttribute("data-full");
       return;
     }
@@ -3769,6 +3788,12 @@ function endRouteNav() {
   if (routeMap) routeMap.easeTo({ bearing: 0, duration: 400 });
   syncRouteChrome();
   focusDirectionWindow(null, null);
+  document.querySelectorAll("[data-dir-stop]").forEach((button) => {
+    const stopId = button.getAttribute("data-dir-stop");
+    const index = Number(button.getAttribute("data-dir-index"));
+    const link = button.querySelector(".dir-link");
+    if (link) link.textContent = shownDirection(directionStep(stopId, index), { text: nextManeuverText(stopId, index) });
+  });
 }
 
 function focusDirectionWindow(stopId, index) {
