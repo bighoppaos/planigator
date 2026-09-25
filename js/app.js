@@ -9,7 +9,7 @@ import {
   stamp,
   shortStamp,
   resolvedLeaveAt,
-} from "./hos.js?v=127";
+} from "./hos.js?v=128";
 import {
   newId,
   cardTitle,
@@ -21,7 +21,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=133";
+} from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=3";
 import { creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
@@ -3880,7 +3880,8 @@ function chip(event) {
     ? `${formatShort(event.start)} – ${formatShort(event.end)}`
     : formatShort(event.start);
   const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
-  const label = [event.timePhrase || "", toward].filter(Boolean).join(" · ");
+  const phrase = event.kind === "rest" ? "10-hour reset/Off-duty" : (event.timePhrase || "");
+  const label = [phrase, toward].filter(Boolean).join(" · ");
   const arrive = event.arrivalPhrase && event.earliestArrive
     ? `${event.arrivalPhrase} ${formatShort(event.earliestArrive)}`
     : "";
