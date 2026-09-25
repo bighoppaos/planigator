@@ -2964,7 +2964,7 @@ function setRouteFull(on) {
     exit?.call(document)?.catch(() => {});
   }
   routeFull = next;
-  if (routeFull) clearTypingUndo();
+  if (routeFull) scheduleTypingUndoClear();
   placeRouteStage();
   syncRouteChrome();
   requestAnimationFrame(() => {
@@ -3733,16 +3733,27 @@ function focusDirectionWindow(stopId, index) {
   });
 }
 
+let undoClearTimer = 0;
+
+function scheduleTypingUndoClear() {
+  clearTypingUndo();
+  window.clearTimeout(undoClearTimer);
+  undoClearTimer = window.setTimeout(clearTypingUndo, 400);
+}
+
 function clearTypingUndo() {
   const active = document.activeElement;
   if (active && active !== document.body && active.blur) active.blur();
   window.getSelection()?.removeAllRanges();
-  try {
-    document.designMode = "on";
-    document.designMode = "off";
-  } catch {
-    // Older browsers can refuse designMode. The blur still drops the keyboard.
-  }
+  document.querySelectorAll("input, textarea").forEach((el) => {
+    const clone = el.cloneNode(true);
+    if ("value" in el) clone.value = el.value;
+    if ("checked" in el) clone.checked = el.checked;
+    clone.disabled = el.disabled;
+    clone.readOnly = el.readOnly;
+    el.replaceWith(clone);
+  });
+  document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
 }
 
 function freezeTyping(freeze) {
@@ -3756,7 +3767,7 @@ function freezeTyping(freeze) {
       delete el.dataset.undoFreeze;
     }
   });
-  if (freeze) clearTypingUndo();
+  if (freeze) scheduleTypingUndoClear();
 }
 
 document.addEventListener("beforeinput", (event) => {
@@ -4588,45 +4599,150 @@ function commitPicker() {
   render();
 }
 
-function bindSettings() {
-  const map = [
-    ["governed", (el) => { state.settings.governed = el.checked; }],
-    ["mph", (el) => { state.settings.governedMph = Number(el.value) || DEFAULT_MPH; }],
-    ["hoursOfEleven", (el) => { state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(el.value) || 11)); }],
-    ["hoursBeforeThirty", (el) => { state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(el.value) || 8)); }],
-    ["leaveNow", (el) => { state.settings.leaveNow = el.checked; }],
-    ["leaveAt", (el) => { state.settings.leaveAt = fromDateTimeLocal(el.value); }],
-    ["endAnytime", (el) => { state.settings.endAnytime = el.checked; }],
-    ["startAnytime", (el) => { state.settings.startAnytime = el.checked; }],
-    ["military", (el) => { state.settings.military = el.checked; }],
-    ["kilometers", (el) => { state.settings.kilometers = el.checked; }],
-    ["arrival", (el) => { state.settings.arrival = el.value === "latest" ? "latest" : "earliest"; }],
-    ["tripName", (el) => { state.tripName = el.value; persist(); }],
-  ];
-  map.forEach(([id, apply]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener("change", () => {
-      apply(el);
+const settingsApply = {
+  governed: (el) => { state.settings.governed = el.checked; },
+  mph: (el) => { state.settings.governedMph = Number(el.value) || DEFAULT_MPH; },
+  hoursOfEleven: (el) => { state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(el.value) || 11)); },
+  hoursBeforeThirty: (el) => { state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(el.value) || 8)); },
+  leaveNow: (el) => { state.settings.leaveNow = el.checked; },
+  leaveAt: (el) => { state.settings.leaveAt = fromDateTimeLocal(el.value); },
+  endAnytime: (el) => { state.settings.endAnytime = el.checked; },
+  startAnytime: (el) => { state.settings.startAnytime = el.checked; },
+  military: (el) => { state.settings.military = el.checked; },
+  kilometers: (el) => { state.settings.kilometers = el.checked; },
+  arrival: (el) => { state.settings.arrival = el.value === "latest" ? "latest" : "earliest"; },
+  tripName: (el) => { state.tripName = el.value; persist(); },
+};
+
+function onSettingsChange(el) {
+  const apply = settingsApply[el.id];
+  if (!apply) return false;
+  apply(el);
+  persist();
+  if (el.id !== "tripName") saveActiveTripSettings();
+  if (el.id === "arrival" && state.plan) calculate({ silent: true });
+  else if (el.id !== "tripName") render();
+  return true;
+}
+
+function onSettingsInput(el) {
+  const apply = settingsApply[el.id];
+  if (!apply || el.type === "checkbox") return false;
+  apply(el);
+  persist();
+  if (el.id !== "tripName") saveActiveTripSettings();
+  return true;
+}
+
+function onStopFieldChange(input) {
+  const card = input.closest(".stop-card");
+  const id = card?.getAttribute("data-stop");
+  const field = input.getAttribute("data-field");
+  if (!id || !field) return false;
+  let value = input.type === "checkbox" ? input.checked : input.value;
+  if (field === "start" || field === "end") value = fromDateTimeLocal(input.value);
+  const patch = { [field]: value };
+  if (field === "start" && !state.stops.find((stop) => stop.id === id)?.window) patch.end = value;
+  updateStop(id, patch);
+  return true;
+}
+
+function onStopFieldInput(input) {
+  const card = input.closest(".stop-card");
+  const id = card?.getAttribute("data-stop");
+  const field = input.getAttribute("data-field");
+  if (!id || !field || input.type === "checkbox" || input.type === "datetime-local") return false;
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop) return false;
+  stop[field] = input.value;
+  if (field === "address") {
+    const button = card.querySelector("[data-act=lookup]");
+    const typed = input.value.trim();
+    const verified = String(stop.verifiedLabel || "").trim();
+    if (button && typed && typed !== verified) {
+      lookupOpen.add(id);
+      button.hidden = false;
+      button.classList.add("lookup-flash");
+    } else if (button) button.classList.remove("lookup-flash");
+  }
+  if (field === "address" || field === "name") fitAddressField(input);
+  persist();
+  return true;
+}
+
+let typingBound = false;
+
+function bindTypingFields() {
+  if (typingBound) return;
+  typingBound = true;
+  document.addEventListener("input", (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
+    if (el.id === "boxFont") {
+      const next = Number(el.value);
+      if (!Number.isFinite(next)) return;
+      state.boxFont = Math.min(28, Math.max(13, Math.round(next)));
+      document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
+      const hos = document.querySelector(".hos");
+      if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
+      const readout = document.getElementById("boxFontReadout");
+      if (readout) readout.textContent = String(state.boxFont);
       persist();
-      if (id !== "tripName") saveActiveTripSettings();
-      if (id === "arrival" && state.plan) calculate({ silent: true });
-      else if (id !== "tripName") render();
-    });
-    if (el.type !== "checkbox") {
-      el.addEventListener("input", () => {
-        apply(el);
-        persist();
-        if (id !== "tripName") saveActiveTripSettings();
-      });
+      queueBoxFontSave();
+      return;
     }
-    if (id === "tripName") {
-      el.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-      });
+    if (onSettingsInput(el)) return;
+    if (el.matches("[data-field]")) onStopFieldInput(el);
+  });
+  document.addEventListener("change", (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
+    if (el.matches("#pickerSheet [data-part=date]")) {
+      commitPicker();
+      return;
+    }
+    const when = el.closest("[data-when]");
+    if (when && el.matches("input")) {
+      applyWhen(when);
+      return;
+    }
+    if (onSettingsChange(el)) return;
+    if (el.matches("[data-field]")) onStopFieldChange(el);
+  });
+  document.addEventListener("keydown", (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+    if (event.key !== "Enter") return;
+    if (el.id === "tripName" || el.matches("[data-field=name]")) {
+      event.preventDefault();
+      return;
+    }
+    if (el.matches("[data-field=address]")) {
+      event.preventDefault();
+      const card = el.closest(".stop-card");
+      const id = card?.getAttribute("data-stop");
+      const stop = state.stops.find((item) => item.id === id);
+      if (stop) stop.address = el.value;
+      if (id) lookupAddress(id);
     }
   });
+  document.addEventListener("focusin", (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLElement)) return;
+    if ((routeFull || navOn) && el.matches("input, textarea, select")) {
+      el.blur();
+      return;
+    }
+    if (!el.matches("[data-field=address]")) return;
+    const card = el.closest(".stop-card");
+    const id = card?.getAttribute("data-stop");
+    if (!id || lookupOpen.has(id)) return;
+    lookupOpen.add(id);
+    card.querySelector("[data-act=lookup]")?.removeAttribute("hidden");
+  });
+}
+
+function bindSettings() {
   document.querySelectorAll("[data-toggle]").forEach((el) => {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-toggle");
@@ -4676,7 +4792,6 @@ function bindSettings() {
     button.scrollIntoView({ block: "center" });
   });
   document.getElementById("pickerDone")?.addEventListener("click", () => commitPicker());
-  document.querySelector("#pickerSheet [data-part=date]")?.addEventListener("change", () => commitPicker());
   document.getElementById("pickerSheet")?.addEventListener("click", (event) => {
     if (event.target.id !== "pickerSheet") return;
     state.picker = "";
@@ -4768,6 +4883,7 @@ function armDelete(id) {
 
 function bind() {
   placeRouteStage();
+  bindTypingFields();
   bindSettings();
   document.querySelectorAll("[data-clock]").forEach((wrap) => {
     wrap.querySelectorAll("select").forEach((select) => {
@@ -4775,7 +4891,7 @@ function bind() {
     });
   });
   document.querySelectorAll("[data-when]").forEach((wrap) => {
-    wrap.querySelectorAll("input, select").forEach((control) => {
+    wrap.querySelectorAll("select").forEach((control) => {
       control.addEventListener("change", () => applyWhen(wrap));
     });
   });
@@ -4797,18 +4913,6 @@ function bind() {
   });
   $("#calculate")?.addEventListener("click", () => calculate());
   $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
-  $("#boxFont")?.addEventListener("input", () => {
-    const next = Number($("#boxFont").value);
-    if (!Number.isFinite(next)) return;
-    state.boxFont = Math.min(28, Math.max(13, Math.round(next)));
-    document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
-    const hos = document.querySelector(".hos");
-    if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
-    const readout = document.getElementById("boxFontReadout");
-    if (readout) readout.textContent = String(state.boxFont);
-    persist();
-    queueBoxFontSave();
-  });
   mountMap();
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
@@ -4898,60 +5002,6 @@ function bind() {
   });
   document.querySelectorAll(".stop-card").forEach((card) => {
     const id = card.getAttribute("data-stop");
-    card.querySelectorAll("[data-field]").forEach((input) => {
-      const field = input.getAttribute("data-field");
-      const apply = () => {
-        let value = input.type === "checkbox" ? input.checked : input.value;
-        if (field === "start" || field === "end") value = fromDateTimeLocal(input.value);
-        const patch = { [field]: value };
-        if (field === "start" && !state.stops.find((stop) => stop.id === id)?.window) {
-          patch.end = value;
-        }
-        updateStop(id, patch);
-      };
-      input.addEventListener("change", apply);
-      if (field === "name") {
-        input.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-        });
-      }
-      if (field === "address") {
-        input.addEventListener("focus", () => {
-          if (lookupOpen.has(id)) return;
-          lookupOpen.add(id);
-          card.querySelector("[data-act=lookup]")?.removeAttribute("hidden");
-        });
-        input.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          const stop = state.stops.find((item) => item.id === id);
-          if (stop) stop.address = input.value;
-          lookupAddress(id);
-        });
-      }
-      if (input.type !== "checkbox" && input.type !== "datetime-local") {
-        input.addEventListener("input", () => {
-          const stop = state.stops.find((item) => item.id === id);
-          if (!stop) return;
-          stop[field] = input.value;
-          if (field === "address") {
-            const button = card.querySelector("[data-act=lookup]");
-            const typed = input.value.trim();
-            const verified = String(stop.verifiedLabel || "").trim();
-            if (button && typed && typed !== verified) {
-              lookupOpen.add(id);
-              button.hidden = false;
-              button.classList.add("lookup-flash");
-            } else if (button) {
-              button.classList.remove("lookup-flash");
-            }
-          }
-          if (field === "address" || field === "name") fitAddressField(input);
-          persist();
-        });
-      }
-    });
     card.querySelector("[data-act=up]")?.addEventListener("click", () => moveStop(id, -1));
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
     card.querySelector("[data-act=remove]")?.addEventListener("click", () => {
