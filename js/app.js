@@ -3027,7 +3027,7 @@ function frameNextTurn() {
   if (!routeMap || !maplibre) return;
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
-  if (turnFrameAt && metersBetween(turnFrameAt, navFix) < 20) return;
+  if (turnFrameAt && metersBetween(turnFrameAt, navFix) < 20 && routeMap.getZoom() >= 14) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
   const turn = upcomingTurn(hit.along);
   if (!turn) return;
@@ -3049,6 +3049,7 @@ function frameNextTurn() {
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
   const pad = routeFull ? 88 : 56;
+  navZoomHold = Date.now() + 900;
   routeMap.stop();
   routeMap.fitBounds(bounds, {
     padding: { top: pad, right: pad + 36, bottom: pad, left: pad },
