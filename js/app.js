@@ -2730,6 +2730,10 @@ function speakNavProgress(leg, found, hereAlong) {
       window.speechSynthesis?.cancel();
       speakNav(phrase());
     }
+    if (miles <= 1) {
+      const next = upcomingDirection(leg, found.index);
+      if (next) speakNav(next);
+    }
   }
   for (const band of bands) {
     if (spokenMiles.has(band) || miles > band) continue;
