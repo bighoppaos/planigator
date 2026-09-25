@@ -4035,18 +4035,17 @@ function mountMap() {
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
-    const markers = routePins().map((pin) => {
+    routePins().forEach((pin) => {
       const ink = stopInk(pin.rgb);
       const button = document.createElement("span");
       button.className = "route-pin";
       button.textContent = pin.label;
       button.style.background = cssRGB(pin.rgb);
       button.style.color = ink.color;
-      const marker = new maplibre.Marker({ element: button, anchor: "bottom" })
+      new maplibre.Marker({ element: button, anchor: "bottom" })
         .setLngLat([pin.lon, pin.lat])
         .addTo(map);
       bounds.extend([pin.lon, pin.lat]);
-      return marker;
     });
     routeMapReady = true;
     if (pendingTurn) applyTurnZoom(map, pendingTurn);
