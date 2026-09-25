@@ -3559,8 +3559,8 @@ function revealDirection(button) {
   if (!list) return;
   const listBox = list.getBoundingClientRect();
   const buttonBox = button.getBoundingClientRect();
-  if (buttonBox.top < listBox.top) list.scrollTop -= listBox.top - buttonBox.top;
-  else if (buttonBox.bottom > listBox.bottom) list.scrollTop += buttonBox.bottom - listBox.bottom;
+  const delta = (buttonBox.top + buttonBox.height / 2) - (listBox.top + listBox.height / 2);
+  list.scrollTop += delta;
 }
 
 function zoomToDirection(stopId, index) {
