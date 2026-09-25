@@ -10,6 +10,7 @@ import {
   clampedHoursBeforeThirty,
   TruckerHOSClock,
   nextDailyEnd,
+  resumeAfterRest,
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
@@ -298,13 +299,21 @@ export function schedules({
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
-    if (usable != null && clock.now < usable && !isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes)) {
+    if (usable != null && clock.now + 60 * 1000 < usable) {
       const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now);
-      if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) && dayEnd + 60 * 1000 < usable) {
-        clock.waitUntil(dayEnd);
-      } else {
-        const restCovers = clock.overnightRestStillMakes(open, close);
-        if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
+      const restFrom = isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) ? dayEnd : clock.now;
+      const oneNight = isAnytimeEnd(clock.endMinutes)
+        ? usable
+        : resumeAfterRest(clock.startMinutes, clock.endMinutes, restFrom + 10 * 3600 * 1000);
+      if (usable > oneNight + 60 * 1000) {
+        clock.waitUntil(usable);
+      } else if (!isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes)) {
+        if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) && dayEnd + 60 * 1000 < usable) {
+          clock.waitUntil(dayEnd);
+        } else {
+          const restCovers = clock.overnightRestStillMakes(open, close);
+          if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
+        }
       }
     }
     if (captureClocks) captureClocks.set(index, clock.clone());
