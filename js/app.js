@@ -2057,7 +2057,12 @@ function directionsBlock() {
   if (!groups.length) return "";
   const items = groups.map((group) => `
     <li class="dir-leg">${escapeAttr(group.title)}</li>
-    ${group.steps.map((step, index) => `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(step.text)}">${escapeAttr(step.text)}</span>${Number(step.miles) > 0.05 ? ` <span class="dir-miles" data-full="${escapeAttr(formatMiles(step.miles))}">${formatMiles(step.miles)}</span>` : ""}</button></li>`).join("")}
+    ${group.steps.map((step, index) => {
+      const text = String(step.text || "");
+      const already = /Go for\s+[0-9]/i.test(text);
+      const extra = !already && Number(step.miles) > 0.05 ? ` <span class="dir-miles" data-full="${escapeAttr(formatMiles(step.miles))}">${formatMiles(step.miles)}</span>` : "";
+      return `<li><button type="button" class="dir-step" data-dir-stop="${escapeAttr(group.id)}" data-dir-index="${index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(text)}</span>${extra}</button></li>`;
+    }).join("")}
   `).join("");
   return `<details class="directions call-log-box" open>
     <summary>auto zooming directions</summary>
