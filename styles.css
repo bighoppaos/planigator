@@ -734,6 +734,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin: 4px 0 8px;
 }
 
+button.set-box { position: relative; }
+button.set-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
 .set-box {
   min-height: 0;
   width: auto;
