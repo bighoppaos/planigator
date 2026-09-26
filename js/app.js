@@ -3779,7 +3779,7 @@ function routeAheadPoints() {
     }
     walked = segEnd;
   }
-  return thinRoute(coords, 1609, 300);
+  return thinRoute(coords, 800, 1800);
 }
 
 function truckNoteText(hit) {
