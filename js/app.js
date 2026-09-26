@@ -846,6 +846,12 @@ function needsStartChoice() {
   return (places[0]?.name || "").trim().toLowerCase() !== "start";
 }
 
+function creditEmptyMessage() {
+  if (state.cardOnFile) return "You are out of credits. Buy a pack of 124. The card on file is not charged.";
+  if (state.signedIn) return "Those 40 free credits are used. Save a card for 40 more. That card is not charged when they run out.";
+  return "Sign in with Google for 40 free credits. Save a card for 40 more. That card is not charged when they run out.";
+}
+
 async function calculate({ silent = false, skipHash = false } = {}) {
   if (!silent && needsStartChoice()) {
     state.chooseStart = true;
@@ -856,11 +862,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   }
   state.chooseStart = false;
   if (!silent && !state.unlimited && state.credits === 0) {
-    state.error = state.cardOnFile
-      ? "You are out of credits. Buy a pack of 124. The card on file is not charged."
-      : state.signedIn
-        ? "Those 40 free credits are used. Save a card for 40 more. That card is not charged when they run out."
-        : "Sign in with Google for 40 free credits. Save a card for 40 more. That card is not charged when they run out.";
+    state.error = creditEmptyMessage();
     render();
     return;
   }
@@ -2583,7 +2585,6 @@ function planBox() {
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
-        <button type="button" id="routeStop" aria-label="${escapeAttr(navStopTitle(chosenNavStop()?.stop))}">${stopButtonMarkup(chosenNavStop()?.stop)}</button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -2732,8 +2733,8 @@ function restoreRouteLine() {
   }
   if (!(navOn && navFix && navLine.length >= 2)) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
-  const until = alongForChosen(chosenNavStop());
-  paintNavLine(hit.along, until == null ? Infinity : until);
+  const leg = legUnderFix(navFix[0], navFix[1]);
+  paintNavLine(hit.along, leg ? leg.end : Infinity);
 }
 
 function applyBasemap() {
@@ -4171,8 +4172,7 @@ function cycleTripFit() {
   rebuildNavLegs();
   if (tripFit === "remaining") {
     const from = navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : 0;
-    const until = alongForChosen(chosenNavStop());
-    fitCoords(navRemaining(from, until == null ? Infinity : until), 14);
+    fitCoords(navRemaining(from, Infinity), 14);
     return;
   }
   turnFrameAt = null;
@@ -4430,7 +4430,143 @@ function currentFix() {
   });
 }
 
+function legUnderFix(lat, lon) {
+  rebuildNavLegs();
+  if (navLine.length < 2 || !navLegs.length) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const hit = navNearest(lat, lon, navLine);
+  return navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+}
+
+function upcomingRoutedStop(lat, lon) {
+  const stop = legUnderFix(lat, lon)?.stop;
+  if (!stop || stop.useCurrentLocation || stop.skipRoute || !pointReady(stop)) return null;
+  return stop;
+}
+
+function applyAheadLeg(here, stopId, leg) {
+  const kept = state.stops.filter((stop) => !stop.useCurrentLocation);
+  const chosenPos = kept.findIndex((stop) => stop.id === stopId);
+  if (chosenPos < 0) return false;
+  kept.forEach((stop, index) => {
+    const passed = index < chosenPos;
+    stop.skipRoute = passed;
+    if (!passed) return;
+    stop.miles = "";
+    stop.hours = "";
+    stop.path = [];
+    stop.directions = [];
+  });
+  const targetStop = kept[chosenPos];
+  targetStop.skipRoute = false;
+  targetStop.miles = String(Math.round(leg.miles * 10) / 10);
+  targetStop.hours = String(Math.round(leg.hours * 100) / 100);
+  targetStop.path = Array.isArray(leg.points) ? leg.points : [];
+  targetStop.directions = Array.isArray(leg.directions) ? leg.directions : [];
+  if (leg.credits != null) state.credits = leg.credits;
+  state.origin = {
+    lat: here.lat,
+    lon: here.lon,
+    ...(typeof here.heading === "number" ? { heading: here.heading } : {}),
+  };
+  state.stops = [
+    defaultStop({
+      name: "Current location",
+      useCurrentLocation: true,
+      lat: here.lat,
+      lon: here.lon,
+      address: "",
+    }),
+    ...kept,
+  ];
+  const cursor = navDestList().findIndex((item) => item.stop.id === stopId);
+  if (cursor >= 0) navStopCursor = cursor;
+  navStopPicked = false;
+  navGuideFromId = "";
+  navStopAwaitNear = false;
+  navStopAnnounce = false;
+  navStopSpeakKey = "";
+  clearStopNote(true);
+  rememberOrigin();
+  persist();
+  return true;
+}
+
 async function recalculateFromHere() {
+  if (state.estimating) return;
+  state.estimating = true;
+  state.error = "";
+  syncRouteChrome();
+  const recalcBtn = document.getElementById("routeRecalc");
+  if (recalcBtn) recalcBtn.disabled = true;
+  const calc = document.getElementById("calculate");
+  if (calc) {
+    calc.disabled = true;
+    calc.innerHTML = calculateButtonLabel();
+  }
+  const here = await currentFix();
+  if (!here) {
+    state.estimating = false;
+    state.error = "Allow location first, then Recalculate.";
+    state.notice = "";
+    render();
+    return;
+  }
+  rebuildNavLegs();
+  if (navLine.length < 2) {
+    state.estimating = false;
+    state.error = "Calculate the trip first.";
+    render();
+    return;
+  }
+  const target = upcomingRoutedStop(here.lat, here.lon);
+  if (!target) {
+    state.estimating = false;
+    state.error = "No stop ahead to recalculate.";
+    render();
+    return;
+  }
+  if (!state.unlimited && state.credits === 0) {
+    state.estimating = false;
+    state.error = creditEmptyMessage();
+    render();
+    return;
+  }
+  const name = navStopTitle(target);
+  let leg;
+  try {
+    const heading = here.heading;
+    leg = await truckRoute(
+      { lat: here.lat, lon: here.lon },
+      { lat: Number(target.lat), lon: Number(target.lon) },
+      {
+        speedCapMph: state.settings.governed ? mph() : null,
+        departAt: leaveAtNow(),
+        course: typeof heading === "number" ? heading : undefined,
+        routingMode: state.settings.routeMode === "short" ? "short" : "fast",
+      },
+    );
+  } catch (error) {
+    if (error.credits != null) state.credits = error.credits;
+    state.estimating = false;
+    state.error = error.message || "Could not get a HERE© truck route.";
+    state.notice = "";
+    render();
+    return;
+  }
+  if (!applyAheadLeg(here, target.id, leg)) {
+    state.estimating = false;
+    state.error = "No stop ahead to recalculate.";
+    state.notice = "";
+    render();
+    return;
+  }
+  state.estimating = false;
+  state.notice = `HERE© truck route to ${name} (${TRUCK_PROFILE.summary}).`;
+  await calculate({ silent: true });
+}
+
+async function recalculateRemainingFromHere() {
   const here = await currentFix();
   if (!here) {
     state.error = "Allow location first, then Recalculate.";
@@ -4589,8 +4725,10 @@ function addTruckAsNextStop() {
   if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
   const place = [hit.city, hit.state].filter(Boolean).join(", ");
   const label = String(hit.label || [hit.name, place].filter(Boolean).join(", "));
+  const ahead = navFix ? upcomingRoutedStop(navFix[0], navFix[1]) : null;
+  const aheadIndex = ahead ? state.stops.findIndex((stop) => stop.id === ahead.id) : -1;
   const chosen = chosenNavStop();
-  const index = chosen ? chosen.index : state.stops.length;
+  const index = aheadIndex >= 0 ? aheadIndex : (chosen ? chosen.index : state.stops.length);
   const next = defaultStop({
     name: hit.name || "Truck stop",
     address: label,
@@ -4629,7 +4767,7 @@ function addTruckAsNextStop() {
 async function addTruckAndRecalculate() {
   if (!truckHit) return;
   addTruckAsNextStop();
-  await recalculateFromHere();
+  await recalculateRemainingFromHere();
 }
 
 function placeSearchButtons() {
@@ -4797,59 +4935,32 @@ function onNavFix(lat, lon) {
     const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
-    const chosen = chosenNavStop();
-    const speakBefore = navStopSpeakKey;
-    const guideTarget = guideChoice();
-    const guided = guideTarget && !guideTarget.stop?.skipRoute
-      ? guideFromChosenStop(guideTarget, lat, lon, hit)
-      : null;
-    const targetAlong = alongForChosen(chosen);
-    const towardStop = chosen?.stop || leg?.stop;
+    const towardStop = leg?.stop;
     const toward = towardStop ? navStopTitle(towardStop) : "the stop";
-    const until = targetAlong == null ? Infinity : targetAlong;
-    const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
-    if (guided === "near") {
-      // Directions now leave the stop he picked.
-    } else if (chosen?.stop?.skipRoute) {
+    const until = leg ? leg.end : Infinity;
+    if (towardStop?.skipRoute) {
       setStopChip(-1, "");
       sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
       paintNavLine(hit.along, Infinity);
-      if (navStopPicked) {
-        const text = `Recalculate to reach ${toward}`;
-        showStopNote(text);
-        const key = `${chosen.stop.id}:skip`;
-        if (navStopSpeakKey !== key) {
-          navStopSpeakKey = key;
-          if (navStopAnnounce) {
-            navStopAnnounce = false;
-            window.speechSynthesis?.cancel();
-            speakNav(text);
-          }
-        }
-      }
     } else if (off) {
       setStopChip(-1, "");
       sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(0, until);
-      if (guided !== "away") clearStopNote(false);
+      clearStopNote(true);
     } else {
       const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
       const title = String(step?.text || "").trim();
       const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
-      setStopChip(leftToStop, toward);
-      sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
-      const lineUntil = guided === "away" && !(targetAlong > hit.along + 30) ? Infinity : until;
-      paintNavLine(hit.along, lineUntil);
+      setStopChip(leftOnLeg, toward);
+      sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), `${navMiles(leftOnLeg)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+      paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
         paintDirectionMiles(leg.stop.id, found.index, leftInStep);
         openDirectionsNear(leg.stop.id, found.index, leftInStep);
       }
-      const justSwitched = guided === "away" && navStopSpeakKey !== speakBefore;
-      if (!justSwitched) {
-        if (guided !== "away") clearStopNote(false);
-        speakNavProgress(leg, found, hit.along);
-      }
+      clearStopNote(true);
+      speakNavProgress(leg, found, hit.along);
     }
   }
   if (tripFit === "nextTurn") {
@@ -6364,7 +6475,6 @@ function bind() {
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
   $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
-  $("#routeStop")?.addEventListener("click", (event) => cycleNavStop(event));
   $("#routeZoomIn")?.addEventListener("click", () => changeMapZoom(1));
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
