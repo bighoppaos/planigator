@@ -1689,7 +1689,9 @@ body.route-full {
 #nextWalmart,
 #darkMode,
 #nextTruckNote,
-#addTruckStop {
+#addTruckStop,
+#startNav,
+#endNav {
   width: fit-content;
   max-width: 100%;
   margin: 4px 0 0;
@@ -1697,10 +1699,9 @@ body.route-full {
   font-size: calc(var(--box-font, 13px) * 22 / 13);
   line-height: 1.2;
 }
+.nav-go { margin-top: 14px; }
 #startNav,
 #endNav {
-  width: fit-content;
-  font-size: calc(var(--box-font, 13px) * 22 / 13);
   animation: start-nav-colors 2.5s linear infinite;
 }
 #endNav { animation-delay: -1.25s; }
