@@ -2323,8 +2323,7 @@ function planBox() {
           <button type="button" class="route-add" id="routeCatAdd" hidden>Add and recalculate</button>
           <button type="button" id="routeCat" hidden aria-label="Next Cat Scale"><span>Cat</span><span>scale</span></button>
         </div>
-        <button type="button" id="routeSatellite" class="${basemap === "satellite" ? "on" : ""}" aria-pressed="${basemap === "satellite" ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
-        <button type="button" id="routeStreets" class="${basemap === "vector" ? "on" : ""}" aria-pressed="${basemap === "vector" ? "true" : "false"}" aria-label="Street map"><span>Street</span><span>map</span></button>
+        <button type="button" id="routeBasemap" class="on" aria-pressed="true" aria-label="${basemap === "satellite" ? "Satellite" : "Street map"}">${basemap === "satellite" ? "<span>Satel</span><span>lite</span>" : "<span>Street</span><span>map</span>"}</button>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
         <button type="button" id="routeZoomOut" aria-label="Zoom out"><span>Zoom</span><span>out</span></button>
       </aside>
@@ -2507,16 +2506,18 @@ function applyBasemap() {
 }
 
 function paintBasemapButtons() {
-  const satellite = document.getElementById("routeSatellite");
-  const streets = document.getElementById("routeStreets");
-  if (satellite) {
-    satellite.classList.toggle("on", basemap === "satellite");
-    satellite.setAttribute("aria-pressed", basemap === "satellite" ? "true" : "false");
-  }
-  if (streets) {
-    streets.classList.toggle("on", basemap === "vector");
-    streets.setAttribute("aria-pressed", basemap === "vector" ? "true" : "false");
-  }
+  const button = document.getElementById("routeBasemap");
+  if (!button) return;
+  const satellite = basemap === "satellite";
+  button.classList.add("on");
+  button.setAttribute("aria-pressed", "true");
+  button.setAttribute("aria-label", satellite ? "Satellite" : "Street map");
+  button.replaceChildren();
+  const top = document.createElement("span");
+  const bottom = document.createElement("span");
+  top.textContent = satellite ? "Satel" : "Street";
+  bottom.textContent = satellite ? "lite" : "map";
+  button.append(top, bottom);
 }
 
 function selectBasemap(next) {
@@ -4659,6 +4660,9 @@ function endRouteNav() {
     source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });
   }
   if (routeMap) routeMap.easeTo({ bearing: 0, duration: 400 });
+  window.clearTimeout(dirBrowseTimer);
+  dirBrowseTimer = 0;
+  document.getElementById("routeDirections")?.classList.remove("dir-browse");
   syncRouteChrome();
   focusDirectionWindow(null, null);
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
@@ -4669,12 +4673,86 @@ function endRouteNav() {
   });
 }
 
+let dirBrowseTimer = 0;
+let dirBrowseLock = false;
+
+function armDirectionBrowse() {
+  if (!navOn || dirBrowseLock) return;
+  const box = document.getElementById("routeDirections");
+  const scrolling = box?.querySelector(".dir-scroll");
+  if (!box || !scrolling) return;
+  const open = box.classList.contains("dir-browse");
+  if (!open) {
+    const button = scrolling.querySelector(".dir-step.on");
+    const before = button ? button.getBoundingClientRect().top : null;
+    box.classList.add("dir-browse");
+    scrolling.querySelectorAll("li.dir-far").forEach((li) => li.classList.remove("dir-far"));
+    if (button && before != null) {
+      const after = button.getBoundingClientRect().top;
+      dirBrowseLock = true;
+      scrolling.scrollTop += after - before;
+      dirBrowseLock = false;
+    }
+  }
+  window.clearTimeout(dirBrowseTimer);
+  dirBrowseTimer = window.setTimeout(snapDirectionBrowse, 5000);
+}
+
+function snapDirectionBrowse() {
+  window.clearTimeout(dirBrowseTimer);
+  dirBrowseTimer = 0;
+  const box = document.getElementById("routeDirections");
+  const scrolling = box?.querySelector(".dir-scroll");
+  if (!box) return;
+  dirBrowseLock = true;
+  box.classList.remove("dir-browse");
+  const button = scrolling?.querySelector(".dir-step.on");
+  if (button && navOn) {
+    focusDirectionWindow(button.getAttribute("data-dir-stop"), Number(button.getAttribute("data-dir-index")));
+    revealDirection(button);
+  } else focusDirectionWindow(null, null);
+  dirBrowseLock = false;
+}
+
+function bindDirectionBrowse() {
+  const box = document.getElementById("routeDirections");
+  const scrolling = box?.querySelector(".dir-scroll");
+  if (!box || !scrolling || box.dataset.browseBound === "1") return;
+  box.dataset.browseBound = "1";
+  let touchY = null;
+  box.addEventListener("touchstart", (event) => {
+    touchY = event.touches?.[0]?.clientY ?? null;
+  }, { passive: true });
+  box.addEventListener("wheel", (event) => {
+    if (!navOn) return;
+    if (!box.classList.contains("dir-browse")) event.preventDefault();
+    armDirectionBrowse();
+    event.stopPropagation();
+  }, { passive: false });
+  box.addEventListener("touchmove", (event) => {
+    if (!navOn) return;
+    const y = event.touches?.[0]?.clientY;
+    if (touchY != null && y != null && Math.abs(y - touchY) < 8) return;
+    armDirectionBrowse();
+    event.stopPropagation();
+  }, { passive: true });
+  scrolling.addEventListener("scroll", () => {
+    if (dirBrowseLock || !navOn || !box.classList.contains("dir-browse")) return;
+    armDirectionBrowse();
+  }, { passive: true });
+}
+
 function focusDirectionWindow(stopId, index) {
   const scrolling = document.querySelector("#routeDirections .dir-scroll");
   const box = document.getElementById("routeDirections");
   if (!scrolling) return;
-  const hide = navOn && Number.isFinite(index);
-  box?.classList.toggle("dir-three", hide);
+  const browsing = Boolean(box?.classList.contains("dir-browse"));
+  const hide = navOn && Number.isFinite(index) && !browsing;
+  box?.classList.toggle("dir-three", Boolean(navOn && Number.isFinite(index)));
+  if (browsing) {
+    scrolling.querySelectorAll("li.dir-far").forEach((li) => li.classList.remove("dir-far"));
+    return;
+  }
   scrolling.querySelectorAll("li").forEach((li) => {
     const button = li.querySelector("[data-dir-stop]");
     if (!hide) {
@@ -4812,7 +4890,7 @@ function markDirection(stopId, index) {
 
 function revealDirection(button) {
   const list = button?.closest(".dir-scroll");
-  if (!list) return;
+  if (!list || list.closest(".dir-browse")) return;
   if (list.closest(".dir-three")) {
     list.scrollTop = 0;
     return;
@@ -5907,6 +5985,7 @@ function bind() {
       zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
     });
   });
+  bindDirectionBrowse();
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#deleteCard")?.addEventListener("click", () => deleteCard());
   $("#buyPack")?.addEventListener("click", () => buyPack());
@@ -5963,8 +6042,7 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
-  $("#routeSatellite")?.addEventListener("click", () => selectBasemap("satellite"));
-  $("#routeStreets")?.addEventListener("click", () => selectBasemap("vector"));
+  $("#routeBasemap")?.addEventListener("click", () => selectBasemap(basemap === "satellite" ? "vector" : "satellite"));
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;

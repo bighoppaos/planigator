@@ -693,6 +693,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 1px 4px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   border: 1px solid currentColor;
   border-radius: 6px;
 }
@@ -1599,8 +1600,7 @@ body.route-full {
 #routeStop,
 #routeFollow.on,
 #routeWhole.on,
-#routeSatellite.on,
-#routeStreets.on {
+#routeBasemap.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
 }
@@ -1683,6 +1683,14 @@ body.route-full {
 .route-stage.is-full .directions.dir-three .dir-scroll {
   max-height: none;
   overflow: visible;
+}
+.route-stage.is-full .directions.dir-three.dir-browse {
+  max-height: 34vh;
+  overflow: hidden;
+}
+.route-stage.is-full .directions.dir-three.dir-browse .dir-scroll {
+  max-height: 22vh;
+  overflow-y: auto;
 }
 .route-stage.is-full .route-rail button {
   width: 60px;
