@@ -3199,8 +3199,6 @@ function spokenAloud(text) {
   said = said.replace(/[()]/g, " ");
   // "E/US-35" and "N/Fort" were glued to the slash, so the next word was spelled letter by letter.
   said = said.replace(/([A-Za-z0-9])\/+(?=[A-Za-z])/g, "$1 and ");
-  said = said.replace(/\bUS-(\d+)\b/g, "us $1");
-  said = said.replace(/\bUS\b/g, "us");
   said = said.replace(/\bI-(\d+)\b/g, "Interstate $1");
   // Uppercase only, so "in 0.4 miles" stays. Route shields (IN-25) and ", IN" are states.
   said = said.replace(/\b([A-Z]{2})-(\d+)\b/g, (match, code, num) => (
@@ -3248,6 +3246,9 @@ function spokenAloud(text) {
   for (const [abbr, word] of swaps) {
     said = said.replace(new RegExp(`\\b${abbr}\\.?(?!\\w)`, "gi"), word);
   }
+  // After the compass words, so the S in U.S. is not said as South.
+  said = said.replace(/\bUS-(\d+)\b/g, "U.S. $1");
+  said = said.replace(/\bUS\b/g, "U.S.");
   return said.replace(/\s+/g, " ").trim();
 }
 
