@@ -2379,9 +2379,9 @@ let mapSearchMarkers = [];
 function lookupMapSheet() {
   const stop = state.stops.find((item) => item.id === state.openLookupStopId);
   if (!stop || (!chooseMap && !lookupPins(stop).length)) return "";
-  return `<div class="lookup-sheet" role="dialog" aria-modal="true" aria-label="Choose from map">
+  return `<div class="lookup-sheet" role="dialog" aria-modal="true" aria-label="${chooseMap ? "search/choose from map" : "Choose a stop"}">
     <div class="lookup-sheet-bar">
-      <strong>${chooseMap ? "Choose from map" : "Choose a stop"}</strong>
+      <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
     ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
@@ -4540,7 +4540,7 @@ function stopCard(stop, index) {
       </div>
       <div class="address-row">
         <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
-        <button type="button" class="flag-box" data-act="map">Choose from map</button>
+        <button type="button" class="flag-box" data-act="map">search/choose from map</button>
       </div>
       <div class="lookup-row">
         <button type="button" class="flag-box lookup${lookupFlash ? " lookup-flash" : ""}" data-act="lookup"${lookupOpen.has(stop.id) ? "" : " hidden"} ${state.looking === stop.id ? "disabled" : ""}>${state.looking === stop.id ? "Looking up…" : state.signedIn ? "Look up this address · 1 credit" : "Look up this address"}</button>
