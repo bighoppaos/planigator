@@ -3954,7 +3954,7 @@ async function findNextTruckStop(options = {}) {
     truckHit = null;
     if (add) add.hidden = true;
     syncTruckAdd();
-    if (note) note.textContent = error.message || `No ${word} within 2 miles of the route.`;
+    if (note) note.textContent = error.message || `No ${word} within 5 miles of the route line.`;
   } finally {
     const blocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
     for (const button of buttons) button.disabled = blocked;
