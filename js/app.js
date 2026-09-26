@@ -2321,6 +2321,10 @@ function planBox() {
           <button type="button" class="route-add" id="routeTruckAdd" hidden>Add and recalculate</button>
           <button type="button" id="routeTruck" hidden aria-label="Next truck stop"><span>Truck</span><span>stop</span></button>
         </div>
+        <div class="truck-slot">
+          <button type="button" class="route-add" id="routeCatAdd" hidden>Add and recalculate</button>
+          <button type="button" id="routeCat" hidden aria-label="Next Cat Scale"><span>Cat</span><span>scale</span></button>
+        </div>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
         <button type="button" id="routeZoomOut" aria-label="Zoom out"><span>Zoom</span><span>out</span></button>
       </aside>
@@ -3241,7 +3245,7 @@ function syncRouteChrome() {
     const button = document.getElementById(id);
     if (button) button.disabled = placeBlocked;
   }
-  for (const id of ["routeTruck", "routeLoves", "routeWalmart"]) {
+  for (const id of ["routeTruck", "routeLoves", "routeWalmart", "routeCat"]) {
     const button = document.getElementById(id);
     if (!button) continue;
     button.hidden = !(routeFull && navOn);
@@ -3845,8 +3849,8 @@ function showTruckHit(hit) {
 
 function syncTruckAdd() {
   const show = routeFull && navOn && truckHit;
-  const place = truckHit?.place === "loves" || truckHit?.place === "walmart" ? truckHit.place : "truck";
-  for (const [id, kind] of [["routeTruckAdd", "truck"], ["routeLovesAdd", "loves"], ["routeWalmartAdd", "walmart"]]) {
+  const place = truckHit?.place === "loves" || truckHit?.place === "walmart" || truckHit?.place === "cat" ? truckHit.place : "truck";
+  for (const [id, kind] of [["routeTruckAdd", "truck"], ["routeLovesAdd", "loves"], ["routeWalmartAdd", "walmart"], ["routeCatAdd", "cat"]]) {
     const add = document.getElementById(id);
     if (add) add.hidden = !(show && place === kind);
   }
@@ -3901,15 +3905,15 @@ async function addTruckAndRecalculate() {
 }
 
 function placeSearchButtons() {
-  return ["nextTruck", "nextLoves", "nextWalmart", "routeTruck", "routeLoves", "routeWalmart"]
+  return ["nextTruck", "nextLoves", "nextWalmart", "routeTruck", "routeLoves", "routeWalmart", "routeCat"]
     .map((id) => document.getElementById(id))
     .filter(Boolean);
 }
 
 async function findNextTruckStop(options = {}) {
   if (!navOn) return;
-  const place = options.place === "loves" || options.place === "walmart" ? options.place : "truck";
-  const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : "truck stop";
+  const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
+  const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : place === "cat" ? "Cat Scale" : "truck stop";
   const buttons = placeSearchButtons();
   const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
@@ -5459,10 +5463,12 @@ function bind() {
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#routeLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves", frame: true }));
   $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));
+  $("#routeCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat", frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeLovesAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());
+  $("#routeCatAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;

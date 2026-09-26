@@ -1547,7 +1547,8 @@ body.route-full {
 }
 .truck-slot:has(#routeTruck[hidden]),
 .truck-slot:has(#routeLoves[hidden]),
-.truck-slot:has(#routeWalmart[hidden]) { display: none; }
+.truck-slot:has(#routeWalmart[hidden]),
+.truck-slot:has(#routeCat[hidden]) { display: none; }
 .route-rail .route-add {
   position: absolute;
   right: calc(100% + 8px);
