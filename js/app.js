@@ -2329,7 +2329,8 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeSatellite" class="${satelliteOn ? "on" : ""}" aria-pressed="${satelliteOn ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
+        <button type="button" id="routeSatellite" class="${basemap === "satellite" ? "on" : ""}" aria-pressed="${basemap === "satellite" ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
+        <button type="button" id="routeStreets" class="${basemap === "vector" ? "on" : ""}" aria-pressed="${basemap === "vector" ? "true" : "false"}" aria-label="Street map"><span>Street</span><span>map</span></button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
@@ -2394,9 +2395,11 @@ function lookupMapSheet() {
 
 let lookupMaps = [];
 
-let satelliteOn = true;
+let basemap = "satellite";
 try {
-  if (localStorage.getItem("planigator.satellite") === "0") satelliteOn = false;
+  const saved = localStorage.getItem("planigator.basemap");
+  if (saved === "vector" || saved === "satellite") basemap = saved;
+  else if (localStorage.getItem("planigator.satellite") === "0") basemap = "vector";
 } catch {}
 
 const satelliteSource = {
@@ -2408,13 +2411,7 @@ const satelliteSource = {
   attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
 };
 
-const streetSource = {
-  type: "raster",
-  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"],
-  tileSize: 256,
-  maxzoom: 19,
-  attribution: "Esri, HERE, Garmin, USGS, Intermap, and the GIS User Community",
-};
+const vectorStyleUrl = "https://tiles.openfreemap.org/styles/liberty";
 
 function rasterSpec(source) {
   return { ...source, tiles: [...source.tiles] };
@@ -2429,46 +2426,105 @@ function satelliteMapStyle() {
 }
 
 function routeStyle() {
-  if (satelliteOn) return satelliteMapStyle();
-  return {
-    version: 8,
-    sources: { streets: rasterSpec(streetSource) },
-    layers: [{ id: "streets", type: "raster", source: "streets" }],
-  };
+  if (basemap === "vector") return vectorStyleUrl;
+  return satelliteMapStyle();
+}
+
+function styleIsBasemap(map) {
+  if (basemap === "vector") return Boolean(map.getSource("openmaptiles"));
+  return Boolean(map.getLayer("satellite"));
+}
+
+function ensureRouteLayers(map) {
+  if (!map.getSource("route")) {
+    const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
+    map.addSource("route", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+    });
+    map.addLayer({
+      id: "route-casing",
+      type: "line",
+      source: "route",
+      paint: { "line-color": "#ffffff", "line-width": 7 },
+    });
+    map.addLayer({
+      id: "route",
+      type: "line",
+      source: "route",
+      paint: { "line-color": "#1f8a62", "line-width": 4 },
+    });
+  }
+  if (!map.getSource("left")) {
+    map.addSource("left", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
+    });
+    map.addLayer({
+      id: "left",
+      type: "line",
+      source: "left",
+      paint: { "line-color": "#3dcaa0", "line-width": 6 },
+    });
+  }
+}
+
+function restoreRouteLine() {
+  const map = routeMap;
+  if (!map?.getSource("route")) return;
+  const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
+  if (coordinates.length >= 2) {
+    map.getSource("route").setData({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates },
+    });
+  }
+  if (!(navOn && navFix && navLine.length >= 2)) return;
+  const hit = navNearest(navFix[0], navFix[1], navLine);
+  const until = alongForChosen(chosenNavStop());
+  paintNavLine(hit.along, until == null ? Infinity : until);
 }
 
 function applyBasemap() {
   const map = routeMap;
   if (!map?.isStyleLoaded?.()) return;
-  const beforeRoute = map.getLayer("route-casing") ? "route-casing" : undefined;
-  if (satelliteOn) {
-    if (!map.getSource("satellite")) map.addSource("satellite", rasterSpec(satelliteSource));
-    if (!map.getLayer("satellite")) {
-      map.addLayer({ id: "satellite", type: "raster", source: "satellite" }, beforeRoute);
-    } else {
-      map.setLayoutProperty("satellite", "visibility", "visible");
-    }
-    if (map.getLayer("streets")) map.removeLayer("streets");
-    if (map.getSource("streets")) map.removeSource("streets");
+  if (styleIsBasemap(map)) {
+    ensureRouteLayers(map);
     return;
   }
-  const beforeSat = map.getLayer("satellite") ? "satellite" : beforeRoute;
-  if (!map.getSource("streets")) map.addSource("streets", rasterSpec(streetSource));
-  if (!map.getLayer("streets")) {
-    map.addLayer({ id: "streets", type: "raster", source: "streets" }, beforeSat);
-  }
-  if (map.getLayer("satellite")) map.removeLayer("satellite");
-  if (map.getSource("satellite")) map.removeSource("satellite");
+  const next = basemap;
+  map.setStyle(next === "vector" ? vectorStyleUrl : satelliteMapStyle(), { diff: false });
+  map.once("style.load", () => {
+    if (routeMap !== map) return;
+    if (basemap !== next) {
+      applyBasemap();
+      return;
+    }
+    ensureRouteLayers(map);
+    restoreRouteLine();
+  });
 }
 
-function toggleSatellite() {
-  satelliteOn = !satelliteOn;
-  try { localStorage.setItem("planigator.satellite", satelliteOn ? "1" : "0"); } catch {}
+function paintBasemapButtons() {
+  const satellite = document.getElementById("routeSatellite");
+  const streets = document.getElementById("routeStreets");
+  if (satellite) {
+    satellite.classList.toggle("on", basemap === "satellite");
+    satellite.setAttribute("aria-pressed", basemap === "satellite" ? "true" : "false");
+  }
+  if (streets) {
+    streets.classList.toggle("on", basemap === "vector");
+    streets.setAttribute("aria-pressed", basemap === "vector" ? "true" : "false");
+  }
+}
+
+function selectBasemap(next) {
+  if (next !== "satellite" && next !== "vector") return;
+  if (next === basemap) return;
+  basemap = next;
+  try { localStorage.setItem("planigator.basemap", basemap); } catch {}
   applyBasemap();
-  const button = document.getElementById("routeSatellite");
-  if (!button) return;
-  button.classList.toggle("on", satelliteOn);
-  button.setAttribute("aria-pressed", satelliteOn ? "true" : "false");
+  paintBasemapButtons();
 }
 
 function pickMapStyle() {
@@ -5628,7 +5684,8 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
-  $("#routeSatellite")?.addEventListener("click", () => toggleSatellite());
+  $("#routeSatellite")?.addEventListener("click", () => selectBasemap("satellite"));
+  $("#routeStreets")?.addEventListener("click", () => selectBasemap("vector"));
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;

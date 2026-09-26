@@ -1599,7 +1599,8 @@ body.route-full {
 #routeStop,
 #routeFollow.on,
 #routeWhole.on,
-#routeSatellite.on {
+#routeSatellite.on,
+#routeStreets.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
 }
