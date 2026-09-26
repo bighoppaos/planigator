@@ -4637,35 +4637,11 @@ function stopPoint(stop) {
   return { lat, lon };
 }
 
-function nextRoutedAfter(stop) {
-  const index = state.stops.findIndex((item) => item.id === stop?.id);
-  if (index < 0) return null;
-  for (let i = index + 1; i < state.stops.length; i += 1) {
-    const item = state.stops[i];
-    if (item.useCurrentLocation || item.skipRoute || !pointReady(item)) continue;
-    return item;
-  }
-  return null;
-}
-
-function stopHeIsDrivingToward(lat, lon) {
-  rebuildNavLegs();
-  let toward = upcomingRoutedStop(lat, lon);
-  if (!toward || navLine.length < 2) return toward;
-  const hit = navNearest(lat, lon, navLine);
-  const leg = navLegs.find((item) => item.stop.id === toward.id);
-  const left = leg ? leg.end - hit.along : Infinity;
-  if (left <= STOP_NEAR_M) {
-    const next = nextRoutedAfter(toward);
-    if (next) toward = next;
-  }
-  return toward;
-}
-
-function routeTruckLeg(from, to) {
+function routeTruckLeg(from, to, course) {
   return truckRoute(from, to, {
     speedCapMph: state.settings.governed ? mph() : null,
     departAt: leaveAtNow(),
+    ...(typeof course === "number" ? { course } : {}),
     routingMode: state.settings.routeMode === "short" ? "short" : "fast",
   });
 }
@@ -4863,10 +4839,10 @@ function addTruckAndRecalculate() {
   truckHit = null;
   // Let the tap finish before any map rebuild. Removing the button under
   // the finger makes iOS swallow Exit and zoom until a refresh.
-  window.setTimeout(() => { void addPlaceAfterCurrentStop(hit); }, 0);
+  window.setTimeout(() => { void addPlaceAsNextStop(hit); }, 0);
 }
 
-async function addPlaceAfterCurrentStop(hit) {
+async function addPlaceAsNextStop(hit) {
   syncTruckAdd();
   syncRouteChrome();
   const calc = document.getElementById("calculate");
@@ -4901,24 +4877,22 @@ async function addPlaceAfterCurrentStop(hit) {
     render();
     return;
   }
-  const toward = stopHeIsDrivingToward(here.lat, here.lon);
+  const toward = upcomingRoutedStop(here.lat, here.lon);
   const towardIndex = toward ? state.stops.findIndex((stop) => stop.id === toward.id) : -1;
-  const fromPoint = stopPoint(toward);
-  if (!toward || towardIndex < 0 || !fromPoint) {
+  const towardPoint = stopPoint(toward);
+  if (!toward || towardIndex < 0 || !towardPoint) {
     state.estimating = false;
     state.error = "No stop ahead to add this to.";
     render();
     return;
   }
-  const following = nextRoutedAfter(toward);
-  const legsNeeded = following ? 2 : 1;
   if (!state.unlimited && state.credits === 0) {
     state.estimating = false;
     state.error = creditEmptyMessage();
     render();
     return;
   }
-  if (!state.unlimited && Number.isFinite(Number(state.credits)) && state.credits < legsNeeded) {
+  if (!state.unlimited && Number.isFinite(Number(state.credits)) && state.credits < 2) {
     state.estimating = false;
     state.error = "Not enough credits to add that stop on the route.";
     render();
@@ -4935,32 +4909,33 @@ async function addPlaceAfterCurrentStop(hit) {
     anytime: true,
     window: false,
   });
-  if (!toward.useCurrentLocation && Number.isFinite(Number(toward.start))) {
-    next.start = toward.start + 4 * 3600 * 1000;
+  const previous = state.stops[towardIndex - 1];
+  if (previous && !previous.useCurrentLocation && Number.isFinite(Number(previous.start))) {
+    next.start = previous.start + 4 * 3600 * 1000;
     next.end = next.start;
-    const offset = clockOffset(toward.startOffset);
+    const offset = clockOffset(previous.startOffset);
     next.startOffset = offset;
     next.endOffset = offset;
   }
-  const followingSnap = following ? {
-    miles: following.miles,
-    hours: following.hours,
-    path: Array.isArray(following.path) ? following.path.slice() : following.path,
-    directions: Array.isArray(following.directions) ? following.directions.slice() : following.directions,
-  } : null;
-  state.stops.splice(towardIndex + 1, 0, next);
+  const towardSnap = {
+    miles: toward.miles,
+    hours: toward.hours,
+    path: Array.isArray(toward.path) ? toward.path.slice() : toward.path,
+    directions: Array.isArray(toward.directions) ? toward.directions.slice() : toward.directions,
+  };
+  state.stops.splice(towardIndex, 0, next);
+  const course = typeof navCompass === "number" ? navCompass : (typeof navTravel === "number" ? navTravel : here.heading);
   try {
-    writeRoutedLeg(next, await routeTruckLeg(fromPoint, { lat, lon }));
-    const followPoint = stopPoint(following);
-    if (following && followPoint) writeRoutedLeg(following, await routeTruckLeg({ lat, lon }, followPoint));
+    const into = await routeTruckLeg({ lat: here.lat, lon: here.lon }, { lat, lon }, course);
+    const onward = await routeTruckLeg({ lat, lon }, towardPoint);
+    writeRoutedLeg(next, into);
+    writeRoutedLeg(toward, onward);
   } catch (error) {
     state.stops = state.stops.filter((stop) => stop.id !== next.id);
-    if (following && followingSnap) {
-      following.miles = followingSnap.miles;
-      following.hours = followingSnap.hours;
-      following.path = followingSnap.path;
-      following.directions = followingSnap.directions;
-    }
+    toward.miles = towardSnap.miles;
+    toward.hours = towardSnap.hours;
+    toward.path = towardSnap.path;
+    toward.directions = towardSnap.directions;
     if (error.credits != null) state.credits = error.credits;
     state.estimating = false;
     state.error = error.message || "Could not get a HERE© truck route.";
@@ -4968,9 +4943,10 @@ async function addPlaceAfterCurrentStop(hit) {
     render();
     return;
   }
+  const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
+  if (cursor >= 0) navStopCursor = cursor;
   state.estimating = false;
-  const towardName = navStopTitle(toward);
-  state.notice = `Added ${navStopTitle(next)} after ${towardName}. Navigation stays on ${towardName}.`;
+  state.notice = `Added ${navStopTitle(next)} as the next stop.`;
   await calculate({ silent: true });
 }
 
