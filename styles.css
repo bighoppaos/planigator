@@ -1536,7 +1536,8 @@ body.route-full {
   overscroll-behavior: none;
 }
 .route-map .maplibregl-canvas-container { z-index: 0; }
-.route-map .route-rail { z-index: 5; }
+.route-map .route-rail,
+.route-stage > .route-rail { z-index: 6; }
 .route-rail {
   position: absolute;
   top: 8px;

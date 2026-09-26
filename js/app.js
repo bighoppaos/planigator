@@ -5535,8 +5535,11 @@ function mountMap() {
     fadeDuration: 0,
   });
   routeMap = map;
-  el.querySelectorAll(".route-rail").forEach((node) => el.appendChild(node));
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
+  // Keep the rail on the stage, above the directions box. Inside the map,
+  // a tall directions list can sit on top of Exit and zoom.
+  const stage = el.closest(".route-stage") || el;
+  el.querySelectorAll(".route-rail").forEach((node) => stage.appendChild(node));
   map.on("load", () => {
     if (routeMap !== map) return;
     map.resize();
@@ -6679,7 +6682,6 @@ function bind() {
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
-  paintLiveDirections();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
   $("#nextCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat" }));
   $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
@@ -6737,6 +6739,7 @@ function bind() {
     }
     if (navFix) onNavFix(navFix[0], navFix[1]);
   });
+  paintLiveDirections();
   requestAnimationFrame(() => {
     if (routeFull) fitRouteCover();
     routeMap?.resize();
