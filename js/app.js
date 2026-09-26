@@ -853,7 +853,7 @@ function creditEmptyMessage() {
   return "Sign in with Google for 40 free credits. Save a card for 40 more. That card is not charged when they run out.";
 }
 
-async function calculate({ silent = false, skipHash = false } = {}) {
+async function calculate({ silent = false, skipHash = false, keepScreen = false } = {}) {
   if (!silent && needsStartChoice()) {
     state.chooseStart = true;
     state.error = "";
@@ -897,6 +897,12 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     state.plan = silent ? state.plan : null;
     state.error = result.error;
     if (!silent) state.notice = "";
+    if (keepScreen && routeFull && document.getElementById("routeStage")) {
+      showStopNote(state.error, 8000);
+      syncRouteChrome();
+      persist();
+      return;
+    }
     render();
     persist();
     return;
@@ -908,8 +914,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   if (!skipHash && state.signedIn) {
     saveTrip();
     if (silent) {
-      render();
-      persist();
+      presentAfterPlan(keepScreen);
       putTrips(state.trips).then(() => {
         markTripsUploaded();
         persist();
@@ -926,8 +931,19 @@ async function calculate({ silent = false, skipHash = false } = {}) {
   } else if (!silent) {
     state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}).`;
   }
-  render();
+  presentAfterPlan(keepScreen);
+}
+
+function presentAfterPlan(keepScreen) {
   persist();
+  const stage = document.getElementById("routeStage");
+  if (keepScreen && routeFull && stage) {
+    routePageStale = true;
+    if (routeMap) paintLiveRoute();
+    syncRouteChrome();
+    return;
+  }
+  render();
 }
 
 function saveTrip() {
@@ -3202,6 +3218,9 @@ let routeMapReady = false;
 let turnMarker = null;
 let pendingTurn = null;
 let routeFull = false;
+let routePageStale = false;
+let routeLivePaint = false;
+let routePinMarkers = [];
 let navOn = false;
 let navFollowing = true;
 let navMapTouch = false;
@@ -3229,10 +3248,32 @@ let truckHit = null;
 let navLine = [];
 let navLegs = [];
 
+function clearRoutePins() {
+  for (const marker of routePinMarkers) marker.remove();
+  routePinMarkers = [];
+}
+
+function addRoutePins(bounds) {
+  const maplibre = window.maplibregl;
+  clearRoutePins();
+  if (!routeMap || !maplibre) return;
+  routePins().forEach((pin) => {
+    const ink = stopInk(pin.rgb);
+    const button = document.createElement("span");
+    button.className = "route-pin";
+    button.textContent = pin.label;
+    button.style.background = cssRGB(pin.rgb);
+    button.style.color = ink.color;
+    routePinMarkers.push(new maplibre.Marker({ element: button, anchor: "bottom" }).setLngLat([pin.lon, pin.lat]).addTo(routeMap));
+    bounds?.extend([pin.lon, pin.lat]);
+  });
+}
+
 function clearRouteMap() {
   pendingTurn = null;
   routeMapReady = false;
   navYou = null;
+  clearRoutePins();
   if (turnMarker) {
     turnMarker.remove();
     turnMarker = null;
@@ -3949,6 +3990,12 @@ function setRouteFull(on) {
     if (routeFull) fitRouteCover();
     routeMap?.resize();
   });
+  if (!routeFull && routePageStale) {
+    routePageStale = false;
+    window.setTimeout(() => {
+      if (!routeFull) render();
+    }, 0);
+  }
 }
 
 function navDestList() {
@@ -4554,13 +4601,25 @@ function applyAheadLeg(here, stopId, leg) {
   return true;
 }
 
+function abortRecalc(message) {
+  state.estimating = false;
+  state.error = message;
+  state.notice = "";
+  if (routeFull && document.getElementById("routeStage")) {
+    showStopNote(message, 8000);
+    syncRouteChrome();
+    return;
+  }
+  render();
+}
+
 async function recalculateFromHere() {
   if (state.estimating) return;
   state.estimating = true;
   state.error = "";
-  syncRouteChrome();
-  // Leave the rail button enabled. Disabling it under the finger makes iOS
-  // ignore Exit, zoom, and the rest of the rail until a force close.
+  // Do not move or replace the rail while this tap is finishing, and do not
+  // rebuild the full-screen map when the route comes back. A new map covers
+  // Exit and zoom until the page is force-closed.
   const calc = document.getElementById("calculate");
   if (calc) {
     calc.disabled = true;
@@ -4568,30 +4627,21 @@ async function recalculateFromHere() {
   }
   const here = await currentFix();
   if (!here) {
-    state.estimating = false;
-    state.error = "Allow location first, then Recalculate.";
-    state.notice = "";
-    render();
+    abortRecalc("Allow location first, then Recalculate.");
     return;
   }
   rebuildNavLegs();
   if (navLine.length < 2) {
-    state.estimating = false;
-    state.error = "Calculate the trip first.";
-    render();
+    abortRecalc("Calculate the trip first.");
     return;
   }
   const target = upcomingRoutedStop(here.lat, here.lon);
   if (!target) {
-    state.estimating = false;
-    state.error = "No stop ahead to recalculate.";
-    render();
+    abortRecalc("No stop ahead to recalculate.");
     return;
   }
   if (!state.unlimited && state.credits === 0) {
-    state.estimating = false;
-    state.error = creditEmptyMessage();
-    render();
+    abortRecalc(creditEmptyMessage());
     return;
   }
   const name = navStopTitle(target);
@@ -4610,22 +4660,16 @@ async function recalculateFromHere() {
     );
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
-    state.estimating = false;
-    state.error = error.message || "Could not get a HERE© truck route.";
-    state.notice = "";
-    render();
+    abortRecalc(error.message || "Could not get a HERE© truck route.");
     return;
   }
   if (!applyAheadLeg(here, target.id, leg)) {
-    state.estimating = false;
-    state.error = "No stop ahead to recalculate.";
-    state.notice = "";
-    render();
+    abortRecalc("No stop ahead to recalculate.");
     return;
   }
   state.estimating = false;
   state.notice = `HERE© truck route to ${name} (${TRUCK_PROFILE.summary}).`;
-  await calculate({ silent: true });
+  await calculate({ silent: true, keepScreen: true });
 }
 
 function stopPoint(stop) {
@@ -4960,7 +5004,7 @@ function placeSearchButtons() {
 }
 
 async function findNextTruckStop(options = {}) {
-  if (!navOn) return;
+  if (!navOn || state.estimating) return;
   const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
   const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : place === "cat" ? "Cat Scale" : "truck stop";
   const buttons = placeSearchButtons();
@@ -5454,6 +5498,61 @@ function applyTurnZoom(map, focus) {
   pendingTurn = null;
 }
 
+function bindDirectionSteps(root) {
+  (root || document).querySelectorAll("[data-dir-stop]").forEach((button) => {
+    if (button.dataset.dirBound === "1") return;
+    button.dataset.dirBound = "1";
+    button.addEventListener("click", () => {
+      pauseFollowForDirection();
+      zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
+    });
+  });
+}
+
+function refillDirections() {
+  const html = directionsBlock();
+  const current = document.getElementById("routeDirections");
+  if (!html) {
+    current?.remove();
+    return;
+  }
+  const host = document.createElement("template");
+  host.innerHTML = html;
+  const next = host.content.firstElementChild;
+  if (!next) return;
+  if (current) current.replaceWith(next);
+  else document.getElementById("routeStopMiles")?.after(next);
+  bindDirectionSteps(next);
+  bindDirectionBrowse();
+  placeDirections(routeFull);
+}
+
+function paintLiveRoute() {
+  const line = routePoints();
+  const coordinates = line.map(([lat, lon]) => [lon, lat]);
+  const source = routeMap?.getSource("route");
+  if (source && coordinates.length >= 2) {
+    source.setData({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates },
+    });
+  }
+  if (routeMapReady) addRoutePins();
+  turnFrameAt = null;
+  turnFrameTarget = null;
+  rebuildNavLegs();
+  refillDirections();
+  spokenStepKey = "";
+  spokenMiles.clear();
+  paintLiveDirections();
+  const box = document.getElementById("routeDirections");
+  if (navOn && box && !box.classList.contains("dir-three")) {
+    const button = box.querySelector("[data-dir-stop]");
+    if (button) focusDirectionWindow(button.getAttribute("data-dir-stop"), Number(button.getAttribute("data-dir-index")));
+  }
+  if (navOn && navFix && routeMap) onNavFix(navFix[0], navFix[1]);
+}
+
 function paintLiveDirections() {
   if (!navOn || !navFix) return;
   rebuildNavLegs();
@@ -5594,18 +5693,7 @@ function mountMap() {
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
-    routePins().forEach((pin) => {
-      const ink = stopInk(pin.rgb);
-      const button = document.createElement("span");
-      button.className = "route-pin";
-      button.textContent = pin.label;
-      button.style.background = cssRGB(pin.rgb);
-      button.style.color = ink.color;
-      new maplibre.Marker({ element: button, anchor: "bottom" })
-        .setLngLat([pin.lon, pin.lat])
-        .addTo(map);
-      bounds.extend([pin.lon, pin.lat]);
-    });
+    addRoutePins(bounds);
     routeMapReady = true;
     applyBasemap();
     if (navOn && navFix && tripFit !== "full") {
@@ -5975,6 +6063,23 @@ async function watchSignIn() {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  const liveStage = document.getElementById("routeStage");
+  // A new map on this screen covers Exit and zoom until the page is force-closed.
+  if (routeFull && routeMap && liveStage?.isConnected) {
+    routePageStale = true;
+    if (!routeLivePaint) {
+      routeLivePaint = true;
+      try {
+        paintLiveRoute();
+        syncRouteChrome();
+        if (state.error) showStopNote(state.error, 8000);
+      } finally {
+        routeLivePaint = false;
+      }
+    }
+    return;
+  }
+  routePageStale = false;
   // Full screen moves the map onto document.body, and the directions list
   // moves into that screen. A recalculate renders again. Drop both copies or
   // the directions box stacks and the rail is pushed off the screen.
@@ -6649,12 +6754,7 @@ function bind() {
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
   else if (Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
-  document.querySelectorAll("[data-dir-stop]").forEach((button) => {
-    button.addEventListener("click", () => {
-      pauseFollowForDirection();
-      zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
-    });
-  });
+  bindDirectionSteps(document);
   bindDirectionBrowse();
   $("#saveCard")?.addEventListener("click", () => saveCard());
   $("#deleteCard")?.addEventListener("click", () => deleteCard());
