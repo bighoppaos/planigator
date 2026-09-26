@@ -1674,6 +1674,8 @@ body.route-full {
   align-items: flex-start;
 }
 #nextTruck,
+#nextLoves,
+#nextWalmart,
 #darkMode,
 #nextTruckNote,
 #addTruckStop {
@@ -1873,6 +1875,12 @@ button[data-after],
 }
 
 .hos h2, .stops h2, .trips h2 { text-align: center; }
+
+.step > h2 {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 20px;
+}
 
 .actions,
 .trips,

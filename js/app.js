@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=2";
 
 const STORAGE = "planigator.web.v1";
 const DEFAULT_HERO = [
@@ -2151,8 +2151,14 @@ function directionsBlock() {
 
 function planBox() {
   const plan = state.plan;
-  if (!plan) return "";
-  return `<section class="result">
+  if (!plan) {
+    return `<section class="result step">
+      <h2>Step 6. Read the plan and navigate</h2>
+      <p class="fine">After Calculate, the map, directions, and next stops show here.</p>
+    </section>`;
+  }
+  return `<section class="result step">
+    <h2>Step 6. Read the plan and navigate</h2>
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
@@ -2182,7 +2188,7 @@ function planBox() {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">Dark mode</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">Dark mode</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -3034,7 +3040,9 @@ function placeRouteStage() {
     watchRouteCover(false);
     if (stage && (stage.parentElement === document.body || stage.parentElement === dialog)) {
       const home = document.querySelector(".result");
-      if (home) home.insertBefore(stage, home.firstChild);
+      const heading = home?.querySelector(":scope > h2");
+      if (home && heading) heading.after(stage);
+      else if (home) home.insertBefore(stage, home.firstChild);
     }
     pinRouteFull();
     document.getElementById("routeHold")?.remove();
@@ -3558,18 +3566,24 @@ async function addTruckAndRecalculate() {
   await recalculateFromHere();
 }
 
+function placeSearchButtons() {
+  return ["nextTruck", "nextLoves", "nextWalmart", "routeTruck"]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
 async function findNextTruckStop(options = {}) {
-  const button = document.getElementById("nextTruck");
-  const rail = document.getElementById("routeTruck");
+  const place = options.place === "loves" || options.place === "walmart" ? options.place : "truck";
+  const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : "truck stop";
+  const buttons = placeSearchButtons();
   const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
-  if (button) button.disabled = true;
-  if (rail) rail.disabled = true;
+  for (const button of buttons) button.disabled = true;
   if (add) add.hidden = true;
   truckHit = null;
   if (note) {
     note.hidden = false;
-    note.textContent = "Looking for the next truck stop…";
+    note.textContent = `Looking for the next ${word}…`;
   }
   try {
     if (!navFix) {
@@ -3578,13 +3592,13 @@ async function findNextTruckStop(options = {}) {
     }
     const points = routeAheadPoints();
     if (points.length < 2) throw new Error("Calculate the trip first.");
-    const data = await nextTruckStop(points);
+    const data = await nextTruckStop(points, place);
     if (data.credits != null) state.credits = data.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
     const lat = Number(data.lat);
     const lon = Number(data.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("That truck stop has no map point.");
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`That ${word} has no map point.`);
     showTruckHit({
       name: data.name,
       city: data.city,
@@ -3602,11 +3616,10 @@ async function findNextTruckStop(options = {}) {
     if (calc) calc.innerHTML = calculateButtonLabel();
     truckHit = null;
     if (add) add.hidden = true;
-    if (note) note.textContent = error.message || "No truck stop within 2 miles of the route.";
+    if (note) note.textContent = error.message || `No ${word} within 2 miles of the route.`;
   } finally {
     const blocked = state.estimating || (!state.unlimited && state.credits === 0);
-    if (button) button.disabled = blocked;
-    if (rail) rail.disabled = blocked;
+    for (const button of buttons) button.disabled = blocked;
   }
 }
 
@@ -4441,16 +4454,13 @@ function render() {
       </div>
     </section></div>
 
-    ${authBlock()}
+    <section class="step">
+      <h2>Step 1. Sign in for credits</h2>
+      ${authBlock()}
+    </section>
 
-    <section class="hos" style="--box-font: ${state.boxFont}px">
-      <div class="box-stepper">
-        <label class="box-stepper">
-          <span class="sr">Box size</span>
-          <input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}">
-          <span class="flag-box" id="boxFontReadout">${state.boxFont}</span>
-        </label>
-      </div>
+    <section class="hos step" style="--box-font: ${state.boxFont}px">
+      <h2>Step 2. Choose where the trip starts</h2>
         <div class="settings-grid action-grid">
           <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="fromAddress">Start from an address</button>
@@ -4459,6 +4469,18 @@ function render() {
           ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
           ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
         </div>
+        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
+    </section>
+
+    <section class="hos step" style="--box-font: ${state.boxFont}px">
+      <h2>Step 3. Set speed, hours, and when you leave</h2>
+      <div class="box-stepper">
+        <label class="box-stepper">
+          <span class="sr">Box size</span>
+          <input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}">
+          <span class="flag-box" id="boxFontReadout">${state.boxFont}</span>
+        </label>
+      </div>
         <div class="settings-pairs">
           <div class="set-pair">
             <div class="set-box${s.governed ? " on" : ""}">
@@ -4489,18 +4511,17 @@ function render() {
           </div>
         </div>
         ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
-        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
     </section>
 
     ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
 
-    <section class="stops">
+    <section class="stops step">
+      <h2>Step 4. Add each stop</h2>
       ${destCards}
     </section>
 
-    ${planBox()}
-
-    <section class="actions" id="actions">
+    <section class="actions step" id="actions">
+      <h2>Step 5. Calculate the truck route</h2>
       <label class="flag-box trip-name">Trip name
         <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
       </label>
@@ -4517,6 +4538,8 @@ function render() {
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>
+
+    ${planBox()}
 
     ${savedTripsBlock()}
     ${hereCallsBlock()}
@@ -5060,6 +5083,8 @@ function bind() {
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
+  $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
+  $("#nextWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart" }));
   $("#darkMode")?.addEventListener("click", () => toggleDarkMode());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
