@@ -3196,13 +3196,12 @@ const STATE_NAMES = {
 
 function spokenAloud(text) {
   let said = String(text || "");
-  // "US-24 E/US-35" is two numbers for one road. Say the slash as "and".
-  said = said.replace(/\/+(?=US-\d)/g, " and ");
-  said = said.replace(/\/+(?=I-\d)/g, " and ");
-  said = said.replace(/\/+(?=[A-Z]{2}-\d)/g, (match, offset, all) => {
-    const code = all.slice(offset + match.length, offset + match.length + 2);
-    return STATE_NAMES[code] ? " and " : match;
-  });
+  said = said.replace(/[()]/g, " ");
+  // "E/US-35" and "N/Fort" were glued to the slash, so the next word was spelled letter by letter.
+  said = said.replace(/([A-Za-z0-9])\/+(?=[A-Za-z])/g, "$1 and ");
+  said = said.replace(/\bUS-(\d+)\b/g, "us $1");
+  said = said.replace(/\bUS\b/g, "us");
+  said = said.replace(/\bI-(\d+)\b/g, "Interstate $1");
   // Uppercase only, so "in 0.4 miles" stays. Route shields (IN-25) and ", IN" are states.
   said = said.replace(/\b([A-Z]{2})-(\d+)\b/g, (match, code, num) => (
     STATE_NAMES[code] ? `${STATE_NAMES[code]} ${num}` : match
@@ -3219,6 +3218,7 @@ function spokenAloud(text) {
     ["S", "South"],
     ["E", "East"],
     ["W", "West"],
+    ["Ft", "Fort"],
     ["Aly", "Alley"],
     ["Ave", "Avenue"],
     ["Blvd", "Boulevard"],

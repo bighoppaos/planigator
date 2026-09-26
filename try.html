@@ -17,9 +17,16 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="./styles.css?v=158">
+  <link rel="stylesheet" href="./styles.css?v=159">
 </head>
 <body class="app planner-only nav-test">
+  <nav class="top-links" aria-label="Pages">
+    <a href="./try.html" aria-current="page">Plan</a>
+    <a href="./support.html">Support</a>
+    <a href="./privacy.html">Privacy</a>
+    <a href="./terms.html">Terms</a>
+    <a href="./releases.html">Release notes</a>
+  </nav>
   <p class="build-line">Try #6. Not the live plan. <button type="button" class="text-button page-refresh" id="refreshPage">Refresh</button></p>
   <main id="app"></main>
   <footer>
@@ -67,6 +74,6 @@
     }
   </script>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="./js/app.js?v=365"></script>
+  <script type="module" src="./js/app.js?v=366"></script>
 </body>
 </html>
