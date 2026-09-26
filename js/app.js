@@ -2927,6 +2927,14 @@ const satelliteSource = {
   attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
 };
 
+const placesSource = {
+  type: "raster",
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
+  tileSize: 256,
+  maxzoom: 19,
+  attribution: "Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community",
+};
+
 const vectorStyleUrl = "https://tiles.openfreemap.org/styles/liberty";
 
 function rasterSpec(source) {
@@ -2936,8 +2944,14 @@ function rasterSpec(source) {
 function satelliteMapStyle() {
   return {
     version: 8,
-    sources: { satellite: rasterSpec(satelliteSource) },
-    layers: [{ id: "satellite", type: "raster", source: "satellite" }],
+    sources: {
+      satellite: rasterSpec(satelliteSource),
+      places: rasterSpec(placesSource),
+    },
+    layers: [
+      { id: "satellite", type: "raster", source: "satellite" },
+      { id: "places", type: "raster", source: "places" },
+    ],
   };
 }
 
