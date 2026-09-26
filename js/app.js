@@ -3196,6 +3196,13 @@ const STATE_NAMES = {
 
 function spokenAloud(text) {
   let said = String(text || "");
+  // "US-24 E/US-35" is two numbers for one road. Say the slash as "and".
+  said = said.replace(/\/+(?=US-\d)/g, " and ");
+  said = said.replace(/\/+(?=I-\d)/g, " and ");
+  said = said.replace(/\/+(?=[A-Z]{2}-\d)/g, (match, offset, all) => {
+    const code = all.slice(offset + match.length, offset + match.length + 2);
+    return STATE_NAMES[code] ? " and " : match;
+  });
   // Uppercase only, so "in 0.4 miles" stays. Route shields (IN-25) and ", IN" are states.
   said = said.replace(/\b([A-Z]{2})-(\d+)\b/g, (match, code, num) => (
     STATE_NAMES[code] ? `${STATE_NAMES[code]} ${num}` : match
