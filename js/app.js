@@ -4136,9 +4136,16 @@ function pauseFollowForDirection() {
   navFollowing = false;
   syncRouteChrome();
   window.clearTimeout(navReturnTimer);
+  const resumeTurn = tripFit === "nextTurn";
+  if (resumeTurn) navZoomHold = Date.now() + 5200;
   navReturnTimer = window.setTimeout(() => {
     navReturnTimer = 0;
-    if (!navOn || tripFit === "nextTurn") return;
+    if (!navOn) return;
+    if (tripFit === "nextTurn") {
+      turnFrameAt = null;
+      frameNextTurn();
+      return;
+    }
     navFollowing = true;
     syncRouteChrome();
     if (navFix) onNavFix(navFix[0], navFix[1]);
