@@ -4625,37 +4625,70 @@ async function recalculateFromHere() {
   await calculate({ silent: true });
 }
 
-async function recalculateRemainingFromHere() {
-  const here = await currentFix();
-  if (!here) {
-    state.error = "Allow location first, then Recalculate.";
-    state.notice = "";
-    render();
-    return;
+function stopPoint(stop) {
+  if (!stop) return null;
+  if (stop.useCurrentLocation) {
+    const here = originPoint();
+    return here ? { lat: here.lat, lon: here.lon } : null;
   }
-  const chosen = chosenNavStop();
-  const kept = state.stops.filter((stop) => !stop.useCurrentLocation);
-  const chosenPos = chosen ? kept.findIndex((stop) => stop.id === chosen.stop.id) : 0;
-  kept.forEach((stop, index) => {
-    stop.skipRoute = chosenPos > 0 && index < chosenPos;
+  const lat = Number(stop.lat);
+  const lon = Number(stop.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function nextRoutedAfter(stop) {
+  const index = state.stops.findIndex((item) => item.id === stop?.id);
+  if (index < 0) return null;
+  for (let i = index + 1; i < state.stops.length; i += 1) {
+    const item = state.stops[i];
+    if (item.useCurrentLocation || item.skipRoute || !pointReady(item)) continue;
+    return item;
+  }
+  return null;
+}
+
+function stopHeIsDrivingToward(lat, lon) {
+  rebuildNavLegs();
+  let toward = upcomingRoutedStop(lat, lon);
+  if (!toward || navLine.length < 2) return toward;
+  const hit = navNearest(lat, lon, navLine);
+  const leg = navLegs.find((item) => item.stop.id === toward.id);
+  const left = leg ? leg.end - hit.along : Infinity;
+  if (left <= STOP_NEAR_M) {
+    const next = nextRoutedAfter(toward);
+    if (next) toward = next;
+  }
+  return toward;
+}
+
+function routeTruckLeg(from, to) {
+  return truckRoute(from, to, {
+    speedCapMph: state.settings.governed ? mph() : null,
+    departAt: leaveAtNow(),
+    routingMode: state.settings.routeMode === "short" ? "short" : "fast",
   });
-  state.origin = {
-    lat: here.lat,
-    lon: here.lon,
-    ...(typeof here.heading === "number" ? { heading: here.heading } : {}),
-  };
-  state.stops = [
-    defaultStop({
-      name: "Current location",
-      useCurrentLocation: true,
-      lat: here.lat,
-      lon: here.lon,
-      address: "",
-    }),
-    ...kept,
-  ];
-  navStopCursor = Math.max(0, chosenPos);
-  await calculate();
+}
+
+function writeRoutedLeg(stop, leg) {
+  stop.miles = String(Math.round(leg.miles * 10) / 10);
+  stop.hours = String(Math.round(leg.hours * 100) / 100);
+  stop.path = Array.isArray(leg.points) ? leg.points : [];
+  stop.directions = Array.isArray(leg.directions) ? leg.directions : [];
+  if (leg.credits != null) state.credits = leg.credits;
+}
+
+function prepareRouteMapBox() {
+  const stage = document.getElementById("routeStage");
+  const el = document.getElementById("routeMap");
+  if (!el) return;
+  if (routeFull && stage) {
+    stage.classList.add("is-full");
+    document.documentElement.classList.add("route-full");
+    document.body.classList.add("route-full");
+    fitRouteCover();
+  }
+  void el.offsetHeight;
 }
 
 function thinRoute(points, gap, maxCount) {
@@ -4823,10 +4856,122 @@ function addTruckAsNextStop() {
   syncTruckAdd();
 }
 
-async function addTruckAndRecalculate() {
-  if (!truckHit) return;
-  addTruckAsNextStop();
-  await recalculateRemainingFromHere();
+function addTruckAndRecalculate() {
+  if (!truckHit || state.estimating) return;
+  const hit = truckHit;
+  state.estimating = true;
+  truckHit = null;
+  // Let the tap finish before any map rebuild. Removing the button under
+  // the finger makes iOS swallow Exit and zoom until a refresh.
+  window.setTimeout(() => { void addPlaceAfterCurrentStop(hit); }, 0);
+}
+
+async function addPlaceAfterCurrentStop(hit) {
+  syncTruckAdd();
+  syncRouteChrome();
+  const calc = document.getElementById("calculate");
+  if (calc) {
+    calc.disabled = true;
+    calc.innerHTML = calculateButtonLabel();
+  }
+  const lat = Number(hit?.lat);
+  const lon = Number(hit?.lon);
+  if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    state.estimating = false;
+    if (calc) {
+      calc.disabled = false;
+      calc.innerHTML = calculateButtonLabel();
+    }
+    syncRouteChrome();
+    return;
+  }
+  const here = navFix ? { lat: navFix[0], lon: navFix[1] } : await currentFix();
+  if (!here) {
+    state.estimating = false;
+    state.error = "Allow location first, then Recalculate.";
+    state.notice = "";
+    render();
+    return;
+  }
+  if (!navFix) navFix = [here.lat, here.lon];
+  rebuildNavLegs();
+  if (navLine.length < 2) {
+    state.estimating = false;
+    state.error = "Calculate the trip first.";
+    render();
+    return;
+  }
+  const toward = stopHeIsDrivingToward(here.lat, here.lon);
+  const towardIndex = toward ? state.stops.findIndex((stop) => stop.id === toward.id) : -1;
+  const fromPoint = stopPoint(toward);
+  if (!toward || towardIndex < 0 || !fromPoint) {
+    state.estimating = false;
+    state.error = "No stop ahead to add this to.";
+    render();
+    return;
+  }
+  const following = nextRoutedAfter(toward);
+  const legsNeeded = following ? 2 : 1;
+  if (!state.unlimited && state.credits === 0) {
+    state.estimating = false;
+    state.error = creditEmptyMessage();
+    render();
+    return;
+  }
+  if (!state.unlimited && Number.isFinite(Number(state.credits)) && state.credits < legsNeeded) {
+    state.estimating = false;
+    state.error = "Not enough credits to add that stop on the route.";
+    render();
+    return;
+  }
+  const place = [hit.city, hit.state].filter(Boolean).join(", ");
+  const label = String(hit.label || [hit.name, place].filter(Boolean).join(", "));
+  const next = defaultStop({
+    name: clipStopName(hit.name || "Truck stop").trim() || "Stop",
+    address: label,
+    verifiedLabel: label,
+    lat,
+    lon,
+    anytime: true,
+    window: false,
+  });
+  if (!toward.useCurrentLocation && Number.isFinite(Number(toward.start))) {
+    next.start = toward.start + 4 * 3600 * 1000;
+    next.end = next.start;
+    const offset = clockOffset(toward.startOffset);
+    next.startOffset = offset;
+    next.endOffset = offset;
+  }
+  const followingSnap = following ? {
+    miles: following.miles,
+    hours: following.hours,
+    path: Array.isArray(following.path) ? following.path.slice() : following.path,
+    directions: Array.isArray(following.directions) ? following.directions.slice() : following.directions,
+  } : null;
+  state.stops.splice(towardIndex + 1, 0, next);
+  try {
+    writeRoutedLeg(next, await routeTruckLeg(fromPoint, { lat, lon }));
+    const followPoint = stopPoint(following);
+    if (following && followPoint) writeRoutedLeg(following, await routeTruckLeg({ lat, lon }, followPoint));
+  } catch (error) {
+    state.stops = state.stops.filter((stop) => stop.id !== next.id);
+    if (following && followingSnap) {
+      following.miles = followingSnap.miles;
+      following.hours = followingSnap.hours;
+      following.path = followingSnap.path;
+      following.directions = followingSnap.directions;
+    }
+    if (error.credits != null) state.credits = error.credits;
+    state.estimating = false;
+    state.error = error.message || "Could not get a HERE© truck route.";
+    state.notice = "";
+    render();
+    return;
+  }
+  state.estimating = false;
+  const towardName = navStopTitle(toward);
+  state.notice = `Added ${navStopTitle(next)} after ${towardName}. Navigation stays on ${towardName}.`;
+  await calculate({ silent: true });
 }
 
 function placeSearchButtons() {
@@ -5383,6 +5528,9 @@ function mountMap() {
     el.hidden = true;
     return;
   }
+  // Full screen used to build the map at the 280px box, then add .is-full.
+  // The canvas stayed short and the empty map area ate Exit and zoom.
+  prepareRouteMapBox();
   const map = new maplibre.Map({
     container: el,
     style: routeStyle(),
@@ -5395,6 +5543,7 @@ function mountMap() {
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   map.on("load", () => {
     if (routeMap !== map) return;
+    map.resize();
     const coordinates = line.map(([lat, lon]) => [lon, lat]);
     map.addSource("route", {
       type: "geojson",
@@ -6568,6 +6717,10 @@ function bind() {
       routeMap.jumpTo(camera);
     }
     if (navFix) onNavFix(navFix[0], navFix[1]);
+  });
+  requestAnimationFrame(() => {
+    if (routeFull) fitRouteCover();
+    routeMap?.resize();
   });
   $("#shareNav")?.addEventListener("click", () => shareToNav());
   $("#installApp")?.addEventListener("click", () => installApp());
