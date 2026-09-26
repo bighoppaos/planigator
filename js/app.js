@@ -1358,8 +1358,9 @@ function clampBoxFont(value) {
 
 function paintBoxFont() {
   document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
-  const hos = document.querySelector(".hos");
-  if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
+  document.querySelectorAll(".hos").forEach((hos) => {
+    hos.style.setProperty("--box-font", `${state.boxFont}px`);
+  });
   const readout = document.getElementById("boxFontReadout");
   if (readout) readout.textContent = String(state.boxFont);
   const input = document.getElementById("boxFont");
@@ -4330,7 +4331,8 @@ function hereCallsBlock() {
 
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
-  const example = `<p class="fine"><button type="button" class="text-button example-load" id="loadExample">Load an example trip<canvas class="example-sparkles" aria-hidden="true"></canvas></button></p>${exampleOpenNote()}`;
+  const boxSize = `<div class="box-stepper"><label class="box-stepper"><span class="sr">Box size</span><input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}"><span class="flag-box" id="boxFontReadout">${state.boxFont}</span></label></div>`;
+  const example = `<p class="fine"><button type="button" class="text-button example-load" id="loadExample">Load an example trip<canvas class="example-sparkles" aria-hidden="true"></canvas></button></p>${boxSize}${exampleOpenNote()}`;
   const google = state.signedIn
     ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
     : state.googleClientId
@@ -4482,13 +4484,6 @@ function render() {
 
     <section class="hos step" style="--box-font: ${state.boxFont}px">
       <h2>Step 3. Set speed, hours, and when you leave</h2>
-      <div class="box-stepper">
-        <label class="box-stepper">
-          <span class="sr">Box size</span>
-          <input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}">
-          <span class="flag-box" id="boxFontReadout">${state.boxFont}</span>
-        </label>
-      </div>
         <div class="settings-pairs">
           <div class="set-pair">
             <div class="set-box${s.governed ? " on" : ""}">
@@ -4830,11 +4825,7 @@ function bindTypingFields() {
       const next = Number(el.value);
       if (!Number.isFinite(next)) return;
       state.boxFont = Math.min(28, Math.max(13, Math.round(next)));
-      document.documentElement.style.setProperty("--box-font", `${state.boxFont}px`);
-      const hos = document.querySelector(".hos");
-      if (hos) hos.style.setProperty("--box-font", `${state.boxFont}px`);
-      const readout = document.getElementById("boxFontReadout");
-      if (readout) readout.textContent = String(state.boxFont);
+      paintBoxFont();
       persist();
       queueBoxFontSave();
       return;
