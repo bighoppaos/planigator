@@ -2323,14 +2323,14 @@ function planBox() {
           <button type="button" class="route-add" id="routeCatAdd" hidden>Add and recalculate</button>
           <button type="button" id="routeCat" hidden aria-label="Next Cat Scale"><span>Cat</span><span>scale</span></button>
         </div>
+        <button type="button" id="routeSatellite" class="${basemap === "satellite" ? "on" : ""}" aria-pressed="${basemap === "satellite" ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
+        <button type="button" id="routeStreets" class="${basemap === "vector" ? "on" : ""}" aria-pressed="${basemap === "vector" ? "true" : "false"}" aria-label="Street map"><span>Street</span><span>map</span></button>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
         <button type="button" id="routeZoomOut" aria-label="Zoom out"><span>Zoom</span><span>out</span></button>
       </aside>
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeSatellite" class="${basemap === "satellite" ? "on" : ""}" aria-pressed="${basemap === "satellite" ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
-        <button type="button" id="routeStreets" class="${basemap === "vector" ? "on" : ""}" aria-pressed="${basemap === "vector" ? "true" : "false"}" aria-label="Street map"><span>Street</span><span>map</span></button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
@@ -2346,6 +2346,7 @@ function planBox() {
       </div>
     </div>
     <div id="routeDirectionsHome"></div>
+    <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
     ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
@@ -2905,6 +2906,13 @@ let navCompass = null;
 let navCompassTimer = 0;
 let navReturnTimer = 0;
 let navStopCursor = 0;
+let navStopPicked = false;
+let navGuideFromId = "";
+let navStopAnnounce = false;
+let navStopAwaitNear = false;
+let navStopSpeakKey = "";
+let navStopNoteText = "";
+let navStopNoteUntil = 0;
 let truckHit = null;
 let navLine = [];
 let navLegs = [];
@@ -2954,9 +2962,37 @@ function etaLabel(ms) {
   return `ETA ${day} ${clock}`;
 }
 
+function paintStopNote() {
+  const note = document.getElementById("routeStopNote");
+  if (!note) return;
+  note.hidden = !navStopNoteText;
+  note.textContent = navStopNoteText;
+}
+
+function showStopNote(text, holdMs = 0) {
+  navStopNoteText = String(text || "");
+  navStopNoteUntil = holdMs > 0 ? Date.now() + holdMs : 0;
+  paintStopNote();
+  paintStopChip();
+}
+
+function clearStopNote(force) {
+  if (!force && navStopNoteUntil > Date.now()) return;
+  if (!force && navStopNoteText && navStopNoteUntil === 0) return;
+  navStopNoteText = "";
+  navStopNoteUntil = 0;
+  paintStopNote();
+  paintStopChip();
+}
+
 function paintStopChip() {
   const chip = document.getElementById("routeStopMiles");
   if (!chip) return;
+  if (navOn && navStopNoteText) {
+    chip.hidden = false;
+    chip.textContent = navStopNoteText;
+    return;
+  }
   if (!navOn || !stopChipLines.length) {
     chip.hidden = true;
     chip.textContent = "";
@@ -3445,6 +3481,7 @@ function syncRouteChrome() {
     start.textContent = navOn ? "Navigation in progress" : "Start navigation";
   }
   syncTripFitButton();
+  paintStopNote();
   if (navOn) freezeTyping(true);
   requestAnimationFrame(seatRails);
 }
@@ -3615,6 +3652,80 @@ function alongForChosen(chosen) {
   return 0;
 }
 
+const STOP_NEAR_M = 1609;
+const STOP_LINE_M = 402;
+const STOP_PAST_M = 80;
+
+function legForStopId(stopId) {
+  return navLegs.find((item) => item.stop.id === stopId) || null;
+}
+
+function legLeavingStop(chosen) {
+  if (!chosen?.stop?.id) return null;
+  const dests = navDestList();
+  const pos = dests.findIndex((item) => item.stop.id === chosen.stop.id);
+  if (pos < 0) return null;
+  for (let i = pos + 1; i < dests.length; i += 1) {
+    const leg = legForStopId(dests[i].stop.id);
+    if (leg) return leg;
+  }
+  return null;
+}
+
+function stopRouteAlong(chosen) {
+  const arrive = legForStopId(chosen?.stop?.id);
+  if (arrive) return arrive.end;
+  const leaving = legLeavingStop(chosen);
+  if (leaving) return leaving.start;
+  return null;
+}
+
+function nearChosenStop(chosen, lat, lon, hit) {
+  if (!chosen || !Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  const pinLat = Number(chosen.stop.lat);
+  const pinLon = Number(chosen.stop.lon);
+  const pinNear = Number.isFinite(pinLat) && Number.isFinite(pinLon)
+    && metersBetween([lat, lon], [pinLat, pinLon]) <= STOP_NEAR_M;
+  const along = stopRouteAlong(chosen);
+  const onLine = Boolean(hit) && hit.dist <= STOP_LINE_M && along != null;
+  const routeNear = onLine && Math.abs(hit.along - along) <= STOP_NEAR_M;
+  if (!pinNear && !routeNear) return false;
+  if (onLine && hit.along > along + STOP_PAST_M) {
+    const leaving = legLeavingStop(chosen);
+    return Boolean(leaving && hit.along >= leaving.start && hit.along <= leaving.end + STOP_PAST_M);
+  }
+  return true;
+}
+
+function guideLegFor(chosen) {
+  return legLeavingStop(chosen) || legForStopId(chosen?.stop?.id);
+}
+
+function guideChoice() {
+  if (navGuideFromId) {
+    const dests = navDestList();
+    const found = dests.find((item) => item.stop.id === navGuideFromId);
+    if (found) return found;
+  }
+  if (navStopPicked && navStopAwaitNear) return chosenNavStop();
+  return null;
+}
+
+function nearestNearStop(lat, lon, hit) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const dest of navDestList()) {
+    if (!nearChosenStop(dest, lat, lon, hit)) continue;
+    const along = stopRouteAlong(dest);
+    const dist = along == null ? 0 : Math.abs(hit.along - along);
+    if (dist < bestDist) {
+      best = dest;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 function ordinalStop(index) {
   const n = index + 1;
   const mod = n % 100;
@@ -3698,7 +3809,13 @@ function frameNextTurn() {
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
-  const turn = upcomingTurn(hit.along);
+  let along = hit.along;
+  if (navStopPicked) {
+    const chosen = guideChoice();
+    const guide = chosen && nearChosenStop(chosen, navFix[0], navFix[1], hit) ? guideLegFor(chosen) : null;
+    if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
+  }
+  const turn = upcomingTurn(along);
   if (!turn) return;
   // A new fit on every GPS fix reloads the satellite tiles, so the same image
   // draws again across the screen. Hold this frame until the truck has moved.
@@ -3839,6 +3956,55 @@ function paintDirectionMiles(stopId, index, meters) {
   });
 }
 
+function armStopSwitch() {
+  turnFrameAt = null;
+  turnFrameTarget = null;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  if (tripFit !== "nextTurn") navFollowing = true;
+  syncRouteChrome();
+}
+
+function refreshStopGuidance() {
+  if (!navOn) {
+    unlockNavVoice();
+    beginRouteNav();
+    return;
+  }
+  if (navFix) onNavFix(navFix[0], navFix[1]);
+  else applyChosenStop();
+}
+
+function speakStopNote(text) {
+  if (!navOn || !text) return;
+  window.speechSynthesis?.cancel();
+  speakNav(text);
+}
+
+function beginGuideFrom(chosen) {
+  const leaving = legLeavingStop(chosen);
+  const dests = navDestList();
+  const pos = dests.findIndex((item) => item.stop.id === chosen.stop.id);
+  navStopPicked = true;
+  if (!leaving) {
+    navGuideFromId = "";
+    navStopAwaitNear = false;
+    navStopAnnounce = false;
+    if (pos >= 0 && dests.length > 1) navStopCursor = (pos + 1) % dests.length;
+    showStopNote("That's the last stop", 6000);
+    armStopSwitch();
+    speakStopNote("That's the last stop");
+    return;
+  }
+  navGuideFromId = chosen.stop.id;
+  navStopAwaitNear = false;
+  navStopAnnounce = true;
+  navStopSpeakKey = "";
+  if (pos >= 0) navStopCursor = (pos + 1) % dests.length;
+  armStopSwitch();
+  refreshStopGuidance();
+}
+
 function cycleNavStop(event) {
   const now = Date.now();
   if (now - navStopTapAt < 400) return;
@@ -3846,21 +4012,38 @@ function cycleNavStop(event) {
   event?.preventDefault();
   event?.stopPropagation();
   const dests = navDestList();
-  if (dests.length < 2) return;
-  navStopCursor = (navStopCursor + 1) % dests.length;
-  syncRouteChrome();
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  window.clearTimeout(navReturnTimer);
-  navReturnTimer = 0;
-  if (tripFit !== "nextTurn") navFollowing = true;
-  syncRouteChrome();
-  if (!navOn) {
-    unlockNavVoice();
-    beginRouteNav();
+  if (dests.length < 2) {
+    const text = dests.length ? "Only one stop" : "No stop to switch";
+    showStopNote(text, 6000);
+    speakStopNote(text);
+    return;
   }
-  else if (navFix) onNavFix(navFix[0], navFix[1]);
-  else applyChosenStop();
+  rebuildNavLegs();
+  const hit = navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine) : null;
+  if (!navStopPicked && hit) {
+    const here = nearestNearStop(navFix[0], navFix[1], hit);
+    if (here) {
+      beginGuideFrom(here);
+      return;
+    }
+  }
+  const shown = chosenNavStop();
+  if (shown && hit && nearChosenStop(shown, navFix[0], navFix[1], hit)) {
+    beginGuideFrom(shown);
+    return;
+  }
+  navStopCursor = (navStopCursor + 1) % dests.length;
+  navStopPicked = true;
+  navGuideFromId = "";
+  navStopAwaitNear = true;
+  navStopAnnounce = true;
+  navStopSpeakKey = "";
+  armStopSwitch();
+  if (!navFix) {
+    const chosen = chosenNavStop();
+    if (chosen) showStopNote(`Not near ${navStopTitle(chosen.stop)}`);
+  }
+  refreshStopGuidance();
 }
 
 function applyChosenStop() {
@@ -3869,9 +4052,73 @@ function applyChosenStop() {
   if (!chosen) return;
   const until = alongForChosen(chosen);
   const name = navStopTitle(chosen.stop);
+  if (!navStopNoteText) showStopNote(`Head to ${name}`);
   if (chosen.stop?.skipRoute) sayNav(`Head back to ${name}`, "Recalculate to turn around.", "");
   else sayNav(`Head to ${name}`, until == null ? "" : `${navMiles(until)} to ${name}`, "");
   if (until != null) paintNavLine(0, until);
+}
+
+function guideFromChosenStop(chosen, lat, lon, hit) {
+  if (!chosen) return null;
+  const name = navStopTitle(chosen.stop);
+  if (!nearChosenStop(chosen, lat, lon, hit)) {
+    if (!navStopAwaitNear) {
+      navGuideFromId = "";
+      clearStopNote(true);
+      return null;
+    }
+    showStopNote(`Not near ${name}`);
+    const key = `${chosen.stop.id}:away`;
+    if (navStopSpeakKey !== key) {
+      navStopSpeakKey = key;
+      if (navStopAnnounce) {
+        navStopAnnounce = false;
+        window.speechSynthesis?.cancel();
+        speakNav(`Not near ${name}`);
+      }
+    }
+    return "away";
+  }
+  navGuideFromId = chosen.stop.id;
+  navStopAwaitNear = false;
+  clearStopNote(true);
+  const leg = guideLegFor(chosen);
+  if (!leg?.stop?.id) return null;
+  const onLeg = hit.along >= leg.start - 20 && hit.along <= leg.end + 20;
+  const alongInLeg = onLeg ? Math.max(0, hit.along - leg.start) : 0;
+  const steps = Array.isArray(leg.stop.directions) ? leg.stop.directions : [];
+  const found = onLeg ? navStep(leg, alongInLeg) : { step: steps[0] || null, index: 0 };
+  const targetName = navStopTitle(leg.stop);
+  const leftToEnd = Math.max(0, leg.end - hit.along);
+  if (!found?.step || !steps[found.index]) {
+    showStopNote(`Head to ${targetName}`, 4000);
+    paintNavLine(Math.min(hit.along, leg.end), leg.end);
+    setStopChip(leftToEnd, targetName);
+    return "near";
+  }
+  const leftInStep = metersLeftInStep(leg, alongInLeg, found.index);
+  const marked = markDirection(leg.stop.id, found.index);
+  if (!marked) showStopNote(`Head to ${targetName}`, 4000);
+  paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+  openDirectionsNear(leg.stop.id, found.index, leftInStep);
+  paintNavLine(Math.min(hit.along, leg.end), leg.end);
+  setStopChip(leftToEnd, targetName);
+  const title = String(found.step.text || "").trim();
+  const nextTitle = approachPhrase(upcomingDirection(leg, found.index), leftInStep);
+  sayNav(
+    nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${targetName}`),
+    `${navMiles(leftToEnd)} to ${targetName}`,
+    "",
+  );
+  const key = `${chosen.stop.id}:near`;
+  if (navStopSpeakKey !== key) {
+    navStopSpeakKey = key;
+    navStopAnnounce = false;
+    spokenStepKey = "";
+    spokenMiles.clear();
+  }
+  speakNavProgress(leg, found, onLeg ? hit.along : leg.start);
+  return "near";
 }
 
 function currentFix() {
@@ -4261,33 +4508,59 @@ function onNavFix(lat, lon) {
     const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
-  const chosen = chosenNavStop();
-  const targetAlong = alongForChosen(chosen);
-  const towardStop = chosen?.stop || leg?.stop;
-  const toward = towardStop ? navStopTitle(towardStop) : "the stop";
-  const until = targetAlong == null ? Infinity : targetAlong;
-  const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
-  if (chosen?.stop?.skipRoute) {
-    setStopChip(-1, "");
-    sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
-    paintNavLine(hit.along, Infinity);
-  } else if (off) {
-    setStopChip(-1, "");
-    sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
-    paintNavLine(0, until);
-  } else {
-    const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
-    const title = String(step?.text || "").trim();
-    const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
-    setStopChip(leftToStop, toward);
-    sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
-    paintNavLine(hit.along, until);
+    const chosen = chosenNavStop();
+    const speakBefore = navStopSpeakKey;
+    const guideTarget = guideChoice();
+    const guided = guideTarget && !guideTarget.stop?.skipRoute
+      ? guideFromChosenStop(guideTarget, lat, lon, hit)
+      : null;
+    const targetAlong = alongForChosen(chosen);
+    const towardStop = chosen?.stop || leg?.stop;
+    const toward = towardStop ? navStopTitle(towardStop) : "the stop";
+    const until = targetAlong == null ? Infinity : targetAlong;
+    const leftToStop = targetAlong == null ? leftOnLeg : Math.max(0, targetAlong - hit.along);
+    if (guided === "near") {
+      // Directions now leave the stop he picked.
+    } else if (chosen?.stop?.skipRoute) {
+      setStopChip(-1, "");
+      sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
+      paintNavLine(hit.along, Infinity);
+      if (navStopPicked) {
+        const text = `Recalculate to reach ${toward}`;
+        showStopNote(text);
+        const key = `${chosen.stop.id}:skip`;
+        if (navStopSpeakKey !== key) {
+          navStopSpeakKey = key;
+          if (navStopAnnounce) {
+            navStopAnnounce = false;
+            window.speechSynthesis?.cancel();
+            speakNav(text);
+          }
+        }
+      }
+    } else if (off) {
+      setStopChip(-1, "");
+      sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
+      paintNavLine(0, until);
+      if (guided !== "away") clearStopNote(false);
+    } else {
+      const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
+      const title = String(step?.text || "").trim();
+      const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
+      setStopChip(leftToStop, toward);
+      sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), `${navMiles(leftToStop)} to ${toward}`, `${navMiles(leftOnTrip)} left in the trip`);
+      const lineUntil = guided === "away" && !(targetAlong > hit.along + 30) ? Infinity : until;
+      paintNavLine(hit.along, lineUntil);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
         paintDirectionMiles(leg.stop.id, found.index, leftInStep);
         openDirectionsNear(leg.stop.id, found.index, leftInStep);
       }
-      speakNavProgress(leg, found, hit.along);
+      const justSwitched = guided === "away" && navStopSpeakKey !== speakBefore;
+      if (!justSwitched) {
+        if (guided !== "away") clearStopNote(false);
+        speakNavProgress(leg, found, hit.along);
+      }
     }
   }
   if (tripFit === "nextTurn") {
@@ -4358,6 +4631,12 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  navStopPicked = false;
+  navGuideFromId = "";
+  navStopAnnounce = false;
+  navStopAwaitNear = false;
+  navStopSpeakKey = "";
+  clearStopNote(true);
   directionsAutoKey = "";
   setStopChip(-1, "");
   stopNavMotion();
