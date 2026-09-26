@@ -1689,8 +1689,8 @@ body.route-full {
   border-color: rgb(255 255 255 / 0.35);
 }
 .route-stage.is-full .directions.dir-three {
-  max-height: none;
-  overflow: visible;
+  max-height: 40vh;
+  overflow: auto;
 }
 .route-stage.is-full .directions.dir-three .dir-scroll {
   max-height: none;

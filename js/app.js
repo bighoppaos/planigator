@@ -3826,8 +3826,11 @@ function seatRails() {
   const map = document.getElementById("routeMap");
   const box = document.getElementById("routeDirections");
   if (!map || !box) return;
-  const lift = map.getBoundingClientRect().bottom - box.getBoundingClientRect().top + 8;
-  const bottom = `${Math.max(8, Math.round(lift))}px`;
+  const mapBox = map.getBoundingClientRect();
+  const lift = mapBox.bottom - box.getBoundingClientRect().top + 8;
+  const tallest = Math.max(0, ...[...rails].map((rail) => rail.getBoundingClientRect().height));
+  const maxLift = Math.max(8, mapBox.height - tallest - 8);
+  const bottom = `${Math.max(8, Math.min(Math.round(lift), Math.round(maxLift)))}px`;
   rails.forEach((rail) => {
     rail.style.top = "auto";
     rail.style.bottom = bottom;
@@ -4556,8 +4559,8 @@ async function recalculateFromHere() {
   state.estimating = true;
   state.error = "";
   syncRouteChrome();
-  const recalcBtn = document.getElementById("routeRecalc");
-  if (recalcBtn) recalcBtn.disabled = true;
+  // Leave the rail button enabled. Disabling it under the finger makes iOS
+  // ignore Exit, zoom, and the rest of the rail until a force close.
   const calc = document.getElementById("calculate");
   if (calc) {
     calc.disabled = true;
@@ -5069,14 +5072,14 @@ function paintNavMotion(now) {
     navMotion = 0;
     return;
   }
-  if (navAim && navYou) {
+  if (navAim && navYou && routeMapReady) {
     const u = Math.min(1, (now - navAim.start) / navAim.dur);
     const lat = navAim.fromLat + (navAim.lat - navAim.fromLat) * u;
     const lon = navAim.fromLon + (navAim.lon - navAim.fromLon) * u;
     navYou.setLngLat([lon, lat]);
     navShown = { lat, lon };
   }
-  if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && navShown && Date.now() >= navZoomHold) {
+  if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && routeMapReady && navShown && Date.now() >= navZoomHold) {
     const camera = { center: [navShown.lon, navShown.lat], zoom: navZoom };
     if (navCompass != null) camera.bearing = navCompass;
     else if (navTravel != null) camera.bearing = navTravel;
@@ -5451,6 +5454,23 @@ function applyTurnZoom(map, focus) {
   pendingTurn = null;
 }
 
+function paintLiveDirections() {
+  if (!navOn || !navFix) return;
+  rebuildNavLegs();
+  if (navLine.length < 2 || !navLegs.length) return;
+  const hit = navNearest(navFix[0], navFix[1], navLine);
+  const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+  if (!leg?.stop?.id || leg.stop.skipRoute) return;
+  const alongInLeg = Math.max(0, hit.along - leg.start);
+  const found = navStep(leg, alongInLeg);
+  if (!found?.step) return;
+  const leftInStep = metersLeftInStep(leg, alongInLeg, found.index);
+  markDirection(leg.stop.id, found.index);
+  paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+  const leftOnLeg = Math.max(0, leg.end - hit.along);
+  setStopChip(leftOnLeg, navStopTitle(leg.stop));
+}
+
 function markDirection(stopId, index) {
   document.querySelectorAll(".dir-step.on").forEach((button) => {
     button.classList.remove("on");
@@ -5585,8 +5605,19 @@ function mountMap() {
     });
     routeMapReady = true;
     applyBasemap();
-    if (pendingTurn) applyTurnZoom(map, pendingTurn);
-    else map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
+    if (navOn && navFix && tripFit !== "full") {
+      onNavFix(navFix[0], navFix[1]);
+      if (tripFit === "remaining") {
+        const from = navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : 0;
+        fitCoords(navRemaining(from, Infinity), 14);
+      } else if (navFollowing && tripFit !== "nextTurn") {
+        const camera = { center: [navFix[1], navFix[0]], zoom: navZoom };
+        if (navCompass != null) camera.bearing = navCompass;
+        else if (navTravel != null) camera.bearing = navTravel;
+        map.jumpTo(camera);
+      }
+    } else if (pendingTurn) applyTurnZoom(map, pendingTurn);
+    else map.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 8, animate: false });
   });
 }
 
@@ -5941,9 +5972,16 @@ async function watchSignIn() {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
-  // Full screen moves the map onto document.body. A recalculate renders again
-  // without removing that copy, so the directions list stacks.
+  // Full screen moves the map onto document.body, and the directions list
+  // moves into that screen. A recalculate renders again. Drop both copies or
+  // the directions box stacks and the rail is pushed off the screen.
   clearRouteMap();
+  railSeatObserver?.disconnect();
+  railSeatObserver = null;
+  railSeatBox = null;
+  document.querySelectorAll("#routeDirections").forEach((node) => {
+    if (!root.contains(node)) node.remove();
+  });
   document.querySelectorAll("#routeStage").forEach((stage) => {
     if (!root.contains(stage)) stage.remove();
   });
@@ -6641,6 +6679,7 @@ function bind() {
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
+  paintLiveDirections();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
   $("#nextCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat" }));
   $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
@@ -6669,7 +6708,11 @@ function bind() {
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
-  $("#routeRecalc")?.addEventListener("click", () => recalculateFromHere());
+  $("#routeRecalc")?.addEventListener("click", () => {
+    // Let the tap finish before the map is rebuilt. Changing the rail under
+    // the finger makes iOS swallow Exit and zoom until a force close.
+    window.setTimeout(() => { void recalculateFromHere(); }, 0);
+  });
   $("#routeZoomIn")?.addEventListener("click", () => changeMapZoom(1));
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
