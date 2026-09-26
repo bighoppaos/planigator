@@ -5489,7 +5489,16 @@ function bind() {
     syncTripFitButton();
     await enableNavCompass();
     navFollowing = true;
+    navZoom = 15;
+    navZoomHold = 0;
     syncRouteChrome();
+    if (routeMap && navFix) {
+      routeMap.stop();
+      const camera = { center: [navFix[1], navFix[0]], zoom: navZoom };
+      if (navCompass != null) camera.bearing = navCompass;
+      else if (navTravel != null) camera.bearing = navTravel;
+      routeMap.jumpTo(camera);
+    }
     if (navFix) onNavFix(navFix[0], navFix[1]);
   });
   $("#shareNav")?.addEventListener("click", () => shareToNav());
