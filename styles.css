@@ -1762,6 +1762,10 @@ body.route-full {
   gap: 8px;
   align-items: flex-start;
 }
+#nextTruck,
+#nextCat,
+#nextLoves,
+#nextWalmart,
 #darkMode,
 #nextTruckNote,
 #routeStopNote,

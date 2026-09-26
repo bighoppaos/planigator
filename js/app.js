@@ -2347,7 +2347,7 @@ function planBox() {
     <div id="routeDirectionsHome"></div>
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Cat scale · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -3468,6 +3468,10 @@ function syncRouteChrome() {
   const exit = document.getElementById("routeExit");
   if (exit) exit.hidden = !routeFull;
   const placeBlocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
+  for (const id of ["nextTruck", "nextCat", "nextLoves", "nextWalmart"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = placeBlocked;
+  }
   for (const id of ["routeTruck", "routeLoves", "routeWalmart", "routeCat"]) {
     const button = document.getElementById(id);
     if (!button) continue;
@@ -4353,7 +4357,7 @@ async function addTruckAndRecalculate() {
 }
 
 function placeSearchButtons() {
-  return ["routeTruck", "routeLoves", "routeWalmart", "routeCat"]
+  return ["nextTruck", "nextCat", "nextLoves", "nextWalmart", "routeTruck", "routeLoves", "routeWalmart", "routeCat"]
     .map((id) => document.getElementById(id))
     .filter(Boolean);
 }
@@ -6020,6 +6024,10 @@ function bind() {
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
+  $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
+  $("#nextCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat" }));
+  $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
+  $("#nextWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart" }));
   $("#darkMode")?.addEventListener("click", () => toggleDarkMode());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#routeLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves", frame: true }));
