@@ -1497,8 +1497,10 @@ body.route-full {
   display: flex;
   pointer-events: none;
 }
-.truck-slot:has(#routeTruck[hidden]) { display: none; }
-.route-rail #routeTruckAdd {
+.truck-slot:has(#routeTruck[hidden]),
+.truck-slot:has(#routeLoves[hidden]),
+.truck-slot:has(#routeWalmart[hidden]) { display: none; }
+.route-rail .route-add {
   position: absolute;
   right: calc(100% + 8px);
   top: 50%;
@@ -1514,7 +1516,7 @@ body.route-full {
   line-height: 1.1;
   white-space: normal;
 }
-.route-rail-left #routeTruckAdd {
+.route-rail-left .route-add {
   right: auto;
   left: calc(100% + 8px);
 }

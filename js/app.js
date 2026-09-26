@@ -2309,10 +2309,16 @@ function planBox() {
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
-        <button type="button" id="routeLoves" hidden aria-label="Next Love's"><span>Love's</span></button>
-        <button type="button" id="routeWalmart" hidden aria-label="Next Walmart"><span>Wal</span><span>mart</span></button>
         <div class="truck-slot">
-          <button type="button" id="routeTruckAdd" hidden>Add and recalculate</button>
+          <button type="button" class="route-add" id="routeLovesAdd" hidden>Add and recalculate</button>
+          <button type="button" id="routeLoves" hidden aria-label="Next Love's"><span>Love's</span></button>
+        </div>
+        <div class="truck-slot">
+          <button type="button" class="route-add" id="routeWalmartAdd" hidden>Add and recalculate</button>
+          <button type="button" id="routeWalmart" hidden aria-label="Next Walmart"><span>Wal</span><span>mart</span></button>
+        </div>
+        <div class="truck-slot">
+          <button type="button" class="route-add" id="routeTruckAdd" hidden>Add and recalculate</button>
           <button type="button" id="routeTruck" hidden aria-label="Next truck stop"><span>Truck</span><span>stop</span></button>
         </div>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
@@ -3669,8 +3675,12 @@ function showTruckHit(hit) {
 }
 
 function syncTruckAdd() {
-  const add = document.getElementById("routeTruckAdd");
-  if (add) add.hidden = !(routeFull && navOn && truckHit);
+  const show = routeFull && navOn && truckHit;
+  const place = truckHit?.place === "loves" || truckHit?.place === "walmart" ? truckHit.place : "truck";
+  for (const [id, kind] of [["routeTruckAdd", "truck"], ["routeLovesAdd", "loves"], ["routeWalmartAdd", "walmart"]]) {
+    const add = document.getElementById(id);
+    if (add) add.hidden = !(show && place === kind);
+  }
 }
 
 function addTruckAsNextStop() {
@@ -3737,6 +3747,7 @@ async function findNextTruckStop(options = {}) {
   for (const button of buttons) button.disabled = true;
   if (add) add.hidden = true;
   truckHit = null;
+  syncTruckAdd();
   if (note) {
     note.hidden = false;
     note.textContent = `Looking for the next ${word}…`;
@@ -3764,6 +3775,7 @@ async function findNextTruckStop(options = {}) {
       lon,
       milesAhead: data.milesAhead,
       milesOff: data.milesOff,
+      place,
     });
     if (options.frame) frameTruckStop(truckHit);
   } catch (error) {
@@ -3772,6 +3784,7 @@ async function findNextTruckStop(options = {}) {
     if (calc) calc.innerHTML = calculateButtonLabel();
     truckHit = null;
     if (add) add.hidden = true;
+    syncTruckAdd();
     if (note) note.textContent = error.message || `No ${word} within 2 miles of the route.`;
   } finally {
     const blocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
@@ -5259,6 +5272,8 @@ function bind() {
   $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
+  $("#routeLovesAdd")?.addEventListener("click", () => addTruckAndRecalculate());
+  $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#startNav")?.addEventListener("click", async () => {
     unlockNavVoice();
     const orientation = window.DeviceOrientationEvent;
