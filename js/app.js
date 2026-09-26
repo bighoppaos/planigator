@@ -1404,14 +1404,74 @@ function stopCanRemove(index) {
   return addressCount > 1 || state.stops.some((stop) => stop.useCurrentLocation);
 }
 
-function removeStop(id) {
+function positionForArrival() {
+  if (navOn && Array.isArray(navFix)) return Promise.resolve({ lat: navFix[0], lon: navFix[1] });
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 8000 },
+    );
+  });
+}
+
+function arrivedAtRemovedStop(stop, here) {
+  if (!stop || !here || stop.useCurrentLocation || !pointReady(stop)) return false;
+  const herePair = [here.lat, here.lon];
+  rebuildNavLegs();
+  const leg = navLegs.find((item) => item.stop.id === stop.id);
+  if (leg && navLine.length >= 2) {
+    const hit = navNearest(here.lat, here.lon, navLine);
+    if (hit.dist <= STOP_LINE_M) {
+      const remaining = leg.end - hit.along;
+      if (remaining <= STOP_NEAR_M && remaining >= -STOP_NEAR_M) return true;
+    }
+  }
+  const pinDist = metersBetween(herePair, [Number(stop.lat), Number(stop.lon)]);
+  if (pinDist > STOP_NEAR_M) return false;
+  for (const other of state.stops) {
+    if (!other || other.id === stop.id || other.useCurrentLocation || other.skipRoute || !pointReady(other)) continue;
+    if (metersBetween(herePair, [Number(other.lat), Number(other.lon)]) < pinDist) return false;
+  }
+  return true;
+}
+
+function stopHasSavedLeg(stop) {
+  return (Number(stop?.miles) || 0) > 0.05 || (Number(stop?.hours) || 0) > 0.0001;
+}
+
+async function removeStop(id) {
   const index = state.stops.findIndex((stop) => stop.id === id);
   if (index < 0 || !stopCanRemove(index)) return;
-  const next = state.stops.filter((stop) => stop.id !== id);
-  state.stops = next;
+  const removed = state.stops[index];
+  let next = null;
+  for (let i = index + 1; i < state.stops.length; i += 1) {
+    const stop = state.stops[i];
+    if (!stop || stop.useCurrentLocation || stop.skipRoute) continue;
+    next = stop;
+    break;
+  }
+  const here = state.plan && next && stopHasSavedLeg(next) ? await positionForArrival() : null;
+  const arrived = Boolean(here && arrivedAtRemovedStop(removed, here));
+  state.stops = state.stops.filter((stop) => stop.id !== id);
+  if (arrived) {
+    state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
+    state.error = "";
+    state.notice = `Removed ${navStopTitle(removed)}. Times start from the next stop. The saved route was not recalculated.`;
+    await calculate({ silent: true });
+    if (state.error) {
+      state.notice = "";
+      render();
+    }
+    return;
+  }
   clearDriveProgress();
   persist();
-  if (state.plan) calculate({ silent: true });
+  if (state.plan) await calculate({ silent: true });
   else render();
 }
 
