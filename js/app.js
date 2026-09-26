@@ -22,7 +22,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=137";
+} from "./plan.js?v=138";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -6093,8 +6093,8 @@ function stopCard(stop, index) {
     ${around.self ? chip(around.self) : ""}
     ${around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
-    <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
     ${delayStepper(stop, index)}
+    <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;
 }
 

@@ -373,19 +373,30 @@ function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
   return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
 }
 
+function delaySatBefore(stops, index) {
+  if (index <= 0) return 0;
+  const stop = stops[index];
+  const prev = stops[index - 1];
+  if (!stop || stop.skipRoute || !prev || prev.skipRoute) return 0;
+  const minutes = Math.max(0, Number(prev.delayMinutes) || 0);
+  if (minutes < 1) return 0;
+  return minutes * 60 * 1000;
+}
+
 function leewayGaps({ stops, blocks, now, endMinutes }) {
   const destinations = scheduledIndexes(stops);
   const gaps = [];
   const first = destinations[0];
   if (first != null && blocks[first]) {
     const block = blocks[first];
+    const gapStart = now + delaySatBefore(stops, first);
     const gapEnd = block.leadingPauses[0]?.start ?? block.start;
-    const hours = (gapEnd - now) / 3600 / 1000;
+    const hours = (gapEnd - gapStart) / 3600 / 1000;
     if (hours >= 1 / 60) {
       gaps.push({
         id: `leeway-now-${stops[first].id}`,
         after: -1,
-        start: now,
+        start: gapStart,
         end: gapEnd,
         hours,
       });
@@ -394,6 +405,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
   destinations.forEach((index, position) => {
     const block = blocks[index];
     if (!block) return;
+    let gapStart = block.end;
     let gapEnd;
     if (position + 1 < destinations.length && blocks[destinations[position + 1]]) {
       const nextIndex = destinations[position + 1];
@@ -402,14 +414,25 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const open = notBefore(stops[index]);
       const close = stops[index].anytime ? null : latestArrive(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
+      const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex) : 0;
+      const departure = lead?.start ?? next.start;
       // An anytime stop is left as soon as this one is done. Stretching the
-      // gap to the end of the driving day overlaps that drive.
+      // gap to the end of the driving day overlaps that drive. A delay sit
+      // is not leeway either: it is already on the delay chip.
       if (arrivedInside && close != null && !isAnytimeEnd(endMinutes) && !stops[nextIndex]?.anytime) {
         const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
-        gapEnd = latest > block.end + 60 * 1000 ? latest : (lead?.start ?? next.start);
+        if (latest > block.end + 60 * 1000) {
+          gapStart = block.end + delayMs;
+          gapEnd = latest;
+        } else {
+          gapEnd = departure - delayMs;
+        }
+      } else if (arrivedInside) {
+        gapStart = block.end + delayMs;
+        gapEnd = departure;
       } else {
-        gapEnd = lead?.start ?? next.start;
+        gapEnd = departure - delayMs;
       }
     } else if (!stops[index].anytime) {
       const close = latestArrive(stops[index]);
@@ -421,12 +444,12 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
     } else {
       gapEnd = block.end;
     }
-    const hours = (gapEnd - block.end) / 3600 / 1000;
+    const hours = (gapEnd - gapStart) / 3600 / 1000;
     if (hours < 1 / 60) return;
     gaps.push({
       id: `leeway-after-${stops[index].id}`,
       after: index,
-      start: block.end,
+      start: gapStart,
       end: gapEnd,
       hours,
     });
