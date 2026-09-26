@@ -90,8 +90,12 @@ export function geocodeAddress(query) {
   return api("/v1/geocode", { method: "POST", body: JSON.stringify({ q: query }) });
 }
 
-export function suggestAddresses(query) {
-  return api("/v1/suggest", { method: "POST", body: JSON.stringify({ q: query }) });
+export function suggestAddresses(query, at) {
+  const body = { q: query };
+  const lat = Number(at?.lat);
+  const lon = Number(at?.lon);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) body.at = { lat, lon };
+  return api("/v1/suggest", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function nextTruckStop(points, place = "truck") {

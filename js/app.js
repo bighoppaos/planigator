@@ -24,7 +24,7 @@ import {
 } from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=3";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
@@ -2369,6 +2369,12 @@ function lookupMapPreview(stop) {
 
 let chooseMap = false;
 let mapSpot = null;
+let mapQuery = "";
+let mapSearchHits = [];
+let mapSearchNote = "";
+let mapSearching = false;
+let mapPickMap = null;
+let mapSearchMarkers = [];
 
 function lookupMapSheet() {
   const stop = state.stops.find((item) => item.id === state.openLookupStopId);
@@ -2378,7 +2384,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "Choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<div class="map-pick-steps"><p class="flag-box">Step 1: Long press a spot. Step 2: Touch "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -2427,9 +2433,159 @@ function pickMapStyle() {
   };
 }
 
+function clearMapSearchMarkers() {
+  mapSearchMarkers.forEach((marker) => marker.remove());
+  mapSearchMarkers = [];
+}
+
+function applePinButton(item) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "apple-pin";
+  const name = document.createElement("span");
+  name.className = "apple-pin-name";
+  name.textContent = pinLabel(item.title || item.label);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 32 42");
+  svg.setAttribute("width", "28");
+  svg.setAttribute("height", "36");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  shape.setAttribute("fill", "#ff3b30");
+  shape.setAttribute("stroke", "#fff");
+  shape.setAttribute("stroke-width", "2");
+  shape.setAttribute("d", "M16 2C8.3 2 2 8.4 2 16.3 2 27 16 40 16 40s14-13 14-23.7C30 8.4 23.7 2 16 2z");
+  const hole = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  hole.setAttribute("cx", "16");
+  hole.setAttribute("cy", "16");
+  hole.setAttribute("r", "5.2");
+  hole.setAttribute("fill", "#fff");
+  svg.append(shape, hole);
+  button.append(name, svg);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyMapHit(item);
+  });
+  return button;
+}
+
+function paintMapSearchPins() {
+  const maplibre = window.maplibregl;
+  clearMapSearchMarkers();
+  if (!mapPickMap || !maplibre || !mapSearchHits.length) return;
+  const bounds = new maplibre.LngLatBounds();
+  for (const item of mapSearchHits) {
+    const lat = Number(item.lat);
+    const lon = Number(item.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const marker = new maplibre.Marker({ element: applePinButton(item), anchor: "bottom" })
+      .setLngLat([lon, lat])
+      .addTo(mapPickMap);
+    mapSearchMarkers.push(marker);
+    bounds.extend([lon, lat]);
+  }
+  if (!mapSearchMarkers.length) return;
+  if (mapSearchMarkers.length === 1) {
+    const only = mapSearchHits.find((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)));
+    if (only) mapPickMap.flyTo({ center: [Number(only.lon), Number(only.lat)], zoom: 15, duration: 500 });
+    return;
+  }
+  mapPickMap.fitBounds(bounds, { padding: { top: 72, bottom: 48, left: 48, right: 48 }, maxZoom: 15, duration: 500 });
+}
+
+function applyMapHit(item) {
+  const id = state.openLookupStopId;
+  const stop = state.stops.find((entry) => entry.id === id);
+  const lat = Number(item?.lat);
+  const lon = Number(item?.lon);
+  const label = String(item?.label || "").trim();
+  if (!stop || !label || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (!(stop.name || "").trim()) stop.name = pinLabel(item.title || label);
+  stop.address = label;
+  stop.verifiedLabel = label;
+  stop.lat = lat;
+  stop.lon = lon;
+  stop.suggestions = [];
+  stop.miles = "";
+  stop.hours = "";
+  state.plan = null;
+  state.openLookupStopId = "";
+  chooseMap = false;
+  mapSpot = null;
+  mapQuery = "";
+  mapSearchHits = [];
+  mapSearchNote = "";
+  mapSearching = false;
+  clearMapSearchMarkers();
+  if (mapPickMarker) {
+    mapPickMarker.remove();
+    mapPickMarker = null;
+  }
+  clearUsingNote(id);
+  setLookupMessage(id, "Using that address.", { ok: true });
+  persist();
+  render();
+}
+
+async function searchMapPlaces(raw) {
+  const query = String(raw || "").trim();
+  mapQuery = query;
+  const note = document.getElementById("mapSearchNote");
+  const button = document.getElementById("mapSearchGo");
+  if (!state.signedIn) {
+    mapSearchNote = "Sign in to search the map.";
+    if (note) note.textContent = mapSearchNote;
+    return;
+  }
+  if (query.length < 3) {
+    mapSearchNote = "Type at least 3 letters.";
+    if (note) note.textContent = mapSearchNote;
+    return;
+  }
+  if (!state.unlimited && state.credits === 0) {
+    mapSearchNote = "You need a credit to search.";
+    if (note) note.textContent = mapSearchNote;
+    return;
+  }
+  mapSearching = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Searching…";
+  }
+  mapSearchNote = "Searching…";
+  if (note) note.textContent = mapSearchNote;
+  const center = mapPickMap?.getCenter();
+  const at = center ? { lat: center.lat, lon: center.lng } : chooseHere;
+  try {
+    const data = await suggestAddresses(query, at);
+    if (data.credits != null) state.credits = data.credits;
+    const calc = document.getElementById("calculate");
+    if (calc) calc.innerHTML = calculateButtonLabel();
+    mapSearchHits = Array.isArray(data.items) ? data.items : [];
+    paintMapSearchPins();
+    mapSearchNote = mapSearchHits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.";
+  } catch (error) {
+    if (error.credits != null) state.credits = error.credits;
+    const calc = document.getElementById("calculate");
+    if (calc) calc.innerHTML = calculateButtonLabel();
+    mapSearchHits = [];
+    clearMapSearchMarkers();
+    mapSearchNote = error.message || "Nothing matched that search.";
+  }
+  mapSearching = false;
+  if (note) note.textContent = mapSearchNote;
+  if (button) {
+    button.disabled = !state.unlimited && state.credits === 0;
+    button.textContent = state.signedIn ? "Search · 1 credit" : "Search";
+  }
+}
+
 function mountLookupMaps() {
   lookupMaps.forEach((map) => map.remove());
   lookupMaps = [];
+  mapPickMap = null;
+  clearMapSearchMarkers();
   const maplibre = window.maplibregl;
   if (!maplibre) return;
   document.querySelectorAll("[data-lookup-map]").forEach((el) => {
@@ -2482,7 +2638,11 @@ function mountLookupMaps() {
         const center = lookupCenter(stop);
         if (center) map.jumpTo({ center, zoom: pick ? 16 : 14 });
       }
-      if (pick) bindMapPick(map, stop.id);
+      if (pick) {
+        mapPickMap = map;
+        bindMapPick(map, stop.id);
+        if (mapSearchHits.length) paintMapSearchPins();
+      }
       map.resize();
     });
     lookupMaps.push(map);
@@ -2510,6 +2670,10 @@ async function openChooseMap(id) {
   }
   chooseMap = true;
   mapSpot = null;
+  mapQuery = "";
+  mapSearchHits = [];
+  mapSearchNote = "";
+  mapSearching = false;
   chooseHere = null;
   if (mapPickMarker) {
     mapPickMarker.remove();
@@ -2545,6 +2709,7 @@ function bindMapPick(map) {
   let timer = 0;
   let start = null;
   map.on("touchstart", (event) => {
+    if (event.originalEvent?.target?.closest?.(".apple-pin")) return;
     start = event.lngLat;
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
@@ -5260,6 +5425,13 @@ function bind() {
     render();
   });
   document.getElementById("useMapSpot")?.addEventListener("click", () => useChosenSpot());
+  document.getElementById("mapSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    searchMapPlaces(document.getElementById("mapSearchQuery")?.value || "");
+  });
+  document.getElementById("mapSearchQuery")?.addEventListener("input", (event) => {
+    mapQuery = event.target.value;
+  });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
