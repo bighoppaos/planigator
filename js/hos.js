@@ -54,8 +54,8 @@ export function durationLabel(hours) {
   return parts.join(" ");
 }
 
-export function stamp(ms, military = false) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
+export function stamp(ms, military = false, timeZone = "") {
+  const options = {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -63,20 +63,84 @@ export function stamp(ms, military = false) {
     hour: military ? "2-digit" : "numeric",
     minute: "2-digit",
     hourCycle: military ? "h23" : "h12",
-  });
-  return formatter.format(new Date(ms));
+  };
+  if (timeZone) options.timeZone = timeZone;
+  return new Intl.DateTimeFormat("en-US", options).format(new Date(ms));
 }
 
-export function shortStamp(ms, military = false) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
+export function shortStamp(ms, military = false, timeZone = "") {
+  const options = {
     weekday: "short",
     month: "numeric",
     day: "numeric",
     hour: military ? "2-digit" : "numeric",
     minute: "2-digit",
     hourCycle: military ? "h23" : "h12",
-  });
-  return formatter.format(new Date(ms));
+  };
+  if (timeZone) options.timeZone = timeZone;
+  return new Intl.DateTimeFormat("en-US", options).format(new Date(ms));
+}
+
+export function zoneParts(ms, timeZone) {
+  const date = new Date(ms);
+  if (!timeZone) {
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth(),
+      day: date.getDate(),
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+      second: date.getSeconds(),
+    };
+  }
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+  const value = (type) => parts.find((part) => part.type === type)?.value;
+  let hour = Number(value("hour"));
+  if (hour === 24) hour = 0;
+  return {
+    year: Number(value("year")),
+    month: Number(value("month")) - 1,
+    day: Number(value("day")),
+    hour,
+    minute: Number(value("minute")),
+    second: Number(value("second")) || 0,
+  };
+}
+
+function zoneOffsetMs(ms, timeZone) {
+  const parts = zoneParts(ms, timeZone);
+  const asUtc = Date.UTC(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second);
+  return asUtc - Math.trunc(ms / 1000) * 1000;
+}
+
+/** Wall-clock time in an IANA zone, as an absolute instant. */
+export function msInZone(year, monthIndex, day, hour, minute, timeZone) {
+  if (!timeZone) return new Date(year, monthIndex, day, hour, minute).getTime();
+  const utcGuess = Date.UTC(year, monthIndex, day, hour, minute);
+  let offset = zoneOffsetMs(utcGuess, timeZone);
+  let ms = utcGuess - offset;
+  const nextOffset = zoneOffsetMs(ms, timeZone);
+  if (nextOffset !== offset) ms = utcGuess - nextOffset;
+  const seen = zoneParts(ms, timeZone);
+  if (seen.year !== year || seen.month !== monthIndex || seen.day !== day || seen.hour !== hour || seen.minute !== minute) {
+    const seenAsUtc = Date.UTC(seen.year, seen.month, seen.day, seen.hour, seen.minute);
+    ms += utcGuess - seenAsUtc;
+  }
+  return ms;
+}
+
+function minutesOf(ms, timeZone) {
+  const parts = zoneParts(ms, timeZone);
+  return parts.hour * 60 + parts.minute;
 }
 
 export function sleepBy(leavePickupBy, hoursOfSleep = SLEEP_HOURS, hoursToGetReady = PERSONAL_PREP_HOURS) {
@@ -87,35 +151,50 @@ export function wakeToGetReady(leavePickupBy, hoursToGetReady = PERSONAL_PREP_HO
   return leavePickupBy - hoursToGetReady * 3600 * 1000;
 }
 
-function clockOnDay(minutes, dateMs) {
-  const date = new Date(dateMs);
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  return start + minutes * 60 * 1000;
+function clockOnDay(minutes, dateMs, timeZone) {
+  if (!timeZone) {
+    const date = new Date(dateMs);
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    return start + minutes * 60 * 1000;
+  }
+  const parts = zoneParts(dateMs, timeZone);
+  const hour = Math.trunc(minutes / 60);
+  const minute = minutes % 60;
+  return msInZone(parts.year, parts.month, parts.day, hour, minute, timeZone);
 }
 
-export function nextClock(minutes, atOrAfter) {
+function nextZonedDay(ms, timeZone) {
+  const parts = zoneParts(ms, timeZone);
+  const noon = msInZone(parts.year, parts.month, parts.day, 12, 0, timeZone);
+  return zoneParts(noon + 24 * 3600 * 1000, timeZone);
+}
+
+export function nextClock(minutes, atOrAfter, timeZone) {
   const mins = clampedClockMinutes(minutes);
-  const start = clockOnDay(mins, atOrAfter);
+  const start = clockOnDay(mins, atOrAfter, timeZone);
   if (start >= atOrAfter - 60 * 1000) return start;
-  return start + 24 * 3600 * 1000;
+  if (!timeZone) return start + 24 * 3600 * 1000;
+  const next = nextZonedDay(atOrAfter, timeZone);
+  return msInZone(next.year, next.month, next.day, Math.trunc(mins / 60), mins % 60, timeZone);
 }
 
-export function nextWorkStart(minutes, after) {
-  return nextClock(minutes, after);
+export function nextWorkStart(minutes, after, timeZone) {
+  return nextClock(minutes, after, timeZone);
 }
 
-export function nextDailyEnd(minutes, after) {
+export function nextDailyEnd(minutes, after, timeZone) {
   const endMins = clampedClockMinutes(minutes);
-  const today = clockOnDay(endMins, after);
+  const today = clockOnDay(endMins, after, timeZone);
   if (today > after) return today;
-  return today + 24 * 3600 * 1000;
+  if (!timeZone) return today + 24 * 3600 * 1000;
+  const next = nextZonedDay(after, timeZone);
+  return msInZone(next.year, next.month, next.day, Math.trunc(endMins / 60), endMins % 60, timeZone);
 }
 
-export function isInsideDriveWindow(dateMs, startMinutes, endMinutes) {
+export function isInsideDriveWindow(dateMs, startMinutes, endMinutes, timeZone) {
   if (isAnytimeEnd(endMinutes)) return true;
   const end = clampedClockMinutes(endMinutes);
-  const date = new Date(dateMs);
-  const mins = date.getHours() * 60 + date.getMinutes();
+  const mins = minutesOf(dateMs, timeZone);
   if (isAnytimeStart(startMinutes)) {
     if (end === 0) return true;
     return mins < end;
@@ -126,12 +205,11 @@ export function isInsideDriveWindow(dateMs, startMinutes, endMinutes) {
   return mins >= start || mins < end;
 }
 
-export function isPastDailyEnd(dateMs, startMinutes, endMinutes) {
+export function isPastDailyEnd(dateMs, startMinutes, endMinutes, timeZone) {
   if (isAnytimeEnd(endMinutes)) return false;
-  if (isInsideDriveWindow(dateMs, startMinutes, endMinutes)) return false;
+  if (isInsideDriveWindow(dateMs, startMinutes, endMinutes, timeZone)) return false;
   const end = clampedClockMinutes(endMinutes);
-  const date = new Date(dateMs);
-  const mins = date.getHours() * 60 + date.getMinutes();
+  const mins = minutesOf(dateMs, timeZone);
   if (isAnytimeStart(startMinutes)) return mins >= end;
   const start = clampedClockMinutes(startMinutes);
   if (start === end) return false;
@@ -139,21 +217,20 @@ export function isPastDailyEnd(dateMs, startMinutes, endMinutes) {
   return mins >= end && mins < start;
 }
 
-export function resumeAfterRest(startMinutes, endMinutes, after) {
+export function resumeAfterRest(startMinutes, endMinutes, after, timeZone) {
   if (isAnytimeStart(startMinutes)) {
     if (isAnytimeEnd(endMinutes)) return after;
-    if (isInsideDriveWindow(after, startMinutes, endMinutes)) return after;
-    return nextClock(0, after);
+    if (isInsideDriveWindow(after, startMinutes, endMinutes, timeZone)) return after;
+    return nextClock(0, after, timeZone);
   }
   if (isAnytimeEnd(endMinutes)) {
     const start = clampedClockMinutes(startMinutes);
-    const date = new Date(after);
-    const mins = date.getHours() * 60 + date.getMinutes();
-    if (mins < start) return nextClock(start, after);
+    const mins = minutesOf(after, timeZone);
+    if (mins < start) return nextClock(start, after, timeZone);
     return after;
   }
-  if (isInsideDriveWindow(after, startMinutes, endMinutes)) return after;
-  return nextClock(startMinutes, after);
+  if (isInsideDriveWindow(after, startMinutes, endMinutes, timeZone)) return after;
+  return nextClock(startMinutes, after, timeZone);
 }
 
 function sitForPiece(piece, hours) {
@@ -166,11 +243,13 @@ export class TruckerHOSClock {
     startMinutes = DEFAULT_START_MINUTES,
     endMinutes = DEFAULT_END_MINUTES,
     hoursBeforeThirty = DEFAULT_HOURS_BEFORE_THIRTY,
+    timeZone = "",
   }) {
     this.now = now;
     this.startMinutes = startMinutes;
     this.endMinutes = endMinutes;
     this.hoursBeforeThirty = hoursBeforeThirty;
+    this.timeZone = timeZone || "";
     this.drivenSinceBreak = 0;
     this.drivenToday = 0;
     this.onDutyToday = 0;
@@ -195,7 +274,7 @@ export class TruckerHOSClock {
     this.drivenSinceBreak = 0;
     this.drivenToday = 0;
     this.onDutyToday = 0;
-    const resume = resumeAfterRest(this.startMinutes, this.endMinutes, this.now);
+    const resume = resumeAfterRest(this.startMinutes, this.endMinutes, this.now, this.timeZone);
     if (resume > this.now) this.now = resume;
   }
 
@@ -215,8 +294,8 @@ export class TruckerHOSClock {
    *  wait until the window opens should not push the rest later. */
   overnightRestStillMakes(open, close) {
     if (open == null || this.now >= open - 60 * 1000) return false;
-    if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
-    const resumed = resumeAfterRest(this.startMinutes, this.endMinutes, this.now + 10 * 3600 * 1000);
+    if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes, this.timeZone)) return false;
+    const resumed = resumeAfterRest(this.startMinutes, this.endMinutes, this.now + 10 * 3600 * 1000, this.timeZone);
     if (resumed + 60 * 1000 < open) return false;
     if (close != null && resumed > close + 60 * 1000) return false;
     return true;
@@ -232,8 +311,8 @@ export class TruckerHOSClock {
    *  start when that open is after the driving day has ended. */
   usableAt(open, close) {
     if (open == null) return null;
-    if (isAnytimeEnd(this.endMinutes) || isInsideDriveWindow(open, this.startMinutes, this.endMinutes)) return open;
-    const morning = nextWorkStart(this.startMinutes, open);
+    if (isAnytimeEnd(this.endMinutes) || isInsideDriveWindow(open, this.startMinutes, this.endMinutes, this.timeZone)) return open;
+    const morning = nextWorkStart(this.startMinutes, open, this.timeZone);
     if (close != null && morning > close + 60 * 1000) return open;
     return morning;
   }
@@ -330,13 +409,13 @@ export class TruckerHOSClock {
 
     const hoursUntilEnd = () => {
       if (isAnytimeEnd(this.endMinutes)) return 24 * 14;
-      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return 0;
-      return (nextDailyEnd(this.endMinutes, this.now) - this.now) / 3600 / 1000;
+      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes, this.timeZone)) return 0;
+      return (nextDailyEnd(this.endMinutes, this.now, this.timeZone) - this.now) / 3600 / 1000;
     };
 
     const thirtyWouldLeaveWindow = () => {
       const breakEnd = this.now + 30 * 60 * 1000;
-      return !isInsideDriveWindow(breakEnd, this.startMinutes, this.endMinutes);
+      return !isInsideDriveWindow(breakEnd, this.startMinutes, this.endMinutes, this.timeZone);
     };
 
     const availableDrive = () => remainingRoute + remainingDelay;
@@ -389,11 +468,11 @@ export class TruckerHOSClock {
     const waitForDailyStartIfNeeded = () => {
       if (isAnytimeStart(this.startMinutes)) return false;
       if (isAnytimeEnd(this.endMinutes)) return false;
-      if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
+      if (isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes, this.timeZone)) return false;
       // A 10-hour rest is only after driving. Before the first mile, wait
       // until the next start time even if the day already ended.
       if (this.drivenToday > 0.01 || drivenSinceRest > 0.01) return false;
-      const start = nextWorkStart(this.startMinutes, this.now);
+      const start = nextWorkStart(this.startMinutes, this.now, this.timeZone);
       if (start <= this.now + 60 * 1000) return false;
       flushDrive();
       this.waitUntil(start);
@@ -410,12 +489,12 @@ export class TruckerHOSClock {
       const target = this.notBeforeArrival;
       if (!target || target <= this.now + 60 * 1000) return false;
       if (this.drivenToday > 0.01) return false;
-      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes)) return false;
+      if (!isInsideDriveWindow(this.now, this.startMinutes, this.endMinutes, this.timeZone)) return false;
       const probe = this.clone();
       probe.notBeforeArrival = 0;
       probe.driveReporting(availableDrive(), cap, [0], [0]);
       if (probe.now >= target - 60 * 1000) return false;
-      const dayEnd = isAnytimeEnd(this.endMinutes) ? target : nextDailyEnd(this.endMinutes, this.now);
+      const dayEnd = isAnytimeEnd(this.endMinutes) ? target : nextDailyEnd(this.endMinutes, this.now, this.timeZone);
       const latestFinish = Math.min(target, dayEnd);
       if (latestFinish <= probe.now + 60 * 1000) return false;
       const arrivalFrom = (startMs) => {
@@ -426,7 +505,7 @@ export class TruckerHOSClock {
         return trial.now;
       };
       const startAt = this.now + (latestFinish - probe.now);
-      if (!isInsideDriveWindow(startAt, this.startMinutes, this.endMinutes)) return false;
+      if (!isInsideDriveWindow(startAt, this.startMinutes, this.endMinutes, this.timeZone)) return false;
       let slipTo = startAt;
       // A 10-hour rest that ends before the morning start snaps forward.
       // Shifting the departure by the whole gap can jump that snap and
@@ -437,7 +516,7 @@ export class TruckerHOSClock {
         let best = this.now;
         for (let i = 0; i < 24 && hi - lo > 1000; i += 1) {
           const mid = Math.floor(lo + (hi - lo) / 2);
-          if (!isInsideDriveWindow(mid, this.startMinutes, this.endMinutes) || arrivalFrom(mid) > latestFinish + 60 * 1000) {
+          if (!isInsideDriveWindow(mid, this.startMinutes, this.endMinutes, this.timeZone) || arrivalFrom(mid) > latestFinish + 60 * 1000) {
             hi = mid;
           } else {
             best = mid;
@@ -561,10 +640,9 @@ export function hosNeed(hours, maxHoursBeforeReset = LEGAL_MAX_DRIVE_HOURS, hour
   };
 }
 
-export function resolvedLeaveAt({ leaveNow, leaveAt, now, startMinutes }) {
+export function resolvedLeaveAt({ leaveNow, leaveAt, now, startMinutes, timeZone = "" }) {
   if (leaveNow) return now;
   if (leaveAt > now - 30 * 60 * 1000) return leaveAt;
-  const date = new Date(leaveAt);
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  return nextClock(minutes, now);
+  const minutes = minutesOf(leaveAt, timeZone);
+  return nextClock(minutes, now, timeZone || undefined);
 }

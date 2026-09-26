@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=128";
+} from "./hos.js?v=129";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -154,6 +154,7 @@ function downstreamLimits({ stops, driveHours, clocks, cap }) {
     if (nextIndex != null && nextDeadline != null) {
       const clock = clocks.get(index);
       if (clock) {
+        clock.timeZone = stops[nextIndex]?.timeZone || "";
         const latest = latestStay(clock, inboundDrive(nextIndex, driveHours), cap, nextDeadline, own);
         limit = own == null ? latest : Math.min(own, latest);
       }
@@ -219,6 +220,7 @@ export function schedules({
   const cap = clampedMaxHours(maxHoursBeforeReset);
   stops.forEach((stop, index) => {
     if (isOriginStop(stops, index)) return;
+    clock.timeZone = stop.timeZone || "";
     const drive = inboundDrive(index, driveHours);
     const limited = deadlineFor?.get(index);
     const open = arriveLatest
@@ -300,15 +302,15 @@ export function schedules({
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
     if (usable != null && clock.now + 60 * 1000 < usable) {
-      const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now);
-      const restFrom = isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) ? dayEnd : clock.now;
+      const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now, clock.timeZone);
+      const restFrom = isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone) ? dayEnd : clock.now;
       const oneNight = isAnytimeEnd(clock.endMinutes)
         ? usable
-        : resumeAfterRest(clock.startMinutes, clock.endMinutes, restFrom + 10 * 3600 * 1000);
+        : resumeAfterRest(clock.startMinutes, clock.endMinutes, restFrom + 10 * 3600 * 1000, clock.timeZone);
       if (usable > oneNight + 60 * 1000) {
         clock.waitUntil(usable);
-      } else if (!isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes)) {
-        if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes) && dayEnd + 60 * 1000 < usable) {
+      } else if (!isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone)) {
+        if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone) && dayEnd + 60 * 1000 < usable) {
           clock.waitUntil(dayEnd);
         } else {
           const restCovers = clock.overnightRestStillMakes(open, close);
@@ -359,7 +361,7 @@ function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
     const arrivedInside = open == null || start + 60 * 1000 >= open;
     if (arrivedInside && Math.abs(end - latest) < 60 * 1000) return "Leeway for latest arrival";
     if (arrivedInside && !isAnytimeEnd(endMinutes)) {
-      const dayEnd = nextDailyEnd(endMinutes, start);
+      const dayEnd = nextDailyEnd(endMinutes, start, stop.timeZone || "");
       if (Math.abs(end - dayEnd) < 60 * 1000 && end <= latest + 60 * 1000) return "Leeway for latest arrival";
     }
   }
@@ -395,7 +397,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const close = stops[index].anytime ? null : latestArrive(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
       if (arrivedInside && close != null && !isAnytimeEnd(endMinutes)) {
-        const dayEnd = nextDailyEnd(endMinutes, block.end);
+        const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
         gapEnd = latest > block.end + 60 * 1000 ? latest : (lead?.start ?? next.start);
       } else {
@@ -406,7 +408,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const open = notBefore(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
       gapEnd = arrivedInside && !isAnytimeEnd(endMinutes)
-        ? Math.min(close, nextDailyEnd(endMinutes, block.end))
+        ? Math.min(close, nextDailyEnd(endMinutes, block.end, stops[index].timeZone || ""))
         : Math.max(block.end, close);
     } else {
       gapEnd = block.end;
@@ -638,6 +640,8 @@ export function buildPlan({
     late,
     lastTimedTitle: lateStop ? lateStop.name?.trim() || "the last timed stop" : "",
     lastDeadline: lateStop ? latestArrive(lateStop) : null,
+    lastStopId: lateStop ? lateStop.id : "",
+    zoned: true,
     breakCount,
     restCount,
     driveHours: totalDrive,
@@ -738,7 +742,10 @@ export function planPlainText({
   formatMiles,
   hoursLabel,
   durationLabel,
+  formatWhen = null,
 }) {
+  const shortOf = (ms, hint) => (formatWhen ? formatWhen(ms, hint, "short") : formatShort(ms));
+  const longOf = (ms, hint) => (formatWhen ? formatWhen(ms, hint, "long") : formatTime(ms));
   const lines = ["Planigator"];
   const named = (tripName || "").trim();
   if (named) lines.push(named);
@@ -750,10 +757,10 @@ export function planPlainText({
   lines.push("");
   if (plan) {
     if (plan.late && plan.lastDeadline) {
-      lines.push(`LATE for ${plan.lastTimedTitle} (be there by ${formatShort(plan.lastDeadline)}).`);
+      lines.push(`LATE for ${plan.lastTimedTitle} (be there by ${shortOf(plan.lastDeadline, "deadline")}).`);
     }
-    lines.push(`Leave by: ${formatTime(plan.rollAt)}`);
-    lines.push(`Arrive: ${formatTime(plan.arriveAt)}`);
+    lines.push(`Leave by: ${longOf(plan.rollAt, "leave")}`);
+    lines.push(`Arrive: ${longOf(plan.arriveAt, "arrive")}`);
     lines.push(`Driving: ${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}`);
     lines.push(`HOS on this path: ${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour`);
     lines.push(`Clock including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}`);
@@ -761,8 +768,8 @@ export function planPlainText({
     lines.push("Timeline");
     plan.events.forEach((event) => {
       const when = event.end && event.end !== event.start
-        ? `${formatShort(event.start)} → ${formatShort(event.end)}`
-        : formatShort(event.start);
+        ? `${shortOf(event.start, event)} → ${shortOf(event.end, event)}`
+        : shortOf(event.start, event);
       const extra = [];
       if (event.title) extra.push(event.title);
       if (event.miles != null && event.miles > 0.05) extra.push(formatMiles(event.miles));
@@ -770,7 +777,7 @@ export function planPlainText({
       lines.push(`${event.timePhrase}${extra.length ? ` · ${extra.join(" · ")}` : ""}`);
       lines.push(`  ${when}`);
       if (event.arrivalPhrase && event.earliestArrive) {
-        lines.push(`  ${event.arrivalPhrase} ${formatShort(event.earliestArrive)}`);
+        lines.push(`  ${event.arrivalPhrase} ${shortOf(event.earliestArrive, event)}`);
       }
     });
   }

@@ -9,7 +9,8 @@ import {
   stamp,
   shortStamp,
   resolvedLeaveAt,
-} from "./hos.js?v=128";
+  msInZone,
+} from "./hos.js?v=129";
 import {
   newId,
   cardTitle,
@@ -21,9 +22,10 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=134";
+} from "./plan.js?v=135";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
+import { tzlookup } from "./tz-lookup.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -408,6 +410,8 @@ function slimPlan(plan) {
     late: Boolean(plan.late),
     lastTimedTitle: plan.lastTimedTitle || "",
     lastDeadline: plan.lastDeadline || null,
+    lastStopId: plan.lastStopId || "",
+    zoned: plan.zoned === true,
     breakCount: plan.breakCount || 0,
     restCount: plan.restCount || 0,
     driveHours: plan.driveHours || 0,
@@ -471,6 +475,137 @@ function formatTime(ms) {
 
 function formatShort(ms) {
   return shortStamp(ms, state.settings.military);
+}
+
+function zoneForPoint(lat, lon) {
+  const latitude = Number(lat);
+  const longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return "";
+  try {
+    return tzlookup(latitude, longitude) || "";
+  } catch {
+    return "";
+  }
+}
+
+function zoneForStop(stop) {
+  if (!stop) return "";
+  if (stop.useCurrentLocation) return zoneForPoint(state.origin?.lat, state.origin?.lon);
+  return zoneForPoint(stop.lat, stop.lon);
+}
+
+function originStop() {
+  const stops = state.stops || [];
+  const index = stops.findIndex((_, i) => isOriginStop(stops, i));
+  return index >= 0 ? stops[index] : stops[0];
+}
+
+function arriveStop() {
+  const stops = state.stops || [];
+  const dests = stops.filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute);
+  return dests[dests.length - 1];
+}
+
+function tripUsesMultipleZones() {
+  const zones = new Set();
+  for (const stop of state.stops || []) {
+    const zone = zoneForStop(stop);
+    if (zone) zones.add(zone);
+  }
+  return zones.size > 1;
+}
+
+function shownZone(timeZone) {
+  return state.plan?.zoned && timeZone ? timeZone : "";
+}
+
+function zoneAbbrev(ms, timeZone) {
+  const zone = shownZone(timeZone);
+  if (!zone || !tripUsesMultipleZones()) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      timeZoneName: "short",
+      hour: "numeric",
+    }).formatToParts(new Date(ms));
+    return parts.find((part) => part.type === "timeZoneName")?.value || "";
+  } catch {
+    return "";
+  }
+}
+
+function formatZoned(ms, timeZone, kind) {
+  const zone = shownZone(timeZone);
+  const text = zone
+    ? (kind === "long" ? stamp(ms, state.settings.military, zone) : shortStamp(ms, state.settings.military, zone))
+    : (kind === "long" ? formatTime(ms) : formatShort(ms));
+  const abbrev = zoneAbbrev(ms, timeZone);
+  return abbrev ? `${text} ${abbrev}` : text;
+}
+
+function formatPlanTime(ms, timeZone) {
+  return formatZoned(ms, timeZone, "long");
+}
+
+function formatPlanShort(ms, timeZone) {
+  return formatZoned(ms, timeZone, "short");
+}
+
+function formatPlanSpan(start, end, timeZone) {
+  const zone = shownZone(timeZone);
+  if (!zone) {
+    return end && end !== start ? `${formatShort(start)} – ${formatShort(end)}` : formatShort(start);
+  }
+  const military = state.settings.military;
+  const startText = shortStamp(start, military, zone);
+  if (!end || end === start) {
+    const abbrev = zoneAbbrev(start, timeZone);
+    return abbrev ? `${startText} ${abbrev}` : startText;
+  }
+  const endText = shortStamp(end, military, zone);
+  const startAbbrev = zoneAbbrev(start, timeZone);
+  const endAbbrev = zoneAbbrev(end, timeZone);
+  if (startAbbrev && endAbbrev && startAbbrev !== endAbbrev) {
+    return `${startText} ${startAbbrev} – ${endText} ${endAbbrev}`;
+  }
+  const abbrev = endAbbrev || startAbbrev;
+  return abbrev ? `${startText} – ${endText} ${abbrev}` : `${startText} – ${endText}`;
+}
+
+function eventZone(event) {
+  if (!event) return "";
+  if (event.after === -1) return zoneForStop(originStop());
+  const stop = (state.stops || []).find((item) => item.id === event.stopID);
+  return zoneForStop(stop) || zoneForStop(originStop());
+}
+
+function zonedInstant(ms, offsetMinutes, timeZone) {
+  if (!timeZone || !Number.isFinite(Number(ms))) return Number(ms);
+  const parts = wallParts(ms, offsetMinutes);
+  try {
+    return msInZone(parts.year, parts.month, parts.day, parts.hour, parts.minute, timeZone);
+  } catch {
+    return Number(ms);
+  }
+}
+
+function zonedPlanStops(stops) {
+  return (stops || []).map((stop) => {
+    const timeZone = zoneForStop(stop);
+    if (!timeZone) return { ...stop };
+    return {
+      ...stop,
+      timeZone,
+      start: zonedInstant(stop.start, enteredOffset(stop, "start"), timeZone),
+      end: zonedInstant(stop.end, enteredOffset(stop, "end"), timeZone),
+    };
+  });
+}
+
+function tripReadyToRecalc(stops = state.stops) {
+  const dests = (stops || []).filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute);
+  if (!dests.length) return false;
+  return dests.every((stop) => (Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001);
 }
 
 function formatClockMinutes(minutes) {
@@ -582,11 +717,14 @@ function wheelChip(id, value, values, labelFn = String) {
 }
 
 function leaveAtNow() {
+  const offset = state.settings.leaveAtOffset;
+  const timeZone = !state.settings.leaveNow && Number.isFinite(Number(offset)) ? offsetZone(offset) : "";
   return resolvedLeaveAt({
     leaveNow: state.settings.leaveNow,
     leaveAt: state.settings.leaveAt,
     now: Date.now(),
     startMinutes: state.settings.startMinutes,
+    timeZone,
   });
 }
 
@@ -630,7 +768,7 @@ function applySharedTrip(data, { notice } = {}) {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   persist();
-  if (!state.plan) calculate({ silent: true, skipHash: true });
+  if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else render();
 }
 
@@ -744,7 +882,7 @@ async function calculate({ silent = false, skipHash = false } = {}) {
     rememberOrigin();
   }
   const result = buildPlan({
-    stops: state.stops.map(normalizeStop),
+    stops: zonedPlanStops(state.stops.map(normalizeStop)),
     settings: {
       ...state.settings,
       leaveAt: leaveAtNow(),
@@ -839,7 +977,7 @@ function loadTrip(id) {
   state.notice = `Opened ${trip.name}.`;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
-  if (!state.plan) calculate({ silent: true, skipHash: true });
+  if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
     render();
     persist();
@@ -894,7 +1032,10 @@ function exampleStillStock() {
 }
 
 function rollOpenExample() {
-  if (!exampleStillStock()) return;
+  if (!exampleStillStock()) {
+    if (state.plan && tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
+    return;
+  }
   const stored = storedExampleWeek(state.stops);
   if (stored != null && stored < exampleWeeksAhead()) {
     loadExample();
@@ -2210,6 +2351,16 @@ async function copyPlan() {
     formatMiles,
     hoursLabel,
     durationLabel,
+    formatWhen: (ms, hint, length) => {
+      const zone = hint === "leave"
+        ? zoneForStop(originStop())
+        : hint === "arrive"
+          ? zoneForStop(arriveStop())
+          : hint === "deadline"
+            ? zoneForStop((state.stops || []).find((item) => item.id === state.plan?.lastStopId))
+            : eventZone(hint);
+      return length === "long" ? formatPlanTime(ms, zone) : formatPlanShort(ms, zone);
+    },
   });
   try {
     await navigator.clipboard.writeText(text);
@@ -2448,10 +2599,10 @@ function planBox() {
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
     ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Cat scale · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
-    ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
+    ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatPlanShort(plan.lastDeadline, zoneForStop((state.stops || []).find((item) => item.id === plan.lastStopId)))}).</p>` : ""}
     <div class="result-lines">
-      <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
-      <p class="flag-box">Arrive ${escapeAttr(formatTime(plan.arriveAt))}</p>
+      <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
+      <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
       <p class="flag-box">Driving ${escapeAttr(hoursLabel(plan.driveHours))} · ${escapeAttr(formatMiles(plan.miles))}</p>
       <p class="flag-box">HOS on this path ${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</p>
       <p class="flag-box">Total trip-time including 10's and 30's: ${escapeAttr(durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000))}.</p>
@@ -5176,14 +5327,12 @@ function chip(event) {
   const middle = event.kind === "leeway" && hours
     ? `${hours} / ${leewayDays(event.tripHours)}`
     : [hours, miles].filter(Boolean).join(" · ");
-  const span = event.end && event.end !== event.start
-    ? `${formatShort(event.start)} – ${formatShort(event.end)}`
-    : formatShort(event.start);
+  const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
   const phrase = event.kind === "rest" ? "10-hour reset/Off-duty" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
   const arrive = event.arrivalPhrase && event.earliestArrive
-    ? `${event.arrivalPhrase} ${formatShort(event.earliestArrive)}`
+    ? `${event.arrivalPhrase} ${formatPlanShort(event.earliestArrive, eventZone(event))}`
     : "";
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
