@@ -26,6 +26,7 @@ import {
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
+import { parseStopPaste } from "./paste-stop.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -1842,6 +1843,71 @@ async function lookupAddress(id) {
   render();
 }
 
+function placeholderStopName(name) {
+  const text = String(name || "").trim();
+  return !text || /^stop(?:\s+\d+)?$/i.test(text);
+}
+
+function pastedInstant(parts, stop, field) {
+  const offset = deviceOffset();
+  const kept = wallParts(field === "end" ? stop.end : stop.start, enteredOffset(stop, field));
+  const hour = parts.hour == null ? kept.hour : parts.hour;
+  const minute = parts.minute == null ? kept.minute : parts.minute;
+  return {
+    ms: msFromWall(parts.year, parts.monthIndex, parts.day, hour, minute, offset),
+    offset,
+  };
+}
+
+function pasteNote(parsed) {
+  const lines = [];
+  if (parsed.usedFirst) lines.push("Filled the first stop in that paste.");
+  if (parsed.timed) lines.push("Times are set.");
+  else if (parsed.hadWhen) lines.push("The date is set.");
+  else if (parsed.anytime) lines.push("Anytime is set.");
+  else lines.push("No date or time was in that paste.");
+  if (parsed.address) lines.push("Look up this address and pick one.");
+  return lines.join(" ");
+}
+
+function applyStopPaste(id, text) {
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop) return;
+  const parsed = parseStopPaste(text, Date.now());
+  if (!parsed || (!parsed.address && !parsed.hadWhen && !parsed.anytime)) {
+    setLookupMessage(id, "Copy an address first.");
+    render();
+    return;
+  }
+  const patch = {};
+  if (parsed.address) patch.address = parsed.address;
+  if (parsed.name && placeholderStopName(stop.name)) {
+    const name = clipStopName(parsed.name);
+    if (name) patch.name = name;
+  }
+  if (parsed.hadWhen && parsed.start) {
+    const start = pastedInstant(parsed.start, stop, "start");
+    patch.anytime = false;
+    patch.start = start.ms;
+    patch.startOffset = start.offset;
+    if (parsed.window && parsed.end) {
+      const end = pastedInstant(parsed.end, stop, "end");
+      patch.window = true;
+      patch.end = end.ms;
+      patch.endOffset = end.offset;
+    } else {
+      patch.window = false;
+      patch.end = start.ms;
+      patch.endOffset = start.offset;
+    }
+  } else if (parsed.anytime) {
+    patch.anytime = true;
+    patch.window = false;
+  }
+  setLookupMessage(id, pasteNote(parsed), { ok: true });
+  updateStop(id, patch);
+}
+
 async function pasteAddress(id) {
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
@@ -1854,18 +1920,11 @@ async function pasteAddress(id) {
   try {
     text = await navigator.clipboard.readText();
   } catch {
-    setLookupMessage(id, "Allow paste, then try Paste an address again.");
+    setLookupMessage(id, "Allow paste, then try Paste again.");
     render();
     return;
   }
-  const address = String(text || "").replace(/\s+/g, " ").trim();
-  if (!address) {
-    setLookupMessage(id, "Copy an address first.");
-    render();
-    return;
-  }
-  if (address === String(stop.address || "").trim()) return;
-  updateStop(id, { address });
+  applyStopPaste(id, text);
 }
 
 function chooseSuggestion(id, index) {
@@ -5508,6 +5567,7 @@ function stopCard(stop, index) {
       </div>
       <div class="address-row">
         <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
+        <button type="button" class="flag-box" data-act="paste" aria-label="Paste an address and times">Paste</button>
         <button type="button" class="flag-box" data-act="map">search/choose from map</button>
       </div>
       <div class="lookup-row">
@@ -6223,6 +6283,16 @@ function bindTypingFields() {
     lookupOpen.add(id);
     card.querySelector("[data-act=lookup]")?.removeAttribute("hidden");
   });
+  document.addEventListener("paste", (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLTextAreaElement) || !el.matches("[data-field=address]")) return;
+    const text = event.clipboardData?.getData("text") || "";
+    const parsed = parseStopPaste(text, Date.now());
+    if (!parsed || (!parsed.hadWhen && !parsed.anytime)) return;
+    event.preventDefault();
+    const id = el.closest("[data-stop]")?.getAttribute("data-stop");
+    if (id) applyStopPaste(id, text);
+  });
 }
 
 function bindSettings() {
@@ -6565,6 +6635,7 @@ function bind() {
       });
     });
     card.querySelector("[data-act=lookup]")?.addEventListener("click", () => lookupAddress(id));
+    card.querySelector("[data-act=paste]")?.addEventListener("click", () => pasteAddress(id));
     const usingNote = [...card.querySelectorAll("p")].some((note) => {
       const text = note.textContent || "";
       return text === "Using that address." || text === "Using this address.";
