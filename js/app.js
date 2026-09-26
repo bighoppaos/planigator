@@ -27,6 +27,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
+import { directionWindow, matchAlong, nearestOnPath } from "./nav-match.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -3247,6 +3248,8 @@ let navStopNoteUntil = 0;
 let truckHit = null;
 let navLine = [];
 let navLegs = [];
+let navAlongLock = null;
+let navLineKey = "";
 
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
@@ -3397,34 +3400,14 @@ function navBearing(a, b) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function navProjectT(a, b, lat, lon) {
-  const lat0 = ((a[0] + b[0]) / 2) * Math.PI / 180;
-  const bx = (b[1] - a[1]) * 111320 * Math.cos(lat0);
-  const by = (b[0] - a[0]) * 111320;
-  const px = (lon - a[1]) * 111320 * Math.cos(lat0);
-  const py = (lat - a[0]) * 111320;
-  const len2 = bx * bx + by * by;
-  if (len2 < 1) return 0;
-  return Math.max(0, Math.min(1, (px * bx + py * by) / len2));
-}
-
 function navNearest(lat, lon, path) {
-  let bestDist = Infinity;
-  let along = 0;
-  let walked = 0;
-  for (let i = 1; i < path.length; i += 1) {
-    const seg = metersBetween(path[i - 1], path[i]);
-    const t = navProjectT(path[i - 1], path[i], lat, lon);
-    const plat = path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t;
-    const plon = path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t;
-    const dist = metersBetween([lat, lon], [plat, plon]);
-    if (dist < bestDist) {
-      bestDist = dist;
-      along = walked + seg * t;
-    }
-    walked += seg;
+  if (!path || path.length < 2) return { dist: Infinity, along: 0 };
+  if (navOn && path === navLine) {
+    const hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
+    if (hit.dist <= 180) navAlongLock = hit.along;
+    return hit;
   }
-  return { dist: bestDist, along };
+  return nearestOnPath(lat, lon, path);
 }
 
 function rebuildNavLegs() {
@@ -5258,6 +5241,8 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  navAlongLock = null;
+  navLineKey = "";
   navStopPicked = false;
   navGuideFromId = "";
   navStopAnnounce = false;
@@ -5379,6 +5364,12 @@ function focusDirectionWindow(stopId, index) {
     scrolling.querySelectorAll("li.dir-far").forEach((li) => li.classList.remove("dir-far"));
     return;
   }
+  const steps = [...scrolling.querySelectorAll("[data-dir-stop]")];
+  const current = steps.findIndex((button) => (
+    button.getAttribute("data-dir-stop") === stopId
+    && Number(button.getAttribute("data-dir-index")) === index
+  ));
+  const shown = new Set(directionWindow(current >= 0 ? current : 0, steps.length).map((at) => steps[at]));
   scrolling.querySelectorAll("li").forEach((li) => {
     const button = li.querySelector("[data-dir-stop]");
     if (!hide) {
@@ -5389,9 +5380,7 @@ function focusDirectionWindow(stopId, index) {
       li.classList.add("dir-far");
       return;
     }
-    const same = button.getAttribute("data-dir-stop") === stopId;
-    const n = Number(button.getAttribute("data-dir-index"));
-    li.classList.toggle("dir-far", !(same && Math.abs(n - index) <= 1));
+    li.classList.toggle("dir-far", !shown.has(button));
   });
 }
 
@@ -5438,8 +5427,15 @@ document.addEventListener("beforeinput", (event) => {
   event.preventDefault();
 }, true);
 
+function routeProgressKey(line) {
+  const mid = line[Math.floor(line.length / 2)] || [];
+  return `${line.length}:${Math.round(polylineMeters(line))}:${line[0]?.join(",")}:${mid.join(",")}:${line[line.length - 1]?.join(",")}`;
+}
+
 function beginRouteNav() {
   navOn = true;
+  navAlongLock = null;
+  navLineKey = routeProgressKey(routePoints());
   navFollowing = true;
   navZoom = 15;
   freezeTyping(true);
@@ -5529,6 +5525,11 @@ function refillDirections() {
 
 function paintLiveRoute() {
   const line = routePoints();
+  const key = routeProgressKey(line);
+  if (key !== navLineKey) {
+    navLineKey = key;
+    navAlongLock = null;
+  }
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
   const source = routeMap?.getSource("route");
   if (source && coordinates.length >= 2) {

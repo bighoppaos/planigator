@@ -717,6 +717,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-left: 0;
 }
 .dir-scroll li.dir-far { display: none; }
+.directions.dir-three:not(.dir-browse) .dir-scroll {
+  max-height: none;
+  overflow: visible;
+}
 
 .here-leg {
   display: flex;
