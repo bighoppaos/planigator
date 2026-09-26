@@ -2332,7 +2332,7 @@ function planBox() {
         <button type="button" id="routeExit" hidden>Exit</button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
-        <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
+        <button type="button" id="routeStop" aria-label="${escapeAttr(navStopTitle(chosenNavStop()?.stop))}">${stopButtonMarkup(chosenNavStop()?.stop)}</button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -3483,9 +3483,7 @@ function syncRouteChrome() {
     follow.hidden = !navOn;
     follow.classList.toggle("on", navOn && navFollowing);
   }
-  const ordinal = document.getElementById("routeStopOrdinal");
-  const shown = chosenNavStop();
-  if (ordinal) ordinal.textContent = ordinalStop(shown ? shown.cursor : navStopCursor);
+  paintStopButton();
   placeDirections(routeFull);
   syncTruckAdd();
   const start = document.getElementById("startNav");
@@ -3739,14 +3737,39 @@ function nearestNearStop(lat, lon, hit) {
   return best;
 }
 
-function ordinalStop(index) {
-  const n = index + 1;
-  const mod = n % 100;
-  if (mod >= 11 && mod <= 13) return `${n}th`;
-  if (n % 10 === 1) return `${n}st`;
-  if (n % 10 === 2) return `${n}nd`;
-  if (n % 10 === 3) return `${n}rd`;
-  return `${n}th`;
+const STOP_NAME_LIMIT = 8;
+
+function clipStopName(value) {
+  return String(value ?? "").slice(0, STOP_NAME_LIMIT);
+}
+
+function stopButtonLines(stop) {
+  const name = clipStopName(navStopTitle(stop).replace(/\s+/g, " ").trim()) || "Stop";
+  const space = name.indexOf(" ");
+  const rest = space > 0 ? name.length - space - 1 : 0;
+  if (space > 0 && space <= 4 && rest <= 4 && rest > 0) {
+    return [name.slice(0, space), name.slice(space + 1)];
+  }
+  if (name.length <= 5) return [name, ""];
+  return [name.slice(0, 4), name.slice(4)];
+}
+
+function stopButtonMarkup(stop) {
+  const [top, bottom] = stopButtonLines(stop);
+  return `<span id="routeStopLine1">${escapeAttr(top)}</span><span id="routeStopLine2"${bottom ? "" : " hidden"}>${escapeAttr(bottom)}</span>`;
+}
+
+function paintStopButton() {
+  const button = document.getElementById("routeStop");
+  const line1 = document.getElementById("routeStopLine1");
+  const line2 = document.getElementById("routeStopLine2");
+  if (!line1 || !line2) return;
+  const shown = chosenNavStop();
+  const [top, bottom] = stopButtonLines(shown?.stop);
+  line1.textContent = top;
+  line2.textContent = bottom;
+  line2.hidden = !bottom;
+  if (button) button.setAttribute("aria-label", navStopTitle(shown?.stop));
 }
 
 let navStopTapAt = 0;
@@ -4345,8 +4368,7 @@ function addTruckAsNextStop() {
   if (add) add.hidden = true;
   const calc = document.getElementById("calculate");
   if (calc) calc.innerHTML = calculateButtonLabel();
-  const ordinal = document.getElementById("routeStopOrdinal");
-  if (ordinal) ordinal.textContent = ordinalStop(navStopCursor);
+  paintStopButton();
   syncTruckAdd();
 }
 
@@ -5113,7 +5135,7 @@ function stopCard(stop, index) {
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
-          <textarea class="plain" data-field="name" rows="1" placeholder="${escapeAttr(title)}" aria-label="Stop name">${escapeAttr(stop.name)}</textarea>
+          <textarea class="plain" data-field="name" rows="1" maxlength="8" placeholder="${escapeAttr(title)}" aria-label="Stop name">${escapeAttr(stop.name)}</textarea>
         </label>
         <div class="icon-row">
           <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 ? "disabled" : ""} aria-label="Move stop up">↑</button>
@@ -5718,6 +5740,7 @@ function onStopFieldChange(input) {
   const field = input.getAttribute("data-field");
   if (!id || !field) return false;
   let value = input.type === "checkbox" ? input.checked : input.value;
+  if (field === "name") value = clipStopName(value);
   if (field === "start" || field === "end") value = fromDateTimeLocal(input.value);
   const patch = { [field]: value };
   if (field === "start" && !state.stops.find((stop) => stop.id === id)?.window) patch.end = value;
@@ -5732,7 +5755,12 @@ function onStopFieldInput(input) {
   if (!id || !field || input.type === "checkbox" || input.type === "datetime-local") return false;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return false;
-  stop[field] = input.value;
+  if (field === "name") {
+    const clipped = clipStopName(input.value);
+    if (input.value !== clipped) input.value = clipped;
+    stop.name = clipped;
+    paintStopButton();
+  } else stop[field] = input.value;
   if (field === "address") {
     const button = card.querySelector("[data-act=lookup]");
     const typed = input.value.trim();
