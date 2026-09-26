@@ -391,12 +391,15 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
     if (!block) return;
     let gapEnd;
     if (position + 1 < destinations.length && blocks[destinations[position + 1]]) {
-      const next = blocks[destinations[position + 1]];
+      const nextIndex = destinations[position + 1];
+      const next = blocks[nextIndex];
       const lead = next.leadingPauses[0];
       const open = notBefore(stops[index]);
       const close = stops[index].anytime ? null : latestArrive(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
-      if (arrivedInside && close != null && !isAnytimeEnd(endMinutes)) {
+      // An anytime stop is left as soon as this one is done. Stretching the
+      // gap to the end of the driving day overlaps that drive.
+      if (arrivedInside && close != null && !isAnytimeEnd(endMinutes) && !stops[nextIndex]?.anytime) {
         const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
         gapEnd = latest > block.end + 60 * 1000 ? latest : (lead?.start ?? next.start);
