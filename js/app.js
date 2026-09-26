@@ -2935,10 +2935,10 @@ function rebuildNavLegs() {
   navLegs = next;
 }
 
-function passedManeuver(step) {
+function startsWithManeuver(step) {
   const text = String(step?.text || "");
-  if (/\b(exit|ramp|continue|head|depart|arrive)\b/i.test(text)) return false;
-  return /\b(turn|u-turn|roundabout|keep)\b/i.test(text);
+  if (/\b(continue|head|depart|arrive)\b/i.test(text)) return false;
+  return /\b(turn|u-turn|roundabout|keep|exit|ramp)\b/i.test(text);
 }
 
 function navStep(leg, alongInLeg) {
@@ -2953,8 +2953,12 @@ function navStep(leg, alongInLeg) {
     const len = lengths[i] * scale;
     if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) {
       const into = alongInLeg - cursor;
-      const index = passedManeuver(steps[i]) && i + 1 < steps.length && into > 45 ? i + 1 : i;
-      return { step: steps[index], index };
+      // Each row names the maneuver that starts the next span. Stay on the
+      // previous row until about 150 feet past that maneuver.
+      if (i > 0 && into <= 45 && startsWithManeuver(steps[i])) {
+        return { step: steps[i - 1], index: i - 1 };
+      }
+      return { step: steps[i], index: i };
     }
     cursor += len;
   }
