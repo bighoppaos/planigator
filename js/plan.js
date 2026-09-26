@@ -221,6 +221,11 @@ export function schedules({
   stops.forEach((stop, index) => {
     if (isOriginStop(stops, index)) return;
     clock.timeZone = stop.timeZone || "";
+    const prev = stops[index - 1];
+    if (!stop.skipRoute && prev && !prev.skipRoute) {
+      const delayMinutes = Math.max(0, Number(prev.delayMinutes) || 0);
+      if (delayMinutes >= 1) clock.sit(delayMinutes / 60);
+    }
     const drive = inboundDrive(index, driveHours);
     const limited = deadlineFor?.get(index);
     const open = arriveLatest

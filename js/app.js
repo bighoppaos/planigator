@@ -22,7 +22,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=136";
+} from "./plan.js?v=137";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -5986,6 +5986,43 @@ function leewayInto(stopId) {
   return (state.plan?.events || []).filter((event) => event.kind === "leeway" && event.stopID === prevId && event.after !== -1);
 }
 
+function delayLabel(minutes) {
+  const mins = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.trunc(mins / 60);
+  const remain = mins % 60;
+  if (hours <= 0) return `${remain} min`;
+  if (remain === 0) return hours === 1 ? "1 hr" : `${hours} hr`;
+  return `${hours} hr ${remain} min`;
+}
+
+function delayStepper(stop, index) {
+  if (index >= state.stops.length - 1) return "";
+  const minutes = Math.max(0, Number(stop.delayMinutes) || 0);
+  return `
+    <div class="delay-step">
+      <span>Possible delay time</span>
+      <span class="delay-controls">
+        <button type="button" data-delay="${stop.id}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
+        <span class="delay-read">${delayLabel(minutes)}</span>
+        <button type="button" data-delay="${stop.id}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
+      </span>
+    </div>
+  `;
+}
+
+function changeDelay(id, delta) {
+  if (state.estimating) return;
+  const stop = state.stops.find((item) => item.id === id);
+  if (!stop) return;
+  const current = Math.max(0, Number(stop.delayMinutes) || 0);
+  const next = Math.max(0, Math.min(24 * 60, current + delta));
+  if (next === current) return;
+  stop.delayMinutes = next;
+  persist();
+  if (state.plan) calculate({ silent: true });
+  else render();
+}
+
 function stopCard(stop, index) {
   const dests = destinations();
   const destIndex = dests.findIndex((item) => item.id === stop.id);
@@ -6043,6 +6080,7 @@ function stopCard(stop, index) {
     ${around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
+    ${delayStepper(stop, index)}
   `;
 }
 
@@ -7121,6 +7159,11 @@ function bind() {
   });
   document.querySelectorAll("[data-after]").forEach((button) => {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
+  });
+  document.querySelectorAll("[data-delay]").forEach((button) => {
+    button.addEventListener("click", () => {
+      changeDelay(button.getAttribute("data-delay"), Number(button.getAttribute("data-delay-by")) || 0);
+    });
   });
   document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
   mountExampleSparkle();

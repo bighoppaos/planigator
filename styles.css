@@ -1088,6 +1088,52 @@ input.compact {
   line-height: 1.1;
   overflow-wrap: break-word;
 }
+.delay-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--box-font, 16px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.delay-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.delay-step button {
+  width: auto;
+  min-width: 36px;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.delay-read {
+  min-width: 5.5rem;
+  text-align: center;
+}
+
 .chip-sec + .chip-sec {
   margin-top: 2px;
   padding-top: 2px;
@@ -1177,6 +1223,7 @@ header .brand img {
 .set-box,
 .flag-box,
 .chip,
+.delay-step,
 .stop-card,
 .build-line,
 .call-log-box,
