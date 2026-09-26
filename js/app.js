@@ -3025,11 +3025,54 @@ function unlockNavVoice() {
   synth.speak(utter);
 }
 
+function spokenAloud(text) {
+  let said = String(text || "");
+  const swaps = [
+    ["NE", "Northeast"],
+    ["NW", "Northwest"],
+    ["SE", "Southeast"],
+    ["SW", "Southwest"],
+    ["N", "North"],
+    ["S", "South"],
+    ["E", "East"],
+    ["W", "West"],
+    ["Aly", "Alley"],
+    ["Ave", "Avenue"],
+    ["Blvd", "Boulevard"],
+    ["Boul", "Boulevard"],
+    ["Cir", "Circle"],
+    ["Ct", "Court"],
+    ["Cres", "Crescent"],
+    ["Dr", "Drive"],
+    ["Expy", "Expressway"],
+    ["Expwy", "Expressway"],
+    ["Fwy", "Freeway"],
+    ["Hwy", "Highway"],
+    ["Ln", "Lane"],
+    ["Pkwy", "Parkway"],
+    ["Pky", "Parkway"],
+    ["Plz", "Plaza"],
+    ["Pl", "Place"],
+    ["Rd", "Road"],
+    ["Rte", "Route"],
+    ["Sq", "Square"],
+    ["St", "Street"],
+    ["Ter", "Terrace"],
+    ["Terr", "Terrace"],
+    ["Trl", "Trail"],
+    ["Xing", "Crossing"],
+  ];
+  for (const [abbr, word] of swaps) {
+    said = said.replace(new RegExp(`\\b${abbr}\\.?(?!\\w)`, "gi"), word);
+  }
+  return said.replace(/\s+/g, " ").trim();
+}
+
 function speakNav(text) {
   const synth = window.speechSynthesis;
   if (!synth || !navOn || !text) return;
   synth.resume();
-  const utter = new SpeechSynthesisUtterance(text);
+  const utter = new SpeechSynthesisUtterance(spokenAloud(text));
   utter.lang = "en-US";
   utter.rate = 1;
   synth.speak(utter);
