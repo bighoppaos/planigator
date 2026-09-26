@@ -88,6 +88,96 @@ function fromDateTimeLocal(value) {
   return Number.isNaN(d.getTime()) ? Date.now() : d.getTime();
 }
 
+function deviceOffset() {
+  return new Date().getTimezoneOffset();
+}
+
+function clockOffset(value) {
+  const offset = Number(value);
+  return Number.isFinite(offset) ? offset : deviceOffset();
+}
+
+function wallParts(ms, offsetMinutes) {
+  const offset = clockOffset(offsetMinutes);
+  const date = new Date(Number(ms) - offset * 60 * 1000);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth(),
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+  };
+}
+
+function msFromWall(year, monthIndex, day, hour, minute, offsetMinutes) {
+  const offset = clockOffset(offsetMinutes);
+  return Date.UTC(year, monthIndex, day, hour, minute) + offset * 60 * 1000;
+}
+
+function offsetZone(offsetMinutes) {
+  const hours = clockOffset(offsetMinutes) / 60;
+  if (!Number.isInteger(hours)) return "";
+  if (hours === 0) return "UTC";
+  return `Etc/GMT${hours > 0 ? "+" : "-"}${Math.abs(hours)}`;
+}
+
+function formatUserShort(ms, offsetMinutes) {
+  const timeZone = offsetZone(offsetMinutes);
+  const options = {
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+    hour: state.settings.military ? "2-digit" : "numeric",
+    minute: "2-digit",
+    hourCycle: state.settings.military ? "h23" : "h12",
+  };
+  if (timeZone) options.timeZone = timeZone;
+  return new Intl.DateTimeFormat("en-US", options).format(new Date(ms));
+}
+
+function enteredOffset(stop, field) {
+  return clockOffset(field === "end" ? stop?.endOffset : stop?.startOffset);
+}
+
+function pinEnteredClocks() {
+  let changed = false;
+  const offset = deviceOffset();
+  for (const stop of state.stops || []) {
+    if (!Number.isFinite(Number(stop.startOffset))) {
+      stop.startOffset = offset;
+      changed = true;
+    }
+    if (!Number.isFinite(Number(stop.endOffset))) {
+      stop.endOffset = Number(stop.startOffset);
+      changed = true;
+    }
+  }
+  if (!state.settings.leaveNow && !Number.isFinite(Number(state.settings.leaveAtOffset))) {
+    state.settings.leaveAtOffset = offset;
+    changed = true;
+  }
+  const trip = (state.trips || []).find((item) => item.id === state.activeTripId);
+  if (trip) {
+    for (const stop of trip.stops || []) {
+      const live = (state.stops || []).find((item) => item.id === stop.id);
+      if (!live) continue;
+      if (!Number.isFinite(Number(stop.startOffset)) && Number.isFinite(Number(live.startOffset))) {
+        stop.startOffset = live.startOffset;
+        changed = true;
+      }
+      if (!Number.isFinite(Number(stop.endOffset)) && Number.isFinite(Number(live.endOffset))) {
+        stop.endOffset = live.endOffset;
+        changed = true;
+      }
+    }
+    if (trip.settings && !trip.settings.leaveNow && !Number.isFinite(Number(trip.settings.leaveAtOffset)) && Number.isFinite(Number(state.settings.leaveAtOffset))) {
+      trip.settings.leaveAtOffset = state.settings.leaveAtOffset;
+      changed = true;
+    }
+  }
+  if (changed) persist();
+}
+
 function minutesToTime(minutes) {
   const mins = Math.max(0, minutes);
   return `${pad(Math.trunc(mins / 60))}:${pad(mins % 60)}`;
@@ -105,6 +195,7 @@ function tomorrowWindow() {
 
 function defaultStop(overrides = {}) {
   const window = tomorrowWindow();
+  const offset = deviceOffset();
   return {
     id: newId(),
     name: "",
@@ -115,6 +206,8 @@ function defaultStop(overrides = {}) {
     window: false,
     start: window.start,
     end: window.end,
+    startOffset: offset,
+    endOffset: offset,
     useCurrentLocation: false,
     ...overrides,
   };
@@ -230,6 +323,7 @@ function loadState() {
 const state = loadState();
 applyDarkMode();
 settleLoadedStops(state.stops);
+pinEnteredClocks();
 
 function settleLoadedStops(stops) {
   for (const stop of stops || []) {
@@ -417,7 +511,7 @@ function clockFields(minutes, disabled = false) {
 }
 
 function whenBox(stop, field, ms) {
-  return `<button type="button" class="flag-box" data-stop-when="${escapeAttr(stop.id)}" data-stop-field="${field}">${escapeAttr(formatShort(ms))}</button>`;
+  return `<button type="button" class="flag-box" data-stop-when="${escapeAttr(stop.id)}" data-stop-field="${field}">${escapeAttr(formatUserShort(ms, enteredOffset(stop, field)))}</button>`;
 }
 
 function whenRow(label, stop, field, ms) {
@@ -534,6 +628,7 @@ function applySharedTrip(data, { notice } = {}) {
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
   state.notice = notice || "This trip was shared with you.";
   settleLoadedStops(state.stops);
+  pinEnteredClocks();
   persist();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else render();
@@ -743,6 +838,7 @@ function loadTrip(id) {
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
   state.notice = `Opened ${trip.name}.`;
   settleLoadedStops(state.stops);
+  pinEnteredClocks();
   if (!state.plan) calculate({ silent: true, skipHash: true });
   else {
     render();
@@ -825,6 +921,7 @@ function loadExample() {
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
   settleLoadedStops(state.stops);
+  pinEnteredClocks();
   calculate({ silent: true, skipHash: true });
 }
 
@@ -1003,6 +1100,9 @@ function addStop(afterId) {
     if (previous && !previous.useCurrentLocation) {
       next.start = previous.start + 4 * 3600 * 1000;
       next.end = next.start + 4 * 3600 * 1000;
+      const offset = clockOffset(previous.startOffset);
+      next.startOffset = offset;
+      next.endOffset = offset;
     }
     state.stops.splice(index + 1, 0, next);
   } else {
@@ -4353,6 +4453,9 @@ function addTruckAsNextStop() {
   if (previous && !previous.useCurrentLocation) {
     next.start = previous.start + 4 * 3600 * 1000;
     next.end = next.start;
+    const offset = clockOffset(previous.startOffset);
+    next.startOffset = offset;
+    next.endOffset = offset;
   }
   state.stops.splice(index, 0, next);
   const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
@@ -5450,7 +5553,7 @@ function render() {
           </div>
           <div class="set-pair">
             ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
-            ${s.leaveNow ? "" : settingValue("leaveAt", "Leave at", formatShort(s.leaveAt))}
+            ${s.leaveNow ? "" : settingValue("leaveAt", "Leave at", formatUserShort(s.leaveAt, s.leaveAtOffset))}
           </div>
           <div class="set-pair">
             ${settingToggle("startAnytime", "Start anytime", s.startAnytime)}
@@ -5565,9 +5668,14 @@ function stopWhenTitle() {
   return "Be there by";
 }
 
-function leaveDateValue(ms) {
-  const date = new Date(ms);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+function leaveDateValue(ms, offsetMinutes) {
+  const parts = wallParts(ms, offsetMinutes);
+  return `${parts.year}-${pad(parts.month + 1)}-${pad(parts.day)}`;
+}
+
+function wallMinutes(ms, offsetMinutes) {
+  const parts = wallParts(ms, offsetMinutes);
+  return parts.hour * 60 + parts.minute;
 }
 
 function pickerSheet() {
@@ -5594,9 +5702,9 @@ function pickerSheet() {
     title = id === "leaveAtTime" ? "Leave at" : id === "stopTime" ? stopWhenTitle() : id === "startTime" ? "Day start" : "Day end";
     step = id === "leaveAtTime" || id === "stopTime" ? "Time" : "";
     const minutes = id === "leaveAtTime"
-      ? new Date(state.settings.leaveAt).getHours() * 60 + new Date(state.settings.leaveAt).getMinutes()
+      ? wallMinutes(state.settings.leaveAt, state.settings.leaveAtOffset)
       : id === "stopTime"
-        ? new Date(pickerStopMs()).getHours() * 60 + new Date(pickerStopMs()).getMinutes()
+        ? wallMinutes(pickerStopMs(), enteredOffset(pickerStop(), state.pickerTarget?.field))
         : id === "startTime" ? state.settings.startMinutes : state.settings.endMinutes;
     wheels = clockWheels(minutes);
   }
@@ -5605,7 +5713,7 @@ function pickerSheet() {
       <p class="picker-title">${escapeAttr(title)}</p>
       ${step ? `<p class="fine picker-step">${escapeAttr(step)}</p>` : ""}
       ${id === "leaveAt" || id === "stopDate"
-        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt)}" aria-label="Date">`
+        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, id === "stopDate" ? enteredOffset(pickerStop(), state.pickerTarget?.field) : state.settings.leaveAtOffset)}" aria-label="Date">`
         : `<div class="time-wheels">${wheels}</div>`}
       <button type="button" class="primary" id="pickerDone">${escapeAttr(action)}</button>
     </div>
@@ -5626,30 +5734,39 @@ function minutesFromSheet() {
   return h * 60 + minute;
 }
 
-function readDatedMs(previousMs) {
+function readDatedMs(previousMs, offsetMinutes) {
   const date = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
   const [year, month, day] = date.split("-").map((part) => Number(part));
-  const prev = new Date(previousMs);
+  const prev = wallParts(previousMs, offsetMinutes);
   if (!year || !month || !day) return previousMs;
-  return new Date(year, month - 1, day, prev.getHours(), prev.getMinutes()).getTime();
+  return msFromWall(year, month - 1, day, prev.hour, prev.minute, offsetMinutes);
 }
 
 function readLeaveDate() {
-  return readDatedMs(state.settings.leaveAt);
+  return readDatedMs(state.settings.leaveAt, state.settings.leaveAtOffset);
 }
 
 function writeStopWhen(ms) {
   const target = state.pickerTarget;
   const stop = pickerStop();
   if (!target || !stop) return;
+  const offset = enteredOffset(stop, target.field);
   const patch = { [target.field]: ms };
-  if (target.field === "start" && !stop.window) patch.end = ms;
+  if (target.field === "end") patch.endOffset = offset;
+  else {
+    patch.startOffset = offset;
+    if (!stop.window) {
+      patch.end = ms;
+      patch.endOffset = offset;
+    }
+  }
   updateStop(target.id, patch);
 }
 
 function commitPicker() {
   const id = state.picker;
   if (id === "leaveAt") {
+    state.settings.leaveAtOffset = clockOffset(state.settings.leaveAtOffset);
     state.settings.leaveAt = readLeaveDate();
     state.picker = "leaveAtTime";
     persist();
@@ -5658,15 +5775,17 @@ function commitPicker() {
     return;
   }
   if (id === "stopDate") {
-    const ms = readDatedMs(pickerStopMs());
+    const offset = enteredOffset(pickerStop(), state.pickerTarget?.field);
+    const ms = readDatedMs(pickerStopMs(), offset);
     state.picker = "stopTime";
     writeStopWhen(ms);
     return;
   }
   if (id === "stopTime") {
-    const date = new Date(pickerStopMs());
+    const offset = enteredOffset(pickerStop(), state.pickerTarget?.field);
+    const parts = wallParts(pickerStopMs(), offset);
     const minutes = minutesFromSheet();
-    const ms = new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.trunc(minutes / 60), minutes % 60).getTime();
+    const ms = msFromWall(parts.year, parts.month, parts.day, Math.trunc(minutes / 60), minutes % 60, offset);
     state.picker = "";
     writeStopWhen(ms);
     state.pickerTarget = null;
@@ -5689,9 +5808,11 @@ function commitPicker() {
   if (id === "startTime") state.settings.startMinutes = minutesFromSheet();
   if (id === "endTime") state.settings.endMinutes = minutesFromSheet();
   if (id === "leaveAtTime") {
-    const date = new Date(state.settings.leaveAt);
+    const offset = clockOffset(state.settings.leaveAtOffset);
+    const parts = wallParts(state.settings.leaveAt, offset);
     const minutes = minutesFromSheet();
-    state.settings.leaveAt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.trunc(minutes / 60), minutes % 60).getTime();
+    state.settings.leaveAtOffset = offset;
+    state.settings.leaveAt = msFromWall(parts.year, parts.month, parts.day, Math.trunc(minutes / 60), minutes % 60, offset);
   }
   state.picker = "";
   persist();
@@ -5927,9 +6048,12 @@ function applyWhen(wrap) {
   const [year, month, day] = date.split("-").map((part) => Number(part));
   if (!year || !month || !day) return;
   const minutes = minutesFromWrap(wrap);
-  const ms = new Date(year, month - 1, day, Math.trunc(minutes / 60), minutes % 60).getTime();
+  const hour = Math.trunc(minutes / 60);
+  const minute = minutes % 60;
   if (wrap.getAttribute("data-when") === "leaveAt") {
-    state.settings.leaveAt = ms;
+    const offset = clockOffset(state.settings.leaveAtOffset);
+    state.settings.leaveAtOffset = offset;
+    state.settings.leaveAt = msFromWall(year, month - 1, day, hour, minute, offset);
     persist();
     saveActiveTripSettings();
     render();
@@ -5938,8 +6062,18 @@ function applyWhen(wrap) {
   const field = wrap.getAttribute("data-stop-field");
   const id = wrap.closest("[data-stop]")?.getAttribute("data-stop");
   if (!field || !id) return;
+  const stop = state.stops.find((item) => item.id === id);
+  const offset = enteredOffset(stop, field);
+  const ms = msFromWall(year, month - 1, day, hour, minute, offset);
   const patch = { [field]: ms };
-  if (field === "start" && !state.stops.find((stop) => stop.id === id)?.window) patch.end = ms;
+  if (field === "end") patch.endOffset = offset;
+  else {
+    patch.startOffset = offset;
+    if (field === "start" && !stop?.window) {
+      patch.end = ms;
+      patch.endOffset = offset;
+    }
+  }
   updateStop(id, patch);
 }
 
