@@ -1829,6 +1829,7 @@ button.lookup.lookup-flash {
   margin: 0;
 }
 
+.trips .fine { text-align: center; margin: 4px 0 0; }
 .trips ul { list-style: none; padding: 0; margin: 4px 0 0; }
 .trips li {
   display: flex;

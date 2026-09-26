@@ -24,9 +24,10 @@ import {
 } from "./plan.js?v=134";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=2";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=3";
 
 const STORAGE = "planigator.web.v1";
+const TRIP_CACHE = "planigator.web.tripcache";
 const DEFAULT_HERO = [
   "Know how much time you have to spare",
   "Truck legal GPS navigation on this same page. No app required.",
@@ -171,6 +172,7 @@ function defaultState() {
     lookupOk: false,
     openLookupStopId: "",
     trips: [],
+    tripsLoading: false,
     origin: null,
     locating: false,
     estimating: false,
@@ -561,13 +563,21 @@ function shareTokenFor(trip) {
 }
 
 function copyRouteLine(onto, fromStops) {
-  if (!Array.isArray(onto) || !hasRouteLine(fromStops)) return onto;
-  return onto.map((stop, index) => {
-    if (hasRouteLine([stop])) return stop;
+  if (!Array.isArray(onto) || !Array.isArray(fromStops)) return onto;
+  let changed = false;
+  const next = onto.map((stop, index) => {
     const from = fromStops.find((item) => item.id === stop.id) || fromStops[index];
-    if (!from?.path) return stop;
-    return { ...stop, path: from.path };
+    if (!from) return stop;
+    const needPath = !hasRouteLine([stop]) && Array.isArray(from.path) && from.path.length > 1;
+    const needDir = (!Array.isArray(stop.directions) || !stop.directions.length) && Array.isArray(from.directions) && from.directions.length;
+    if (!needPath && !needDir) return stop;
+    changed = true;
+    const copy = { ...stop };
+    if (needPath) copy.path = from.path;
+    if (needDir) copy.directions = from.directions;
+    return copy;
   });
+  return changed ? next : onto;
 }
 
 function applyShareFromLocation() {
@@ -838,45 +848,150 @@ function markTripsUploaded() {
   state.trips = state.trips.map((trip) => ({ ...trip, pendingUpload: false }));
 }
 
+let tripsSynced = false;
+
+function tripCacheItem(trip) {
+  return {
+    id: trip.id,
+    name: trip.name || "",
+    tripName: trip.tripName || "",
+    savedAt: Number(trip.savedAt) || 0,
+    settings: trip.settings && typeof trip.settings === "object" ? trip.settings : {},
+    stops: (Array.isArray(trip.stops) ? trip.stops : []).map((stop) => {
+      const copy = { ...stop };
+      delete copy.path;
+      delete copy.directions;
+      delete copy.suggestions;
+      return copy;
+    }),
+    origin: trip.origin || null,
+    plan: trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null,
+    summary: trip.summary || null,
+  };
+}
+
+function writeTripCache() {
+  if (!state.signedIn || !state.email) return;
+  try {
+    localStorage.setItem(TRIP_CACHE, JSON.stringify({
+      email: state.email,
+      trips: state.trips.map(tripCacheItem),
+    }));
+  } catch {
+    // The account copy is still there if this phone is out of space.
+  }
+}
+
+function readTripCache(email) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRIP_CACHE) || "null");
+    if (!saved || !Array.isArray(saved.trips)) return null;
+    if (email && saved.email && saved.email !== email) return null;
+    return saved.trips.filter((trip) => trip && trip.id);
+  } catch {
+    return null;
+  }
+}
+
+function rememberListedTrips(trips) {
+  if (!Array.isArray(trips)) return;
+  mergeRemoteTrips(trips, { touchEditor: !editorBusy() });
+  persist();
+  writeTripCache();
+  state.tripsLoading = false;
+  tripsSynced = true;
+}
+
+function editorBusy() {
+  const el = document.activeElement;
+  return navOn || routeFull || Boolean(el && el.matches && el.matches("input, textarea, select"));
+}
+
+function mergeRemoteTrips(remote, { touchEditor = true } = {}) {
+  const byId = new Map();
+  for (const trip of remote) {
+    if (!trip?.id) continue;
+    const local = state.trips.find((item) => item.id === trip.id);
+    if (local && (local.savedAt || 0) > (trip.savedAt || 0)) byId.set(trip.id, { ...local, pendingUpload: true });
+    else {
+      const kept = { ...trip, pendingUpload: false };
+      kept.stops = copyRouteLine(kept.stops, local?.stops);
+      byId.set(trip.id, kept);
+    }
+  }
+  state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
+  if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
+  if (!touchEditor) return;
+  const donor = state.trips.find((trip) => trip.id === state.activeTripId) || state.trips.find((trip) => hasRouteLine(trip.stops));
+  if (donor && !hasRouteLine(state.stops)) {
+    state.stops = copyRouteLine(state.stops, donor.stops);
+    if (!state.activeTripId) state.activeTripId = donor.id;
+  }
+}
+
+function uploadPendingTrips() {
+  if (!state.signedIn || !state.trips.some((trip) => trip.pendingUpload)) return;
+  putTrips(state.trips).then(() => {
+    markTripsUploaded();
+    persist();
+    writeTripCache();
+  }).catch(() => {});
+}
+
+async function fillTripGeometry() {
+  try {
+    const data = await fetchTrips(true);
+    if (!Array.isArray(data.trips) || data.listOnly) return;
+    if (!localStorage.getItem("planigator.web.session") && !state.signedIn) return;
+    const busy = editorBusy();
+    const before = state.stops.map((stop) => `${stop.path?.length || 0}:${stop.directions?.length || 0}`).join("|");
+    const namesBefore = state.trips.map((trip) => `${trip.id}:${trip.savedAt}`).join("|");
+    mergeRemoteTrips(data.trips, { touchEditor: !busy });
+    if (busy && state.activeTripId) {
+      const donor = state.trips.find((trip) => trip.id === state.activeTripId);
+      if (donor) state.stops = copyRouteLine(state.stops, donor.stops);
+    }
+    const after = state.stops.map((stop) => `${stop.path?.length || 0}:${stop.directions?.length || 0}`).join("|");
+    const namesAfter = state.trips.map((trip) => `${trip.id}:${trip.savedAt}`).join("|");
+    persist();
+    writeTripCache();
+    uploadPendingTrips();
+    if (!busy && (before !== after || namesBefore !== namesAfter)) render();
+  } catch {
+    // Names already on screen stay. The road line fills on the next open.
+  }
+}
+
 async function pullAccountTrips() {
-  if (!state.signedIn) {
+  const session = localStorage.getItem("planigator.web.session");
+  if (!state.signedIn && !session) {
     const kept = state.trips.filter((trip) => trip && !trip.pendingUpload);
     if (kept.length !== state.trips.length) {
       state.trips = kept;
       if (state.activeTripId && !state.trips.some((trip) => trip.id === state.activeTripId)) state.activeTripId = null;
       persist();
     }
+    state.tripsLoading = false;
     return;
   }
+  if (!state.trips.length && state.email) {
+    const cached = readTripCache(state.email);
+    if (cached?.length) state.trips = cached;
+  }
+  state.tripsLoading = state.trips.length === 0;
   try {
-    const data = await fetchTrips();
-    const remote = Array.isArray(data.trips) ? data.trips : [];
-    const byId = new Map();
-    for (const trip of remote) {
-      if (!trip?.id) continue;
-      const local = state.trips.find((item) => item.id === trip.id);
-      if (local && (local.savedAt || 0) > (trip.savedAt || 0)) byId.set(trip.id, { ...local, pendingUpload: true });
-      else {
-        const kept = { ...trip, pendingUpload: false };
-        kept.stops = copyRouteLine(kept.stops, local?.stops);
-        byId.set(trip.id, kept);
-      }
-    }
-    state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
-    if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
-    const donor = state.trips.find((trip) => trip.id === state.activeTripId) || state.trips.find((trip) => hasRouteLine(trip.stops));
-    if (donor && !hasRouteLine(state.stops)) {
-      state.stops = copyRouteLine(state.stops, donor.stops);
-      if (!state.activeTripId) state.activeTripId = donor.id;
-    }
+    const data = await fetchTrips(false);
+    if (!localStorage.getItem("planigator.web.session") && !state.signedIn) return;
+    mergeRemoteTrips(Array.isArray(data.trips) ? data.trips : [], { touchEditor: !editorBusy() });
     persist();
-    if (state.trips.some((trip) => trip.pendingUpload)) {
-      await putTrips(state.trips);
-      markTripsUploaded();
-      persist();
-    }
+    writeTripCache();
+    uploadPendingTrips();
+    if (data.listOnly) void fillTripGeometry();
   } catch {
     // Keep the trips already on this device.
+  } finally {
+    state.tripsLoading = false;
+    tripsSynced = true;
   }
 }
 
@@ -1387,21 +1502,25 @@ function queueBoxFontSave() {
   }, 300);
 }
 
-async function refreshCredits() {
+async function refreshCalls() {
+  state.calls = [];
+  if (!state.signedIn) return;
+  try {
+    const data = await fetchCalls();
+    state.calls = Array.isArray(data.calls) ? data.calls : [];
+  } catch {
+    state.calls = [];
+  }
+}
+
+async function refreshCredits({ calls = true } = {}) {
   try {
     applyAccount(await creditsMe());
   } catch {
     if (state.credits == null) state.credits = null;
   }
-  state.calls = [];
-  if (state.signedIn) {
-    try {
-      const data = await fetchCalls();
-      state.calls = Array.isArray(data.calls) ? data.calls : [];
-    } catch {
-      state.calls = [];
-    }
-  }
+  if (calls) await refreshCalls();
+  else state.calls = [];
 }
 
 function clearLookupMessage() {
@@ -1666,6 +1785,7 @@ async function redeemCode(code) {
 }
 
 async function logout() {
+  writeTripCache();
   if (boxFontTimer) {
     window.clearTimeout(boxFontTimer);
     boxFontTimer = 0;
@@ -1697,6 +1817,7 @@ async function logout() {
   state.credits = null;
   state.calls = [];
   state.notice = "Signed out.";
+  state.tripsLoading = false;
   resetLocalBoxFont();
   resetEditor();
   persist();
@@ -1847,6 +1968,12 @@ async function completeGoogleCredential(credential) {
   const me = await loginWith("google", credential, dropSession);
   state.idleNote = "";
   applyAccount(me);
+  if (Array.isArray(me.trips)) rememberListedTrips(me.trips);
+  else {
+    const cached = readTripCache(state.email);
+    if (cached?.length && !state.trips.length) state.trips = cached;
+    state.tripsLoading = state.trips.length === 0;
+  }
   if (me.signupCredits) {
     state.signupNote = "40 free credits are yours.";
     state.notice = "";
@@ -1859,7 +1986,10 @@ async function completeGoogleCredential(credential) {
     render();
   }
   pulseActivity();
-  await pullAccountTrips();
+  if (Array.isArray(me.trips)) {
+    if (me.tripsListOnly !== false) void fillTripGeometry();
+    uploadPendingTrips();
+  } else await pullAccountTrips();
   if (!state.locating) render();
 }
 
@@ -1878,9 +2008,12 @@ function mountAuth() {
       use_fedcm_for_prompt: false,
       ux_mode: redirect ? "redirect" : "popup",
       callback: async ({ credential }) => {
+        state.tripsLoading = true;
+        render();
         try {
           await completeGoogleCredential(credential);
         } catch (error) {
+          state.tripsLoading = false;
           state.error = error.message || "Google sign-in failed.";
           render();
         }
@@ -2020,9 +2153,14 @@ function routePoints() {
 }
 
 function savedTripsBlock() {
-  if (!state.trips.length) return "";
+  const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
+  if (!state.trips.length && !state.tripsLoading) return "";
+  if (!state.trips.length) {
+    return `<section class="trips"><h2>Saved trips</h2>${loading}</section>`;
+  }
   return `<section class="trips">
     <h2>Saved trips</h2>
+    ${loading}
     <ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
         <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}">
@@ -4383,9 +4521,17 @@ export function initPlanner(el) {
   applyShareFromLocation();
   const shareCode = new URLSearchParams(location.search).get("s");
   if (shareCode) loadSharedCode(shareCode);
+  const session = localStorage.getItem("planigator.web.session");
+  if (sessionStorage.getItem("planigator.web.showtrips") === "1") {
+    sessionStorage.removeItem("planigator.web.showtrips");
+    const cached = readTripCache();
+    if (cached?.length) state.trips = cached;
+  }
+  if (session && !state.trips.length) state.tripsLoading = true;
+  const tripsPromise = session ? pullAccountTrips() : Promise.resolve();
   loadHeroLines().finally(() => {
   render();
-  refreshCredits().then(async () => {
+  refreshCredits({ calls: false }).then(async () => {
     if (sessionStorage.getItem("planigator.web.signup") === "1") {
       sessionStorage.removeItem("planigator.web.signup");
       if (state.signedIn) {
@@ -4394,9 +4540,17 @@ export function initPlanner(el) {
         popConfetti();
       }
     }
+    if (state.signedIn && !tripsSynced && !state.trips.length) {
+      const cached = readTripCache(state.email);
+      if (cached?.length) state.trips = cached;
+    }
+    if (!state.signedIn) state.tripsLoading = false;
+    else if (!state.trips.length && !tripsSynced) state.tripsLoading = true;
+    else state.tripsLoading = false;
     if (state.idleSignOut) {
       state.calls = [];
       state.notice = "";
+      state.tripsLoading = false;
       resetLocalBoxFont();
       resetEditor();
       state.idleNote = "Signed out after an hour away.";
@@ -4404,7 +4558,13 @@ export function initPlanner(el) {
     } else if (!maybeCelebratePack() && !maybeCelebrateCard() && state.signedIn) {
       pulseActivity();
     }
-    await pullAccountTrips();
+    if (state.signedIn) {
+      void refreshCalls().then(() => {
+        if (state.calls.length && !editorBusy() && !state.locating) render();
+      });
+    }
+    if (!state.locating) render();
+    await tripsPromise;
     rollOpenExample();
     if (!state.locating) render();
     if (paid === "1") watchPackGrant();

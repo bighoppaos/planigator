@@ -145,8 +145,8 @@ export async function logoutRemote() {
   }
 }
 
-export function fetchTrips() {
-  return api("/v1/trips");
+export function fetchTrips(full = false) {
+  return api(full ? "/v1/trips?full=1" : "/v1/trips?list=1");
 }
 
 export function putTrips(trips) {
