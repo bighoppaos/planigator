@@ -2154,14 +2154,7 @@ function routePoints() {
 
 function savedTripsBlock() {
   const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
-  if (!state.trips.length && !state.tripsLoading) return "";
-  if (!state.trips.length) {
-    return `<section class="trips"><h2>Saved trips</h2>${loading}</section>`;
-  }
-  return `<section class="trips">
-    <h2>Saved trips</h2>
-    ${loading}
-    <ul>
+  const list = state.trips.length ? `<ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
         <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}">
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
@@ -2169,7 +2162,12 @@ function savedTripsBlock() {
         </button>
         <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}">${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
-    </ul>
+    </ul>` : "";
+  return `<section class="trips">
+    <h2>Saved trips</h2>
+    <p class="trips-clear"><button type="button" class="flag-box" id="newTrip">Clear trip</button></p>
+    ${loading}
+    ${list}
   </section>`;
 }
 
@@ -2331,6 +2329,7 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeSatellite" class="${satelliteOn ? "on" : ""}" aria-pressed="${satelliteOn ? "true" : "false"}" aria-label="Satellite"><span>Satel</span><span>lite</span></button>
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
@@ -2395,19 +2394,82 @@ function lookupMapSheet() {
 
 let lookupMaps = [];
 
-const satelliteStyle = {
-  version: 8,
-  sources: {
-    satellite: {
-      type: "raster",
-      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    },
-  },
-  layers: [{ id: "satellite", type: "raster", source: "satellite" }],
+let satelliteOn = true;
+try {
+  if (localStorage.getItem("planigator.satellite") === "0") satelliteOn = false;
+} catch {}
+
+const satelliteSource = {
+  type: "raster",
+  // Without blankTile=false, a missing level comes back as a repeated "not available" stamp.
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"],
+  tileSize: 256,
+  maxzoom: 19,
+  attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
 };
+
+const streetSource = {
+  type: "raster",
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"],
+  tileSize: 256,
+  maxzoom: 19,
+  attribution: "Esri, HERE, Garmin, USGS, Intermap, and the GIS User Community",
+};
+
+function rasterSpec(source) {
+  return { ...source, tiles: [...source.tiles] };
+}
+
+function satelliteMapStyle() {
+  return {
+    version: 8,
+    sources: { satellite: rasterSpec(satelliteSource) },
+    layers: [{ id: "satellite", type: "raster", source: "satellite" }],
+  };
+}
+
+function routeStyle() {
+  if (satelliteOn) return satelliteMapStyle();
+  return {
+    version: 8,
+    sources: { streets: rasterSpec(streetSource) },
+    layers: [{ id: "streets", type: "raster", source: "streets" }],
+  };
+}
+
+function applyBasemap() {
+  const map = routeMap;
+  if (!map?.isStyleLoaded?.()) return;
+  const beforeRoute = map.getLayer("route-casing") ? "route-casing" : undefined;
+  if (satelliteOn) {
+    if (!map.getSource("satellite")) map.addSource("satellite", rasterSpec(satelliteSource));
+    if (!map.getLayer("satellite")) {
+      map.addLayer({ id: "satellite", type: "raster", source: "satellite" }, beforeRoute);
+    } else {
+      map.setLayoutProperty("satellite", "visibility", "visible");
+    }
+    if (map.getLayer("streets")) map.removeLayer("streets");
+    if (map.getSource("streets")) map.removeSource("streets");
+    return;
+  }
+  const beforeSat = map.getLayer("satellite") ? "satellite" : beforeRoute;
+  if (!map.getSource("streets")) map.addSource("streets", rasterSpec(streetSource));
+  if (!map.getLayer("streets")) {
+    map.addLayer({ id: "streets", type: "raster", source: "streets" }, beforeSat);
+  }
+  if (map.getLayer("satellite")) map.removeLayer("satellite");
+  if (map.getSource("satellite")) map.removeSource("satellite");
+}
+
+function toggleSatellite() {
+  satelliteOn = !satelliteOn;
+  try { localStorage.setItem("planigator.satellite", satelliteOn ? "1" : "0"); } catch {}
+  applyBasemap();
+  const button = document.getElementById("routeSatellite");
+  if (!button) return;
+  button.classList.toggle("on", satelliteOn);
+  button.setAttribute("aria-pressed", satelliteOn ? "true" : "false");
+}
 
 function pickMapStyle() {
   const overlay = {
@@ -2419,7 +2481,7 @@ function pickMapStyle() {
   return {
     version: 8,
     sources: {
-      satellite: satelliteStyle.sources.satellite,
+      satellite: rasterSpec(satelliteSource),
       streets: {
         ...overlay,
         tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"],
@@ -2600,7 +2662,7 @@ function mountLookupMaps() {
     const live = el.getAttribute("data-live") === "1";
     const map = new maplibre.Map({
       container: el,
-      style: pick ? pickMapStyle() : satelliteStyle,
+      style: pick ? pickMapStyle() : satelliteMapStyle(),
       attributionControl: false,
       interactive: live,
     });
@@ -3025,8 +3087,29 @@ function unlockNavVoice() {
   synth.speak(utter);
 }
 
+const STATE_NAMES = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+  DC: "District of Columbia",
+};
+
 function spokenAloud(text) {
   let said = String(text || "");
+  // Uppercase only, so "in 0.4 miles" stays. Route shields (IN-25) and ", IN" are states.
+  said = said.replace(/\b([A-Z]{2})-(\d+)\b/g, (match, code, num) => (
+    STATE_NAMES[code] ? `${STATE_NAMES[code]} ${num}` : match
+  ));
+  said = said.replace(/,\s*([A-Z]{2})\b/g, (match, code) => (
+    STATE_NAMES[code] ? `, ${STATE_NAMES[code]}` : match
+  ));
   const swaps = [
     ["NE", "Northeast"],
     ["NW", "Northwest"],
@@ -3392,6 +3475,11 @@ function fitRouteCover() {
   stage.style.margin = "0";
   stage.style.zIndex = "80";
   seatRails();
+  const cover = `${stage.style.width}x${stage.style.height}`;
+  if (cover !== routeCoverSize) {
+    routeCoverSize = cover;
+    routeMap?.resize();
+  }
 }
 
 function watchRouteCover(on) {
@@ -3508,6 +3596,8 @@ function fitCoords(coordinates, maxZoom) {
 }
 
 let turnFrameAt = null;
+let turnFrameTarget = null;
+let routeCoverSize = "";
 
 function upcomingTurn(hereAlong) {
   let fallback = null;
@@ -3551,10 +3641,14 @@ function frameNextTurn() {
   if (!routeMap || !maplibre) return;
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
-  if (turnFrameAt && metersBetween(turnFrameAt, navFix) < 20 && routeMap.getZoom() >= 14) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
   const turn = upcomingTurn(hit.along);
   if (!turn) return;
+  // A new fit on every GPS fix reloads the satellite tiles, so the same image
+  // draws again across the screen. Hold this frame until the truck has moved.
+  if (turnFrameAt && turnFrameTarget != null && routeMap.getZoom() >= 14
+    && Math.abs(turnFrameTarget - turn.along) < 40
+    && metersBetween(turnFrameAt, navFix) < 120) return;
   const end = Math.min(polylineMeters(navLine), turn.along + 80);
   const coords = navRemaining(Math.min(hit.along, end), end);
   coords.push([navFix[1], navFix[0]]);
@@ -3562,6 +3656,7 @@ function frameNextTurn() {
   if (at) coords.push([at.lon, at.lat]);
   if (coords.length < 2) return;
   turnFrameAt = [navFix[0], navFix[1]];
+  turnFrameTarget = turn.along;
   if (turnMarker) turnMarker.remove();
   if (at) {
     const pin = document.createElement("span");
@@ -3621,6 +3716,7 @@ function cycleTripFit() {
     return;
   }
   turnFrameAt = null;
+  turnFrameTarget = null;
   frameNextTurn();
 }
 
@@ -3698,6 +3794,7 @@ function cycleNavStop(event) {
   navStopCursor = (navStopCursor + 1) % dests.length;
   syncRouteChrome();
   turnFrameAt = null;
+  turnFrameTarget = null;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   if (tripFit !== "nextTurn") navFollowing = true;
@@ -4159,7 +4256,10 @@ function onNavCompass(event) {
   if (now - navCompassTimer < 120) return;
   navCompassTimer = now;
   if (tripFit === "nextTurn") {
-    routeMap.easeTo({ bearing: navCompass, duration: 120 });
+    let delta = Math.abs(navCompass - routeMap.getBearing()) % 360;
+    if (delta > 180) delta = 360 - delta;
+    if (delta < 4) return;
+    routeMap.jumpTo({ bearing: navCompass });
   }
 }
 
@@ -4190,6 +4290,7 @@ function pauseFollowForDirection() {
     if (!navOn) return;
     if (tripFit === "nextTurn") {
       turnFrameAt = null;
+      turnFrameTarget = null;
       frameNextTurn();
       return;
     }
@@ -4413,8 +4514,10 @@ function mountMap() {
   }
   const map = new maplibre.Map({
     container: el,
-    style: satelliteStyle,
+    style: routeStyle(),
     attributionControl: false,
+    renderWorldCopies: false,
+    fadeDuration: 0,
   });
   routeMap = map;
   el.querySelectorAll(".route-rail").forEach((node) => el.appendChild(node));
@@ -4485,6 +4588,7 @@ function mountMap() {
       bounds.extend([pin.lon, pin.lat]);
     });
     routeMapReady = true;
+    applyBasemap();
     if (pendingTurn) applyTurnZoom(map, pendingTurn);
     else map.fitBounds(bounds, { padding: 48, maxZoom: 8, animate: false });
   });
@@ -4881,7 +4985,6 @@ function render() {
         <div class="settings-grid action-grid">
           <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
           <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="fromAddress">Start from an address</button>
-          <button type="button" class="set-box" id="newTrip">new/clear trip</button>
           ${state.chooseStart ? `<p class="fine start-choice-note">Choose Start from my location or Start from an address.</p>` : ""}
           ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
           ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
@@ -5525,6 +5628,7 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
+  $("#routeSatellite")?.addEventListener("click", () => toggleSatellite());
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;

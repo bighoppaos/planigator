@@ -867,7 +867,7 @@ button[data-delete]:disabled { opacity: 1; cursor: wait; }
 
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   margin: 0 0 4px;
 }
@@ -1598,7 +1598,8 @@ body.route-full {
 }
 #routeStop,
 #routeFollow.on,
-#routeWhole.on {
+#routeWhole.on,
+#routeSatellite.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
 }
@@ -1882,6 +1883,12 @@ button.lookup.lookup-flash {
   margin: 0;
 }
 
+.trips-clear {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 8px;
+}
+.trips-clear .flag-box { margin: 0; }
 .trips .fine { text-align: center; margin: 4px 0 0; }
 .trips ul { list-style: none; padding: 0; margin: 4px 0 0; }
 .trips li {
