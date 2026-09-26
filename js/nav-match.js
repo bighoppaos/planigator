@@ -1,10 +1,14 @@
 // Where the truck is on a route that uses the same road more than once.
 // The closest point on the whole line can be a later pass. Stay near the
-// part already being driven.
+// part already being driven. If that part is far behind the truck (the app
+// was in the background), catch up instead of sticking on the old point.
 
 const LOCK_BACK_M = 400;
 const LOCK_AHEAD_M = 4000;
 const SAME_ROAD_M = 45;
+// app.js moves the along-lock only inside this distance.
+export const ON_ROAD_M = 180;
+const SNAP_BACK_M = 80;
 
 export function metersBetween(a, b) {
   const lat = ((a[0] + b[0]) / 2) * Math.PI / 180;
@@ -61,6 +65,27 @@ function closest(hits) {
   return hits.reduce((best, hit) => (hit.dist < best.dist ? hit : best));
 }
 
+function sameWay(hit, bearing) {
+  return hit.bearing == null || angleDelta(bearing, hit.bearing) <= 100;
+}
+
+function preferBearing(hits, bearing) {
+  const best = closest(hits);
+  if (bearing == null) return best;
+  const aligned = hits.filter((hit) => sameWay(hit, bearing));
+  if (!aligned.length) return best;
+  const faced = closest(aligned);
+  if (faced.dist <= best.dist + 40) return faced;
+  return best;
+}
+
+function earliestNear(hits) {
+  const bestDist = closest(hits).dist;
+  const near = hits.filter((hit) => hit.dist <= bestDist + SAME_ROAD_M);
+  near.sort((a, b) => a.along - b.along);
+  return near[0];
+}
+
 export function nearestOnPath(lat, lon, path) {
   const hits = collectHits(lat, lon, path);
   if (!hits.length) return { dist: Infinity, along: 0 };
@@ -73,23 +98,19 @@ export function matchAlong(lat, lon, path, { along = null, bearing = null } = {}
   if (along != null) {
     const windowed = hits.filter((hit) => hit.along >= along - LOCK_BACK_M && hit.along <= along + LOCK_AHEAD_M);
     if (windowed.length) {
-      const best = closest(windowed);
-      if (bearing == null) return best;
-      const aligned = windowed.filter((hit) => hit.bearing == null || angleDelta(bearing, hit.bearing) <= 100);
-      if (!aligned.length) return best;
-      const faced = closest(aligned);
-      if (faced.dist <= best.dist + 40) return faced;
-      return best;
+      const best = preferBearing(windowed, bearing);
+      if (best.dist <= ON_ROAD_M) return best;
     }
+    // The locked stretch is behind him. Take the earliest on-road point at
+    // or just behind the lock, so a later pass of this road still loses.
+    const ahead = hits.filter((hit) => hit.along >= along - SNAP_BACK_M && hit.dist <= ON_ROAD_M);
+    const aligned = bearing == null ? ahead : ahead.filter((hit) => sameWay(hit, bearing));
+    const pool = aligned.length ? aligned : ahead;
+    if (pool.length) return earliestNear(pool);
+    if (windowed.length) return preferBearing(windowed, bearing);
   }
-  const pool = bearing == null
-    ? hits
-    : hits.filter((hit) => hit.bearing == null || angleDelta(bearing, hit.bearing) <= 100);
-  const usable = pool.length ? pool : hits;
-  const bestDist = closest(usable).dist;
-  const near = usable.filter((hit) => hit.dist <= bestDist + SAME_ROAD_M);
-  near.sort((a, b) => a.along - b.along);
-  return near[0];
+  const pool = bearing == null ? hits : hits.filter((hit) => sameWay(hit, bearing));
+  return earliestNear(pool.length ? pool : hits);
 }
 
 // Three direction rows, always including the current step when the list has them.

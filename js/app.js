@@ -27,7 +27,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
-import { directionWindow, matchAlong, nearestOnPath } from "./nav-match.js?v=1";
+import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -3532,7 +3532,7 @@ function navNearest(lat, lon, path) {
   if (!path || path.length < 2) return { dist: Infinity, along: 0 };
   if (navOn && path === navLine) {
     const hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
-    if (hit.dist <= 180) navAlongLock = hit.along;
+    if (hit.dist <= ON_ROAD_M) navAlongLock = hit.along;
     return hit;
   }
   return nearestOnPath(lat, lon, path);
