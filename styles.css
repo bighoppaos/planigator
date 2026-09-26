@@ -32,6 +32,17 @@ html.force-dark {
   --navy: #d7e4dc;
 }
 
+html.force-light {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --ink: #14201c;
+  --muted: #4b5a54;
+  --card: #fffdf8;
+  --line: #d7d0c4;
+  --mint: #1f8a62;
+  --navy: #13202a;
+}
+
 * { box-sizing: border-box; }
 
 sup { font-size: 0.65em; }

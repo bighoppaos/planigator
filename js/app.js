@@ -271,13 +271,21 @@ function saveActiveTripSettings() {
 
 function applyDarkMode() {
   document.documentElement.classList.toggle("force-dark", state.darkMode === true);
+  document.documentElement.classList.toggle("force-light", state.darkMode !== true);
+}
+
+function themeButtonLabel() {
+  return state.darkMode ? "Dark mode" : "Light mode";
 }
 
 function toggleDarkMode() {
   state.darkMode = state.darkMode !== true;
   applyDarkMode();
   const button = document.getElementById("darkMode");
-  if (button) button.classList.toggle("on", state.darkMode);
+  if (button) {
+    button.classList.toggle("on", state.darkMode === true);
+    button.textContent = themeButtonLabel();
+  }
   persist();
 }
 
@@ -2188,7 +2196,7 @@ function planBox() {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">Dark mode</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
