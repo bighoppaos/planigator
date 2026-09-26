@@ -2309,6 +2309,12 @@ function planBox() {
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
+        <button type="button" id="routeLoves" hidden aria-label="Next Love's"><span>Love's</span></button>
+        <button type="button" id="routeWalmart" hidden aria-label="Next Walmart"><span>Wal</span><span>mart</span></button>
+        <div class="truck-slot">
+          <button type="button" id="routeTruckAdd" hidden>Add and recalculate</button>
+          <button type="button" id="routeTruck" hidden aria-label="Next truck stop"><span>Truck</span><span>stop</span></button>
+        </div>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
         <button type="button" id="routeZoomOut" aria-label="Zoom out"><span>Zoom</span><span>out</span></button>
       </aside>
@@ -2318,10 +2324,6 @@ function planBox() {
         <button type="button" id="routeWhole">Trip</button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeStop" aria-label="Choose stop"><span id="routeStopOrdinal">1st</span><span>stop</span></button>
-        <div class="truck-slot">
-          <button type="button" id="routeTruckAdd" hidden>Add and recalculate</button>
-          <button type="button" id="routeTruck" hidden aria-label="Next truck stop" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Truck</span><span>stop</span></button>
-        </div>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
       </div>
@@ -2335,7 +2337,7 @@ function planBox() {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatShort(plan.lastDeadline)}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatTime(plan.rollAt))}</p>
@@ -3059,10 +3061,16 @@ function syncRouteChrome() {
   if (full) full.hidden = routeFull;
   const exit = document.getElementById("routeExit");
   if (exit) exit.hidden = !routeFull;
-  const truckRail = document.getElementById("routeTruck");
-  if (truckRail) {
-    truckRail.hidden = !routeFull;
-    truckRail.disabled = state.estimating || (!state.unlimited && state.credits === 0);
+  const placeBlocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
+  for (const id of ["nextTruck", "nextLoves", "nextWalmart"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = placeBlocked;
+  }
+  for (const id of ["routeTruck", "routeLoves", "routeWalmart"]) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    button.hidden = !(routeFull && navOn);
+    button.disabled = placeBlocked;
   }
   const follow = document.getElementById("routeFollow");
   if (follow) {
@@ -3662,7 +3670,7 @@ function showTruckHit(hit) {
 
 function syncTruckAdd() {
   const add = document.getElementById("routeTruckAdd");
-  if (add) add.hidden = !(routeFull && truckHit);
+  if (add) add.hidden = !(routeFull && navOn && truckHit);
 }
 
 function addTruckAsNextStop() {
@@ -3714,12 +3722,13 @@ async function addTruckAndRecalculate() {
 }
 
 function placeSearchButtons() {
-  return ["nextTruck", "nextLoves", "nextWalmart", "routeTruck"]
+  return ["nextTruck", "nextLoves", "nextWalmart", "routeTruck", "routeLoves", "routeWalmart"]
     .map((id) => document.getElementById(id))
     .filter(Boolean);
 }
 
 async function findNextTruckStop(options = {}) {
+  if (!navOn) return;
   const place = options.place === "loves" || options.place === "walmart" ? options.place : "truck";
   const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : "truck stop";
   const buttons = placeSearchButtons();
@@ -3765,7 +3774,7 @@ async function findNextTruckStop(options = {}) {
     if (add) add.hidden = true;
     if (note) note.textContent = error.message || `No ${word} within 2 miles of the route.`;
   } finally {
-    const blocked = state.estimating || (!state.unlimited && state.credits === 0);
+    const blocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
     for (const button of buttons) button.disabled = blocked;
   }
 }
@@ -5246,6 +5255,8 @@ function bind() {
   $("#nextWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart" }));
   $("#darkMode")?.addEventListener("click", () => toggleDarkMode());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
+  $("#routeLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves", frame: true }));
+  $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#startNav")?.addEventListener("click", async () => {

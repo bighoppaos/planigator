@@ -1497,6 +1497,7 @@ body.route-full {
   display: flex;
   pointer-events: none;
 }
+.truck-slot:has(#routeTruck[hidden]) { display: none; }
 .route-rail #routeTruckAdd {
   position: absolute;
   right: calc(100% + 8px);
@@ -1512,6 +1513,10 @@ body.route-full {
   font-size: 12px;
   line-height: 1.1;
   white-space: normal;
+}
+.route-rail-left #routeTruckAdd {
+  right: auto;
+  left: calc(100% + 8px);
 }
 .route-rail button {
   width: 48px;
