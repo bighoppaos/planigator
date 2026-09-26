@@ -292,6 +292,8 @@ function defaultState() {
     cardSavedNote: false,
     packPriceCents: 149,
     copiedText: "",
+    driveProgress: null,
+    updatingTimes: false,
   };
 }
 
@@ -315,6 +317,7 @@ function loadState() {
     state.activeTripId = saved.activeTripId || null;
     state.trips = Array.isArray(saved.trips) ? saved.trips : [];
     if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
+    state.driveProgress = readDriveProgress(saved.driveProgress);
     const boxFont = Number(saved.boxFont);
     if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
     state.darkMode = saved.darkMode === true;
@@ -398,9 +401,45 @@ function persist() {
     trips: state.trips,
     origin: state.origin,
     plan: slimPlan(state.plan),
+    driveProgress: state.driveProgress,
     boxFont: state.boxFont,
     darkMode: state.darkMode === true,
   }));
+}
+
+function readDriveProgress(value) {
+  if (!value || typeof value !== "object") return null;
+  const stopId = String(value.stopId || "");
+  const remainFraction = Number(value.remainFraction);
+  const leftAt = Number(value.leftAt);
+  if (!stopId || !(remainFraction > 0) || remainFraction > 1 || !Number.isFinite(leftAt)) return null;
+  return { stopId, remainFraction, leftAt };
+}
+
+function clearDriveProgress() {
+  state.driveProgress = null;
+}
+
+function stopsAndLeaveForPlan() {
+  const stops = state.stops.map(normalizeStop);
+  const progress = state.driveProgress;
+  if (!progress) return { stops, leaveAt: leaveAtNow() };
+  const index = stops.findIndex((stop) => stop.id === progress.stopId);
+  if (index < 0) {
+    state.driveProgress = null;
+    return { stops, leaveAt: leaveAtNow() };
+  }
+  const fraction = progress.remainFraction;
+  const scaled = stops.map((stop, i) => {
+    if (stop.skipRoute || i > index) return stop;
+    if (i < index) return { ...stop, skipRoute: true };
+    return {
+      ...stop,
+      miles: Math.max(0, (Number(stop.miles) || 0) * fraction),
+      hours: Math.max(0, (Number(stop.hours) || 0) * fraction),
+    };
+  });
+  return { stops: scaled, leaveAt: progress.leftAt };
 }
 
 function slimPlan(plan) {
@@ -854,6 +893,85 @@ function creditEmptyMessage() {
   return "Sign in with Google for 40 free credits. Save a card for 40 more. That card is not charged when they run out.";
 }
 
+function legStillCounts(stop, fraction) {
+  const miles = (Number(stop.miles) || 0) * fraction;
+  const hours = (Number(stop.hours) || 0) * fraction;
+  return hours > 0.0001 || miles > 0.05;
+}
+
+function nextTimedStop(fromIndex) {
+  for (let i = fromIndex + 1; i < state.stops.length; i += 1) {
+    const stop = state.stops[i];
+    if (!stop || stop.useCurrentLocation || stop.skipRoute) continue;
+    if ((Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001) return stop;
+  }
+  return null;
+}
+
+async function updateTimesFromHere() {
+  if (state.updatingTimes || state.estimating) return;
+  state.updatingTimes = true;
+  state.error = "";
+  state.notice = "Finding you…";
+  render();
+  const here = navOn && navFix
+    ? { lat: navFix[0], lon: navFix[1] }
+    : await currentFix();
+  if (!here) {
+    state.updatingTimes = false;
+    state.notice = "";
+    state.error = "Allow location, then update times.";
+    render();
+    return;
+  }
+  rebuildNavLegs();
+  if (navLine.length < 2 || !navLegs.length) {
+    state.updatingTimes = false;
+    state.notice = "";
+    state.error = "Calculate the trip first.";
+    render();
+    return;
+  }
+  const hit = navNearest(here.lat, here.lon, navLine);
+  if (hit.dist > 2 * 1609.344) {
+    state.updatingTimes = false;
+    state.notice = "";
+    state.error = "You're not on the saved route. Recalculate the stop you are driving toward.";
+    render();
+    return;
+  }
+  let leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+  let legMeters = Math.max(1, leg.end - leg.start);
+  let into = Math.min(legMeters, Math.max(0, hit.along - leg.start));
+  let remaining = Math.max(0, legMeters - into);
+  let fraction = remaining / legMeters;
+  let stop = leg.stop;
+  if (remaining < 161 || !legStillCounts(stop, fraction)) {
+    const index = state.stops.findIndex((item) => item.id === stop.id);
+    const next = nextTimedStop(index);
+    state.updatingTimes = false;
+    if (!next) {
+      state.notice = "";
+      state.error = "You're already at the last stop.";
+      render();
+      return;
+    }
+    state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
+    state.notice = `You're at ${navStopTitle(stop)}. Times start from the next stop. Later stops were not recalculated.`;
+    await calculate({ silent: true });
+    return;
+  }
+  const fullMiles = (Number(stop.miles) || 0) > 0.05 ? Number(stop.miles) : legMeters / 1609.344;
+  const driven = fullMiles * (into / legMeters);
+  const left = fullMiles * fraction;
+  state.driveProgress = { stopId: stop.id, remainFraction: fraction, leftAt: Date.now() };
+  state.updatingTimes = false;
+  state.notice = driven > 0.5
+    ? `You're ${formatMiles(driven)} toward ${navStopTitle(stop)}. ${formatMiles(left)} left on that stop. Later stops were not recalculated.`
+    : "Times start from where you are now. The saved route was not recalculated.";
+  await calculate({ silent: true });
+}
+
 async function calculate({ silent = false, skipHash = false, keepScreen = false } = {}) {
   if (!silent && needsStartChoice()) {
     state.chooseStart = true;
@@ -869,6 +987,7 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     return;
   }
   if (!silent) {
+    clearDriveProgress();
     state.estimating = true;
     state.error = "";
     state.notice = "Asking HERE© for a truck-legal route…";
@@ -885,13 +1004,14 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     state.estimating = false;
     rememberOrigin();
   }
+  const timed = stopsAndLeaveForPlan();
   const result = buildPlan({
-    stops: zonedPlanStops(state.stops.map(normalizeStop)),
+    stops: zonedPlanStops(timed.stops),
     settings: {
       ...state.settings,
-      leaveAt: leaveAtNow(),
+      leaveAt: timed.leaveAt,
     },
-    now: Date.now(),
+    now: timed.leaveAt,
   });
   if (result.error) {
     state.arrivalBusy = false;
@@ -973,6 +1093,7 @@ function saveTrip() {
       rollAt: state.plan.rollAt,
       arriveAt: state.plan.arriveAt,
     },
+    driveProgress: state.driveProgress,
     pendingUpload: true,
   };
   state.trips = [trip, ...state.trips.filter((item) => item.id !== id)].slice(0, 40);
@@ -994,6 +1115,7 @@ function loadTrip(id) {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
+  state.driveProgress = readDriveProgress(trip.driveProgress);
   state.notice = `Opened ${trip.name}.`;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
@@ -1070,6 +1192,7 @@ function loadExample() {
   delete state.settings.sleepHours;
   delete state.settings.readyMinutes;
   state.stops = Array.isArray(trip.stops) ? trip.stops : [];
+  clearDriveProgress();
   state.tripName = trip.tripName || trip.name || "";
   state.activeTripId = null;
   state.origin = trip.origin || null;
@@ -1125,6 +1248,7 @@ function tripCacheItem(trip) {
     origin: trip.origin || null,
     plan: trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null,
     summary: trip.summary || null,
+    driveProgress: readDriveProgress(trip.driveProgress),
   };
 }
 
@@ -1269,6 +1393,7 @@ function addStop(afterId) {
   } else {
     state.stops.push(next);
   }
+  clearDriveProgress();
   persist();
   render();
 }
@@ -1284,6 +1409,7 @@ function removeStop(id) {
   if (index < 0 || !stopCanRemove(index)) return;
   const next = state.stops.filter((stop) => stop.id !== id);
   state.stops = next;
+  clearDriveProgress();
   persist();
   if (state.plan) calculate({ silent: true });
   else render();
@@ -1297,6 +1423,7 @@ function moveStop(id, delta) {
   const a = dest[position];
   const b = dest[next];
   [state.stops[a], state.stops[b]] = [state.stops[b], state.stops[a]];
+  clearDriveProgress();
   persist();
   if (state.plan) calculate({ silent: true });
   else render();
@@ -1327,6 +1454,7 @@ function updateStop(id, patch) {
       next.hours = "";
     }
     state.plan = null;
+    clearDriveProgress();
     persist();
     render();
     return;
@@ -4650,6 +4778,7 @@ async function recalculateFromHere() {
     abortRecalc("No stop ahead to recalculate.");
     return;
   }
+  clearDriveProgress();
   state.estimating = false;
   state.notice = `HERE© truck route to ${name} (${TRUCK_PROFILE.summary}).`;
   await calculate({ silent: true, keepScreen: true });
@@ -4975,6 +5104,7 @@ async function addPlaceAsNextStop(hit) {
   }
   const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
   if (cursor >= 0) navStopCursor = cursor;
+  clearDriveProgress();
   state.estimating = false;
   state.notice = `Added ${navStopTitle(next)} as the next stop.`;
   await calculate({ silent: true });
@@ -6162,7 +6292,7 @@ function render() {
           <div class="set-pair">
             ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
             ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
-            ${state.plan ? `<button type="button" class="flag-box" id="updateTimes">Update times</button>` : ""}
+            ${state.plan ? `<button type="button" class="flag-box" id="updateTimes"${state.updatingTimes || state.estimating ? " disabled" : ""}>${state.updatingTimes ? "Finding you…" : "Update times"}</button>` : ""}
           </div>
         </div>
         ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
@@ -6750,7 +6880,7 @@ function bind() {
     render();
   });
   $("#calculate")?.addEventListener("click", () => calculate());
-  $("#updateTimes")?.addEventListener("click", () => calculate({ silent: true }));
+  $("#updateTimes")?.addEventListener("click", () => updateTimesFromHere());
   mountMap();
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
