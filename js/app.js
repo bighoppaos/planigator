@@ -4799,6 +4799,12 @@ async function watchSignIn() {
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  // Full screen moves the map onto document.body. A recalculate renders again
+  // without removing that copy, so the directions list stacks.
+  clearRouteMap();
+  document.querySelectorAll("#routeStage").forEach((stage) => {
+    if (!root.contains(stage)) stage.remove();
+  });
   const googleLive = document.getElementById("googleBtn");
   const keepGoogle = googleLive && googleLive.childElementCount ? googleLive : null;
   if (keepGoogle) keepGoogle.remove();
