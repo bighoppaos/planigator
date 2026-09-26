@@ -4325,19 +4325,26 @@ function frameNextTurn() {
   }
   const turn = upcomingTurn(along);
   if (!turn) return;
+  // Fitting all the way to a turn that is still miles ahead zooms the map out
+  // before the truck gets there. Stay on the next stretch of road, and include
+  // the turn itself only once it is close.
+  const lookAhead = 400;
+  const pastTurn = 150;
+  const turnClose = turn.along - hit.along <= lookAhead;
+  const frameKey = turnClose ? turn.along : -1;
   // A new fit on every GPS fix reloads the satellite tiles, so the same image
   // draws again across the screen. Hold this frame until the truck has moved.
   if (turnFrameAt && turnFrameTarget != null && routeMap.getZoom() >= 14
-    && Math.abs(turnFrameTarget - turn.along) < 40
+    && Math.abs(turnFrameTarget - frameKey) < 40
     && metersBetween(turnFrameAt, navFix) < 120) return;
-  const end = Math.min(polylineMeters(navLine), turn.along + 80);
+  const end = Math.min(polylineMeters(navLine), turnClose ? turn.along + pastTurn : hit.along + lookAhead);
   const coords = navRemaining(Math.min(hit.along, end), end);
   coords.push([navFix[1], navFix[0]]);
-  const at = pointAlong(navLine, turn.along);
+  const at = turnClose ? pointAlong(navLine, turn.along) : null;
   if (at) coords.push([at.lon, at.lat]);
   if (coords.length < 2) return;
   turnFrameAt = [navFix[0], navFix[1]];
-  turnFrameTarget = turn.along;
+  turnFrameTarget = frameKey;
   if (turnMarker) turnMarker.remove();
   if (at) {
     const pin = document.createElement("span");
