@@ -223,7 +223,9 @@ export function schedules({
     clock.timeZone = stop.timeZone || "";
     const prev = stops[index - 1];
     if (!stop.skipRoute && prev && !prev.skipRoute) {
-      const delayMinutes = stopDelayMinutes(prev);
+      const prevBlock = result[index - 1];
+      const pieceCount = prevBlock?.pieces?.length || 1;
+      const delayMinutes = pieceDelayMinutes(prev, pieceCount - 1);
       if (delayMinutes >= 1) clock.sit(delayMinutes / 60);
     }
     const drive = inboundDrive(index, driveHours);
@@ -240,7 +242,10 @@ export function schedules({
     const chipRouteHours = chipEvents
       .filter((event) => event.kind === "drive")
       .map((event) => event.routeHours);
-    const events = clock.driveReporting(drive, cap, [0], [0]);
+    const reported = clock.driveReporting(drive, cap, [0], [0]);
+    const laid = shiftEarlierDriveDelays(stop, reported);
+    if (laid.shift) clock.now += laid.shift;
+    const events = laid.events;
     const leading = [];
     const pieces = [];
     let pending = null;
@@ -373,20 +378,36 @@ function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
   return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
 }
 
-function stopDelayMinutes(stop) {
-  if (!stop) return 0;
-  if (Array.isArray(stop.driveDelays)) {
-    return stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-  }
-  return Math.max(0, Number(stop.delayMinutes) || 0);
+function pieceDelayMinutes(stop, pieceIndex) {
+  if (!stop || pieceIndex < 0) return 0;
+  if (Array.isArray(stop.driveDelays)) return Math.max(0, Number(stop.driveDelays[pieceIndex]) || 0);
+  if (pieceIndex === 0) return Math.max(0, Number(stop.delayMinutes) || 0);
+  return 0;
 }
 
-function delaySatBefore(stops, index) {
+function shiftEarlierDriveDelays(stop, events) {
+  const driveCount = events.filter((event) => event.kind === "drive").length;
+  let shift = 0;
+  let drivePiece = 0;
+  const shifted = events.map((event) => {
+    const next = { ...event, start: event.start + shift, end: event.end + shift };
+    if (event.kind === "drive") {
+      const isLast = drivePiece >= driveCount - 1;
+      if (!isLast) shift += pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
+      drivePiece += 1;
+    }
+    return next;
+  });
+  return { events: shifted, shift };
+}
+
+function delaySatBefore(stops, index, blocks) {
   if (index <= 0) return 0;
   const stop = stops[index];
   const prev = stops[index - 1];
   if (!stop || stop.skipRoute || !prev || prev.skipRoute) return 0;
-  const minutes = stopDelayMinutes(prev);
+  const pieceCount = blocks?.[index - 1]?.pieces?.length || 1;
+  const minutes = pieceDelayMinutes(prev, pieceCount - 1);
   if (minutes < 1) return 0;
   return minutes * 60 * 1000;
 }
@@ -397,7 +418,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
   const first = destinations[0];
   if (first != null && blocks[first]) {
     const block = blocks[first];
-    const gapStart = now + delaySatBefore(stops, first);
+    const gapStart = now + delaySatBefore(stops, first, blocks);
     const gapEnd = block.leadingPauses[0]?.start ?? block.start;
     const hours = (gapEnd - gapStart) / 3600 / 1000;
     if (hours >= 1 / 60) {
@@ -422,7 +443,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const open = notBefore(stops[index]);
       const close = stops[index].anytime ? null : latestArrive(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
-      const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex) : 0;
+      const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex, blocks) : 0;
       const departure = lead?.start ?? next.start;
       // An anytime stop is left as soon as this one is done. Stretching the
       // gap to the end of the driving day overlaps that drive. A delay sit
