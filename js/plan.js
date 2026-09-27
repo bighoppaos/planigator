@@ -221,13 +221,6 @@ export function schedules({
   stops.forEach((stop, index) => {
     if (isOriginStop(stops, index)) return;
     clock.timeZone = stop.timeZone || "";
-    const prev = stops[index - 1];
-    if (!stop.skipRoute && prev && !prev.skipRoute) {
-      const prevBlock = result[index - 1];
-      const pieceCount = prevBlock?.pieces?.length || 1;
-      const delayMinutes = pieceDelayMinutes(prev, pieceCount - 1);
-      if (delayMinutes >= 1) clock.sit(delayMinutes / 60);
-    }
     const drive = inboundDrive(index, driveHours);
     const limited = deadlineFor?.get(index);
     const open = arriveLatest
@@ -308,9 +301,24 @@ export function schedules({
         pausesAfter: [],
       });
     }
+    // A delay on this drive sits before the window wait, so spare time until
+    // the window absorbs it. The next drive still leaves when the window
+    // opens. On the last drive there is no next leave, so the arrival itself
+    // moves and the leeway below opens then.
+    const tailDelayMinutes = stop.skipRoute ? 0 : pieceDelayMinutes(stop, Math.max(0, pieces.length - 1));
+    const nextStop = stops[index + 1];
+    const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute;
+    const laterVisible = stops.slice(index + 1).some((item, offset) => !isOriginStop(stops, index + 1 + offset) && !item.skipRoute);
+    if (tailDelayMinutes >= 1 && nextVisible) {
+      clock.sit(tailDelayMinutes / 60);
+    } else if (tailDelayMinutes >= 1 && !laterVisible) {
+      pieces[pieces.length - 1].end += tailDelayMinutes * 60 * 1000;
+      clock.sit(tailDelayMinutes / 60);
+    }
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
+    const leaveAfterDelay = nextVisible ? arrive + tailDelayMinutes * 60 * 1000 : arrive;
     if (usable != null && clock.now + 60 * 1000 < usable) {
       const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now, clock.timeZone);
       const restFrom = isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone) ? dayEnd : clock.now;
@@ -332,7 +340,7 @@ export function schedules({
     result[index] = {
       start: pieces[0].start,
       end: arrive,
-      finishAt: usable != null && usable > arrive + 60 * 1000 ? usable : 0,
+      finishAt: usable != null && usable > leaveAfterDelay + 60 * 1000 ? usable : 0,
       tripHours: drive,
       leadingPauses: leading,
       pieces,
@@ -454,8 +462,8 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex, blocks) : 0;
       const departure = lead?.start ?? next.start;
       // An anytime stop is left as soon as this one is done. Stretching the
-      // gap to the end of the driving day overlaps that drive. A delay sit
-      // is not leeway either: it is already on the delay chip.
+      // gap to the end of the driving day overlaps that drive. A delay that
+      // still fits before the window only moves this leeway's open.
       if (arrivedInside && close != null && !isAnytimeEnd(endMinutes) && !stops[nextIndex]?.anytime) {
         const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
@@ -465,11 +473,9 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
         } else {
           gapEnd = departure - delayMs;
         }
-      } else if (arrivedInside) {
+      } else {
         gapStart = block.end + delayMs;
         gapEnd = departure;
-      } else {
-        gapEnd = departure - delayMs;
       }
     } else if (!stops[index].anytime) {
       const close = latestArrive(stops[index]);
