@@ -727,9 +727,13 @@ function markGovernedStale() {
   state.speedNote = "Recalculate to update the HERE miles for this governed speed.";
 }
 
+function billableStops() {
+  return state.stops.filter((stop, index) => !isOriginStop(state.stops, index) && !stop.skipRoute && !stop.done);
+}
+
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = Math.max(0, state.stops.length - 1);
+  const count = billableStops().length;
   const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
     ? "unlimited credits left"
@@ -909,7 +913,7 @@ function legStillCounts(stop, fraction) {
 function nextTimedStop(fromIndex) {
   for (let i = fromIndex + 1; i < state.stops.length; i += 1) {
     const stop = state.stops[i];
-    if (!stop || stop.useCurrentLocation || stop.skipRoute) continue;
+    if (!stop || stop.useCurrentLocation || stop.skipRoute || stop.done) continue;
     if ((Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001) return stop;
   }
   return null;
@@ -960,6 +964,13 @@ async function updateTimesFromHere() {
     const index = state.stops.findIndex((item) => item.id === stop.id);
     const next = nextTimedStop(index);
     state.updatingTimes = false;
+    if (!stop.useCurrentLocation) {
+      const at = state.stops.findIndex((item) => item.id === stop.id);
+      if (at >= 0 && !isOriginStop(state.stops, at)) {
+        stop.done = true;
+        paintDoneStop(stop.id);
+      }
+    }
     if (!next) {
       state.notice = "";
       state.error = "You're already at the last stop.";
@@ -998,6 +1009,20 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     return;
   }
   state.chooseStart = false;
+  if (!silent) {
+    const here = await arrivedFix();
+    if (here) {
+      rebuildNavLegs();
+      noteArrivedStops(here.lat, here.lon);
+    }
+    if (billableStops().length === 0) {
+      state.estimating = false;
+      state.error = "";
+      state.notice = "Those stops are done. Nothing new to calculate.";
+      render();
+      return;
+    }
+  }
   if (!silent && !state.unlimited && state.credits === 0) {
     state.error = creditEmptyMessage();
     render();
@@ -1457,6 +1482,64 @@ function arrivedAtRemovedStop(stop, here) {
   return true;
 }
 
+function paintDoneStop(id) {
+  const card = document.querySelector(`[data-stop="${id}"]`);
+  if (!card || card.querySelector(".stop-done")) return;
+  card.querySelectorAll(".here-leg").forEach((node) => node.remove());
+  const line = document.createElement("p");
+  line.className = "flag-box stop-done";
+  line.textContent = "Done";
+  const head = card.querySelector(".stop-head");
+  if (head) head.after(line);
+  else card.prepend(line);
+}
+
+function nearStopEnd(stop, lat, lon, hit) {
+  const leg = navLegs.find((item) => item.stop.id === stop.id);
+  if (!leg || !hit) return false;
+  const remaining = leg.end - hit.along;
+  if (hit.dist <= STOP_LINE_M && remaining <= STOP_NEAR_M && remaining >= -STOP_NEAR_M) return true;
+  const pinDist = metersBetween([lat, lon], [Number(stop.lat), Number(stop.lon)]);
+  if (pinDist > STOP_NEAR_M || hit.along < leg.end - STOP_NEAR_M) return false;
+  return !state.stops.some((other) => {
+    if (!other || other.id === stop.id || other.useCurrentLocation || other.done || other.skipRoute || !pointReady(other)) return false;
+    return metersBetween([lat, lon], [Number(other.lat), Number(other.lon)]) < pinDist;
+  });
+}
+
+function arrivedFix() {
+  if (navOn && Array.isArray(navFix)) return Promise.resolve({ lat: navFix[0], lon: navFix[1] });
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 4000 },
+    );
+  });
+}
+
+function noteArrivedStops(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || navLine.length < 2) return;
+  const hit = navNearest(lat, lon, navLine);
+  let changed = false;
+  state.stops.forEach((stop, index) => {
+    if (!stop || stop.done || stop.skipRoute || isOriginStop(state.stops, index) || !pointReady(stop)) return;
+    if (!nearStopEnd(stop, lat, lon, hit)) return;
+    stop.done = true;
+    changed = true;
+    paintDoneStop(stop.id);
+  });
+  if (!changed) return;
+  persist();
+  const calc = document.getElementById("calculate");
+  if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
+  if (routeFull) routePageStale = true;
+}
+
 function stopHasSavedLeg(stop) {
   return (Number(stop?.miles) || 0) > 0.05 || (Number(stop?.hours) || 0) > 0.0001;
 }
@@ -1468,7 +1551,7 @@ async function removeStop(id) {
   let next = null;
   for (let i = index + 1; i < state.stops.length; i += 1) {
     const stop = state.stops[i];
-    if (!stop || stop.useCurrentLocation || stop.skipRoute) continue;
+    if (!stop || stop.useCurrentLocation || stop.skipRoute || stop.done) continue;
     next = stop;
     break;
   }
@@ -2031,6 +2114,8 @@ async function lookupAddress(id) {
     delete stop.lat;
     delete stop.lon;
     stop.verifiedLabel = "";
+    stop.done = false;
+    stop.skipRoute = false;
   }
   if (!state.signedIn) {
     setLookupMessage(id, "Sign in to look up an address.");
@@ -2157,6 +2242,8 @@ function chooseSuggestion(id, index) {
   stop.verifiedLabel = item.label;
   stop.lat = item.lat;
   stop.lon = item.lon;
+  stop.done = false;
+  stop.skipRoute = false;
   stop.suggestions = [];
   if (state.openLookupStopId === id) state.openLookupStopId = "";
   stop.miles = "";
@@ -2173,7 +2260,7 @@ async function fillHereLegs() {
   const speedCapMph = state.settings.governed ? mph() : null;
   const missing = state.stops
     .map((stop, index) => ({ stop, index }))
-    .filter(({ stop }) => !stop.useCurrentLocation && !stop.skipRoute && !pointReady(stop));
+    .filter(({ stop }) => !stop.useCurrentLocation && !stop.skipRoute && !stop.done && !pointReady(stop));
   if (missing.length) {
     const names = missing.map(({ index }) => cardTitle(index, state.stops));
     const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -2181,7 +2268,8 @@ async function fillHereLegs() {
   }
   const routed = [];
   for (const stop of state.stops) {
-    if (stop.skipRoute) {
+    if (stop.skipRoute || stop.done) {
+      stop.skipRoute = true;
       stop.miles = "";
       stop.hours = "";
       stop.path = [];
@@ -3177,6 +3265,8 @@ function applyMapHit(item) {
   stop.verifiedLabel = label;
   stop.lat = lat;
   stop.lon = lon;
+  stop.done = false;
+  stop.skipRoute = false;
   stop.suggestions = [];
   stop.miles = "";
   stop.hours = "";
@@ -3410,6 +3500,8 @@ async function useChosenSpot() {
   stop.verifiedLabel = label;
   stop.lat = spot.lat;
   stop.lon = spot.lon;
+  stop.done = false;
+  stop.skipRoute = false;
   stop.suggestions = [];
   stop.miles = "";
   stop.hours = "";
@@ -4769,9 +4861,15 @@ function legUnderFix(lat, lon) {
 }
 
 function upcomingRoutedStop(lat, lon) {
-  const stop = legUnderFix(lat, lon)?.stop;
-  if (!stop || stop.useCurrentLocation || stop.skipRoute || !pointReady(stop)) return null;
-  return stop;
+  const leg = legUnderFix(lat, lon);
+  if (!leg?.stop) return null;
+  const start = Math.max(0, navLegs.indexOf(leg));
+  for (let i = start; i < navLegs.length; i += 1) {
+    const stop = navLegs[i].stop;
+    if (!stop || stop.useCurrentLocation || stop.skipRoute || stop.done || !pointReady(stop)) continue;
+    return stop;
+  }
+  return null;
 }
 
 function applyAheadLeg(here, stopId, leg) {
@@ -4856,6 +4954,7 @@ async function recalculateFromHere() {
     abortRecalc("Calculate the trip first.");
     return;
   }
+  noteArrivedStops(here.lat, here.lon);
   const target = upcomingRoutedStop(here.lat, here.lon);
   if (!target) {
     abortRecalc("No stop ahead to recalculate.");
@@ -5413,6 +5512,7 @@ function onNavFix(lat, lon) {
       speakNavProgress(leg, found, hit.along);
     }
   }
+  noteArrivedStops(lat, lon);
   if (tripFit === "nextTurn") {
     if (Date.now() < navZoomHold) return;
     frameNextTurn();
@@ -6145,7 +6245,8 @@ function stopCard(stop, index) {
       ${pointReady(stop) && !usingDismissed.has(stop.id) && !(state.lookupStopId === stop.id && state.lookupOk)
         ? `<p class="flag-box">Using this address.</p>`
         : ""}
-      ${originStop ? "" : hereLeg(stop)}
+      ${!originStop && stop.done ? `<p class="flag-box stop-done">Done</p>` : ""}
+      ${originStop || stop.done ? "" : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
       <div class="stop-flags">
         <button type="button" class="flag-box${stop.anytime ? " on" : ""}" data-toggle-field="anytime">Anytime</button>
@@ -6194,7 +6295,7 @@ function hereLeg(stop) {
     if (leg.hours > 0.0001) parts.push(hoursLabel(leg.hours));
     const tail = leg.left ? "left" : "from HERE";
     const mark = leg.left ? "" : "<sup>©</sup>";
-    return `<p class="flag-box">${escapeAttr(parts.join(" · "))} ${tail}${mark}</p>`;
+    return `<p class="flag-box here-leg">${escapeAttr(parts.join(" · "))} ${tail}${mark}</p>`;
   }
   return "";
 }
