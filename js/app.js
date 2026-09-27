@@ -19,10 +19,11 @@ import {
   stopColor,
   buildPlan,
   isOriginStop,
+  legsToCalculate,
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=145";
+} from "./plan.js?v=146";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -426,7 +427,12 @@ function clearDriveProgress() {
 }
 
 function stopsAndLeaveForPlan() {
-  const stops = state.stops.map(normalizeStop);
+  let stops = state.stops.map(normalizeStop);
+  const pending = legsToCalculate(stops);
+  if (pending.mode === "suffix") {
+    const hide = new Set(pending.indexes);
+    stops = stops.map((stop, index) => (hide.has(index) ? { ...stop, skipRoute: true } : stop));
+  }
   const progress = state.driveProgress;
   if (!progress) return { stops, leaveAt: leaveAtNow() };
   const index = stops.findIndex((stop) => stop.id === progress.stopId);
@@ -733,14 +739,19 @@ function billableStops() {
 
 function calculateButtonLabel() {
   if (state.estimating) return "Asking HERE<sup>©</sup>…";
-  const count = billableStops().length;
+  const work = legsToCalculate(state.stops);
+  const count = work.indexes.length;
   const use = count > 0 ? `${count} credit${count === 1 ? "" : "s"}` : "";
   const left = state.unlimited
     ? "unlimited credits left"
     : (state.signedIn || state.cardOnFile) && state.credits != null
       ? `${state.credits} left`
       : "";
-  return [state.plan ? "Recalculate" : "Calculate", use, left].filter(Boolean).join(" · ");
+  const verb = state.plan ? "Recalculate" : "Calculate";
+  const action = work.mode === "suffix"
+    ? `${verb} from ${escapeAttr(cardTitle(work.anchor, state.stops))}`
+    : verb;
+  return [action, use, left].filter(Boolean).join(" · ");
 }
 
 const HOS_ELEVEN = Array.from({ length: 11 }, (_, i) => i + 1);
@@ -1028,14 +1039,15 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     render();
     return;
   }
+  let hereLegs = null;
   if (!silent) {
-    clearDriveProgress();
+    if (legsToCalculate(state.stops).mode !== "suffix") clearDriveProgress();
     state.estimating = true;
     state.error = "";
     state.notice = "Asking HERE© for a truck-legal route…";
     render();
     try {
-      await fillHereLegs();
+      hereLegs = await fillHereLegs();
     } catch (error) {
       if (error.credits != null) state.credits = error.credits;
       state.error = error.message || "Could not get a HERE© truck route.";
@@ -1047,13 +1059,15 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     rememberOrigin();
   }
   const timed = stopsAndLeaveForPlan();
+  let leaveAt = timed.leaveAt;
+  if (hereLegs?.from && !state.driveProgress && state.stops.some((stop) => stop?.done)) leaveAt = Date.now();
   const result = buildPlan({
     stops: zonedPlanStops(timed.stops),
     settings: {
       ...state.settings,
-      leaveAt: timed.leaveAt,
+      leaveAt,
     },
-    now: timed.leaveAt,
+    now: leaveAt,
   });
   if (result.error) {
     state.arrivalBusy = false;
@@ -1073,7 +1087,10 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
   state.plan = result;
   state.error = "";
   state.arrivalBusy = false;
-  if (!silent) state.speedNote = "";
+  const routeNote = hereLegs?.from
+    ? `HERE© truck route from ${hereLegs.from} (${TRUCK_PROFILE.summary}). Earlier stops were not recalculated.`
+    : `HERE© truck route (${TRUCK_PROFILE.summary}).`;
+  if (!silent && !hereLegs?.from) state.speedNote = "";
   if (!skipHash && state.signedIn) {
     saveTrip();
     if (silent) {
@@ -1087,12 +1104,12 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     try {
       await putTrips(state.trips);
       markTripsUploaded();
-      if (!silent) state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}). Trip saved to your account.`;
+      if (!silent) state.notice = `${routeNote} Trip saved to your account.`;
     } catch (error) {
       if (!silent) state.notice = error.message || "Saved on this device. The account copy did not update.";
     }
   } else if (!silent) {
-    state.notice = `HERE© truck route (${TRUCK_PROFILE.summary}).`;
+    state.notice = routeNote;
   }
   presentAfterPlan(keepScreen);
 }
@@ -1421,6 +1438,7 @@ async function pullAccountTrips() {
 
 function addStop(afterId) {
   const next = defaultStop();
+  let atEnd = true;
   if (afterId) {
     const index = state.stops.findIndex((stop) => stop.id === afterId);
     const previous = state.stops[index];
@@ -1431,11 +1449,12 @@ function addStop(afterId) {
       next.startOffset = offset;
       next.endOffset = offset;
     }
+    atEnd = index === state.stops.length - 1;
     state.stops.splice(index + 1, 0, next);
   } else {
     state.stops.push(next);
   }
-  clearDriveProgress();
+  if (!atEnd) clearDriveProgress();
   persist();
   render();
 }
@@ -1609,6 +1628,9 @@ function updateStop(id, patch) {
   if (patch.window === false) stop.end = stop.start;
   if (patch.anytime === true) stop.window = false;
   if ("address" in patch) {
+    const index = state.stops.findIndex((item) => item.id === id);
+    const next = state.stops[index + 1];
+    const wipedSaved = stopHasSavedLeg(stop) || stopHasSavedLeg(next);
     const typed = String(patch.address || "").trim();
     if (typed !== (stop.verifiedLabel || "")) {
       lookupOpen.add(id);
@@ -1620,14 +1642,14 @@ function updateStop(id, patch) {
       delete stop.lat;
       delete stop.lon;
     }
-    const index = state.stops.findIndex((item) => item.id === id);
-    const next = state.stops[index + 1];
     if (next) {
       next.miles = "";
       next.hours = "";
     }
-    state.plan = null;
-    clearDriveProgress();
+    if (wipedSaved) {
+      state.plan = null;
+      clearDriveProgress();
+    }
     persist();
     render();
     return;
@@ -2251,6 +2273,7 @@ function chooseSuggestion(id, index) {
   const stop = state.stops.find((item) => item.id === id);
   const item = stop?.suggestions?.[index];
   if (!stop || !item) return;
+  const hadLeg = stopHasSavedLeg(stop);
   stop.address = item.label;
   stop.verifiedLabel = item.label;
   stop.lat = item.lat;
@@ -2261,7 +2284,10 @@ function chooseSuggestion(id, index) {
   if (state.openLookupStopId === id) state.openLookupStopId = "";
   stop.miles = "";
   stop.hours = "";
-  state.plan = null;
+  if (hadLeg) {
+    state.plan = null;
+    clearDriveProgress();
+  }
   clearUsingNote(id);
   setLookupMessage(id, "Using that address.", { ok: true });
   persist();
@@ -2278,6 +2304,32 @@ async function fillHereLegs() {
     const names = missing.map(({ index }) => cardTitle(index, state.stops));
     const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
     throw new Error(`Press lookup address on ${list} and choose an address before pressing Calculate.`);
+  }
+  const work = legsToCalculate(state.stops);
+  if (work.mode === "suffix") {
+    const anchorName = cardTitle(work.anchor, state.stops);
+    let previous = stopPoint(state.stops[work.anchor]);
+    if (!previous) {
+      throw new Error(`Press lookup address on ${anchorName} and choose an address before pressing Calculate.`);
+    }
+    for (const index of work.indexes) {
+      const stop = state.stops[index];
+      const point = stopPoint(stop);
+      if (!point) {
+        throw new Error(`Press lookup address on ${cardTitle(index, state.stops)} and choose an address before pressing Calculate.`);
+      }
+      const leg = await routeTruckLeg(previous, point);
+      writeRoutedLeg(stop, leg);
+      previous = point;
+      persist();
+    }
+    // Done stops stay on the map so directions can leave them. The clock starts at the stop still ahead.
+    for (const stop of state.stops) {
+      if (!stop?.done || stop.skipRoute) continue;
+      stop.skipRoute = true;
+    }
+    persist();
+    return { from: anchorName };
   }
   const routed = [];
   const skipped = [];
@@ -2322,6 +2374,7 @@ async function fillHereLegs() {
     stop.directions = [];
   }
   persist();
+  return null;
 }
 
 async function deleteCard() {
@@ -3277,6 +3330,7 @@ function applyMapHit(item) {
   const lon = Number(item?.lon);
   const label = String(item?.label || "").trim();
   if (!stop || !label || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const hadLeg = stopHasSavedLeg(stop);
   if (!(stop.name || "").trim()) stop.name = pinLabel(item.title || label);
   stop.address = label;
   stop.verifiedLabel = label;
@@ -3287,7 +3341,10 @@ function applyMapHit(item) {
   stop.suggestions = [];
   stop.miles = "";
   stop.hours = "";
-  state.plan = null;
+  if (hadLeg) {
+    state.plan = null;
+    clearDriveProgress();
+  }
   state.openLookupStopId = "";
   chooseMap = false;
   mapSpot = null;
@@ -3506,6 +3563,7 @@ async function useChosenSpot() {
   const spot = mapSpot;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop || !spot) return;
+  const hadLeg = stopHasSavedLeg(stop);
   let label = "Chosen on the map";
   try {
     const data = await spotAddress(spot.lat, spot.lon);
@@ -3522,7 +3580,10 @@ async function useChosenSpot() {
   stop.suggestions = [];
   stop.miles = "";
   stop.hours = "";
-  state.plan = null;
+  if (hadLeg) {
+    state.plan = null;
+    clearDriveProgress();
+  }
   state.openLookupStopId = "";
   chooseMap = false;
   mapSpot = null;

@@ -51,6 +51,33 @@ export function isOriginStop(stops, index) {
     && stops.findIndex((item) => !item.useCurrentLocation) === index;
 }
 
+function savedTruckLeg(stop) {
+  return (Number(stop?.miles) || 0) > 0.05 || (Number(stop?.hours) || 0) > 0.0001;
+}
+
+// indexes.length is the number of HERE legs Calculate will request.
+// New stops after the last saved leg route from that stop only.
+// A stop with no leg before a later saved leg still recalculates every remaining stop.
+export function legsToCalculate(stops) {
+  const list = Array.isArray(stops) ? stops : [];
+  let lastRouted = -1;
+  for (let index = 0; index < list.length; index += 1) {
+    if (isOriginStop(list, index)) continue;
+    if (savedTruckLeg(list[index])) lastRouted = index;
+  }
+  const needs = [];
+  const full = [];
+  list.forEach((stop, index) => {
+    if (!stop || isOriginStop(list, index) || stop.skipRoute || stop.done) return;
+    full.push(index);
+    if (!savedTruckLeg(stop)) needs.push(index);
+  });
+  if (needs.length > 0 && lastRouted >= 0 && needs.every((index) => index > lastRouted)) {
+    return { mode: "suffix", anchor: lastRouted, indexes: needs };
+  }
+  return { mode: "full", anchor: -1, indexes: full };
+}
+
 export function scheduledIndexes(stops) {
   return stops.map((_, index) => index).filter((index) => !isOriginStop(stops, index) && !stops[index]?.skipRoute);
 }
