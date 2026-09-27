@@ -4698,16 +4698,13 @@ function frameNextTurn() {
     if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
   }
   const lineEnd = polylineMeters(navLine);
-  // Stay on the next half mile while the turn is still farther than that.
-  // Fitting a maneuver that is miles away zooms out too soon. Once the turn
-  // is inside that half mile, show through half a mile past it.
+  // The turn stays on screen. Half a mile past it is only added once the
+  // turn is close, so a far exit is in view without an extra stretch beyond it.
   const halfMile = 804.672;
   const turnAlong = currentDirectionEnd(along);
-  const ahead = turnAlong == null ? Infinity : turnAlong - along;
-  const farAlong = Math.min(
-    lineEnd,
-    along + (ahead > halfMile ? halfMile : Math.max(40, ahead + halfMile)),
-  );
+  const ahead = turnAlong == null ? halfMile : Math.max(0, turnAlong - along);
+  const past = ahead <= halfMile ? halfMile : 0;
+  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead + past));
   const far = pointAlong(navLine, farAlong);
   if (!far) return;
   const bearing = northLock
@@ -4748,10 +4745,13 @@ function frameNextTurn() {
   navZoomHold = Date.now() + 800;
   routeMap.stop();
   const fitted = routeMap.cameraForBounds(bounds, { padding, bearing });
+  // A little closer only when the turn is near. Extra zoom on a long leg
+  // pushes that turn off the top of the screen.
+  const deeper = ahead <= halfMile ? 0.45 : 0;
   if (fitted && Number.isFinite(fitted.zoom)) {
     routeMap.easeTo({
       center: fitted.center,
-      zoom: Math.min(17, fitted.zoom + 0.45),
+      zoom: Math.min(17, fitted.zoom + deeper),
       bearing,
       duration: 650,
     });
