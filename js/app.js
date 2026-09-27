@@ -22,7 +22,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=144";
+} from "./plan.js?v=145";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -413,7 +413,12 @@ function readDriveProgress(value) {
   const remainFraction = Number(value.remainFraction);
   const leftAt = Number(value.leftAt);
   if (!stopId || !(remainFraction > 0) || remainFraction > 1 || !Number.isFinite(leftAt)) return null;
-  return { stopId, remainFraction, leftAt };
+  const progress = { stopId, remainFraction, leftAt };
+  const remainMiles = Number(value.remainMiles);
+  const remainHours = Number(value.remainHours);
+  if (Number.isFinite(remainMiles) && remainMiles >= 0) progress.remainMiles = remainMiles;
+  if (Number.isFinite(remainHours) && remainHours >= 0) progress.remainHours = remainHours;
+  return progress;
 }
 
 function clearDriveProgress() {
@@ -433,11 +438,13 @@ function stopsAndLeaveForPlan() {
   const scaled = stops.map((stop, i) => {
     if (stop.skipRoute || i > index) return stop;
     if (i < index) return { ...stop, skipRoute: true };
-    return {
-      ...stop,
-      miles: Math.max(0, (Number(stop.miles) || 0) * fraction),
-      hours: Math.max(0, (Number(stop.hours) || 0) * fraction),
-    };
+    const miles = Number.isFinite(progress.remainMiles)
+      ? progress.remainMiles
+      : Math.max(0, (Number(stop.miles) || 0) * fraction);
+    const hours = Number.isFinite(progress.remainHours)
+      ? progress.remainHours
+      : Math.max(0, (Number(stop.hours) || 0) * fraction);
+    return { ...stop, miles, hours };
   });
   return { stops: scaled, leaveAt: progress.leftAt };
 }
@@ -932,7 +939,10 @@ async function updateTimesFromHere() {
     render();
     return;
   }
-  const hit = navNearest(here.lat, here.lon, navLine);
+  const locked = navNearest(here.lat, here.lon, navLine);
+  const closest = nearestOnPath(here.lat, here.lon, navLine);
+  const hit = closest.dist + 50 < locked.dist ? closest : locked;
+  if (hit === closest && closest.dist <= 2 * 1609.344) navAlongLock = closest.along;
   if (hit.dist > 2 * 1609.344) {
     state.updatingTimes = false;
     state.notice = "";
@@ -962,9 +972,16 @@ async function updateTimesFromHere() {
     return;
   }
   const fullMiles = (Number(stop.miles) || 0) > 0.05 ? Number(stop.miles) : legMeters / 1609.344;
+  const fullHours = Number(stop.hours) || 0;
   const driven = fullMiles * (into / legMeters);
   const left = fullMiles * fraction;
-  state.driveProgress = { stopId: stop.id, remainFraction: fraction, leftAt: Date.now() };
+  state.driveProgress = {
+    stopId: stop.id,
+    remainFraction: fraction,
+    leftAt: Date.now(),
+    remainMiles: left,
+    remainHours: Math.max(0, fullHours * fraction),
+  };
   state.updatingTimes = false;
   state.notice = driven > 0.5
     ? `You're ${formatMiles(driven)} toward ${navStopTitle(stop)}. ${formatMiles(left)} left on that stop. Later stops were not recalculated.`
@@ -6156,14 +6173,28 @@ function escapeAttr(value) {
     .replaceAll(">", "&gt;");
 }
 
+function progressLeg(stop) {
+  const storedMiles = Number(stop.miles) || 0;
+  const storedHours = Number(stop.hours) || 0;
+  const progress = state.driveProgress;
+  const partial = Boolean(progress && progress.stopId === stop.id && progress.remainFraction > 0 && progress.remainFraction < 1);
+  if (!partial) return { miles: storedMiles, hours: storedHours, left: false };
+  return {
+    miles: Number.isFinite(progress.remainMiles) ? progress.remainMiles : storedMiles * progress.remainFraction,
+    hours: Number.isFinite(progress.remainHours) ? progress.remainHours : storedHours * progress.remainFraction,
+    left: true,
+  };
+}
+
 function hereLeg(stop) {
-  const miles = Number(stop.miles) || 0;
-  const hours = Number(stop.hours) || 0;
-  if (miles > 0.05 || hours > 0.0001) {
+  const leg = progressLeg(stop);
+  if (leg.miles > 0.05 || leg.hours > 0.0001) {
     const parts = [];
-    if (miles > 0.05) parts.push(formatMiles(miles));
-    if (hours > 0.0001) parts.push(hoursLabel(hours));
-    return `<p class="flag-box">${escapeAttr(parts.join(" · "))} from HERE<sup>©</sup></p>`;
+    if (leg.miles > 0.05) parts.push(formatMiles(leg.miles));
+    if (leg.hours > 0.0001) parts.push(hoursLabel(leg.hours));
+    const tail = leg.left ? "left" : "from HERE";
+    const mark = leg.left ? "" : "<sup>©</sup>";
+    return `<p class="flag-box">${escapeAttr(parts.join(" · "))} ${tail}${mark}</p>`;
   }
   return "";
 }

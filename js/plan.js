@@ -219,7 +219,8 @@ export function schedules({
   });
   const cap = clampedMaxHours(maxHoursBeforeReset);
   stops.forEach((stop, index) => {
-    if (isOriginStop(stops, index)) return;
+    // Passed stops stay on the trip, but the clock starts at the one still ahead.
+    if (isOriginStop(stops, index) || stop.skipRoute) return;
     clock.timeZone = stop.timeZone || "";
     const drive = inboundDrive(index, driveHours);
     const limited = deadlineFor?.get(index);
