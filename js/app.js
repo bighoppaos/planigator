@@ -2864,7 +2864,7 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeWhole" aria-label="Zoom trip"><span>Zoom</span><span>trip</span></button>
+        <button type="button" id="routeWhole" aria-label="Trip zoom"><span>Trip</span><span>zoom</span></button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
@@ -4339,9 +4339,9 @@ let navStopTapAt = 0;
 let tripFit = "off";
 
 function tripFitLines() {
-  if (tripFit === "remaining") return ["Zoom", "left"];
-  if (tripFit === "nextTurn") return ["Zoom", "turn"];
-  return ["Zoom", "trip"];
+  if (tripFit === "remaining") return ["Left", "zoom"];
+  if (tripFit === "nextTurn") return ["Turn", "zoom"];
+  return ["Trip", "zoom"];
 }
 
 function syncTripFitButton() {
