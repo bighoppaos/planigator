@@ -1,7 +1,7 @@
 {
   "name": "Planigator",
   "short_name": "Planigator",
-  "description": "Plan a truck trip in the browser. Pickup, drop, HERE truck routes, leave-by, 30-minute breaks, and 10-hour rests.",
+  "description": "Plan a truck trip in the browser, then navigate that route on the same page. Pickup, drop, HERE truck routes, leave-by, 30-minute breaks, and 10-hour rests.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f1ea",
