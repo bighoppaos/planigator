@@ -4350,8 +4350,7 @@ let turnFrameAt = null;
 let turnFrameTarget = null;
 let routeCoverSize = "";
 
-function upcomingTurn(hereAlong) {
-  let fallback = null;
+function nextRealManeuver(hereAlong) {
   for (const leg of navLegs) {
     const steps = Array.isArray(leg.stop?.directions) ? leg.stop.directions : [];
     const lengths = steps.map(stepLengthMeters);
@@ -4360,14 +4359,33 @@ function upcomingTurn(hereAlong) {
     const scale = sum > 1 ? Math.max(1, total / sum) : 1;
     let along = leg.start;
     for (let i = 0; i < steps.length; i += 1) {
-      if (along > hereAlong + 8) return { along, stop: leg.stop, index: i };
+      const start = along;
       along += (lengths[i] || 0) * scale;
+      if (start <= hereAlong + 8) continue;
+      if (startsWithManeuver(steps[i])) return { along: start, stop: leg.stop, index: i };
     }
-    if (leg.end > hereAlong + 8) fallback = { along: leg.end, stop: leg.stop, index: Math.max(0, steps.length - 1) };
   }
-  if (fallback) return fallback;
-  const last = navLegs[navLegs.length - 1];
-  return last ? { along: last.end, stop: last.stop, index: 0 } : null;
+  return null;
+}
+
+function turnViewPadding() {
+  const map = document.getElementById("routeMap");
+  const sheet = document.getElementById("routeDirections");
+  const pad = { top: 72, right: 64, bottom: 110, left: 64 };
+  if (!map) return pad;
+  const mapBox = map.getBoundingClientRect();
+  if (sheet && !sheet.hidden) {
+    const box = sheet.getBoundingClientRect();
+    if (box.height > 2 && box.top < mapBox.bottom) {
+      pad.bottom = Math.round(mapBox.bottom - box.top + 36);
+    }
+  }
+  pad.bottom = Math.max(90, Math.min(pad.bottom, Math.round(mapBox.height * 0.58)));
+  return pad;
+}
+
+function metersPerPixel(zoom, lat) {
+  return 156543.03392 * Math.cos((lat * Math.PI) / 180) / (2 ** zoom);
 }
 
 function frameNextTurn() {
@@ -4382,26 +4400,34 @@ function frameNextTurn() {
     const guide = chosen && nearChosenStop(chosen, navFix[0], navFix[1], hit) ? guideLegFor(chosen) : null;
     if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
   }
-  const turn = upcomingTurn(along);
-  if (!turn) return;
-  // A turn that is still miles ahead must not pull the camera out. Stay close
-  // on the road in front of the truck, and mark the turn once it is near.
-  const lookAhead = 400;
-  const turnClose = turn.along - along <= lookAhead;
+  // A continue for miles is not a turn. Only an exit, ramp, or turn pulls
+  // the camera, and only once it is close enough to stay zoomed in.
+  const turn = nextRealManeuver(along);
+  const gap = turn ? Math.max(0, turn.along - along) : Infinity;
+  const turnClose = gap <= 500;
   const frameKey = turnClose ? turn.along : -1;
-  const closeZoom = 16.8;
-  // A new fit on every GPS fix reloads the satellite tiles. Hold the frame
-  // only after the close zoom is actually on.
-  if (routeMap.getZoom() >= closeZoom - 0.35
+  const padding = turnViewPadding();
+  const mapEl = document.getElementById("routeMap");
+  const mapHeight = mapEl ? mapEl.clientHeight : 700;
+  const visible = Math.max(180, mapHeight - padding.top - padding.bottom);
+  let zoom = 17.5;
+  if (turnClose) {
+    const needed = (gap + 90) / (visible * 0.72);
+    const fitted = Math.log2(156543.03392 * Math.cos((navFix[0] * Math.PI) / 180) / Math.max(0.4, needed));
+    zoom = Math.max(16.4, Math.min(17.6, fitted));
+  }
+  // A new camera move on every GPS fix reloads the satellite tiles.
+  // Hold only after this close zoom is actually on.
+  if (routeMap.getZoom() >= zoom - 0.25
     && turnFrameAt && turnFrameTarget != null
     && Math.abs(turnFrameTarget - frameKey) < 40
-    && metersBetween(turnFrameAt, navFix) < 70) return;
+    && metersBetween(turnFrameAt, navFix) < 35) return;
   const lineEnd = polylineMeters(navLine);
-  const gap = Math.max(0, turn.along - along);
-  const shift = turnClose ? Math.min(160, Math.max(40, gap * 0.45)) : 150;
-  const focus = pointAlong(navLine, Math.min(lineEnd, along + shift));
+  const aheadPx = visible * (turnClose ? 0.28 : 0.2);
+  const shift = Math.min(turnClose ? gap * 0.4 : 80, aheadPx * metersPerPixel(zoom, navFix[0]));
+  const focus = pointAlong(navLine, Math.min(lineEnd, along + Math.max(25, shift)));
   if (!focus) return;
-  const ahead = pointAlong(navLine, Math.min(lineEnd, along + 80));
+  const ahead = pointAlong(navLine, Math.min(lineEnd, along + 60));
   const bearing = navCompass != null
     ? navCompass
     : (ahead ? navBearing(navFix, [ahead.lat, ahead.lon]) : routeMap.getBearing());
@@ -4409,7 +4435,7 @@ function frameNextTurn() {
   turnFrameTarget = frameKey;
   if (turnMarker) turnMarker.remove();
   turnMarker = null;
-  if (turnClose) {
+  if (turnClose && turn) {
     const at = pointAlong(navLine, turn.along);
     if (at) {
       const pin = document.createElement("span");
@@ -4417,13 +4443,12 @@ function frameNextTurn() {
       turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
     }
   }
-  navZoomHold = Date.now() + 900;
-  routeMap.stop();
-  routeMap.easeTo({
+  navZoomHold = Date.now() + 500;
+  routeMap.jumpTo({
     center: [focus.lon, focus.lat],
-    zoom: closeZoom,
+    zoom,
     bearing,
-    duration: 700,
+    padding,
   });
 }
 
@@ -5392,6 +5417,10 @@ function onNavCompass(event) {
   if (now - navCompassTimer < 120) return;
   navCompassTimer = now;
   if (tripFit === "nextTurn") {
+    if (routeMap.getZoom() < 16.2) {
+      frameNextTurn();
+      return;
+    }
     let delta = Math.abs(navCompass - routeMap.getBearing()) % 360;
     if (delta > 180) delta = 360 - delta;
     if (delta < 4) return;
