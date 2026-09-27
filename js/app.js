@@ -4698,12 +4698,16 @@ function frameNextTurn() {
     if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
   }
   const lineEnd = polylineMeters(navLine);
-  // The highlighted direction is the one he is on. Keep him and a half mile
-  // past the end of that direction on screen, and zoom in as he gets closer.
+  // Stay on the next half mile while the turn is still farther than that.
+  // Fitting a maneuver that is miles away zooms out too soon. Once the turn
+  // is inside that half mile, show through half a mile past it.
   const halfMile = 804.672;
   const turnAlong = currentDirectionEnd(along);
-  const target = turnAlong == null ? along + halfMile : turnAlong;
-  const farAlong = Math.min(lineEnd, Math.max(along + 40, target + halfMile));
+  const ahead = turnAlong == null ? Infinity : turnAlong - along;
+  const farAlong = Math.min(
+    lineEnd,
+    along + (ahead > halfMile ? halfMile : Math.max(40, ahead + halfMile)),
+  );
   const far = pointAlong(navLine, farAlong);
   if (!far) return;
   const bearing = northLock
