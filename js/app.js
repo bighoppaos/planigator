@@ -3042,6 +3042,11 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeCompass" aria-label="Lock map to true north" aria-pressed="false">
+          <span class="compass-rose" aria-hidden="true"><span class="compass-n">N</span><span class="compass-e">E</span><span class="compass-s">S</span><span class="compass-w">W</span></span>
+          <svg class="compass-needle compass-fill" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
+          <svg class="compass-needle compass-line" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M12 3 17.2 19.6 12 16.1 6.8 19.6Z"/></svg>
+        </button>
         <button type="button" id="routeWhole" aria-label="Trip zoom"><span>Trip</span><span>zoom</span></button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
@@ -3645,6 +3650,8 @@ let navAim = null;
 let navTravel = null;
 let navCompass = null;
 let navCompassTimer = 0;
+let northLock = false;
+let compassAim = false;
 let navReturnTimer = 0;
 let navStopCursor = 0;
 let navStopPicked = false;
@@ -4240,6 +4247,7 @@ function syncRouteChrome() {
   }
   syncTripFitButton();
   paintStopNote();
+  paintCompassRose();
   if (navOn) freezeTyping(true);
   requestAnimationFrame(seatRails);
 }
@@ -4609,9 +4617,9 @@ function frameNextTurn() {
   const farAlong = Math.min(lineEnd, Math.max(along + 40, target + halfMile));
   const far = pointAlong(navLine, farAlong);
   if (!far) return;
-  const bearing = navCompass != null
-    ? navCompass
-    : navBearing(navFix, [far.lat, far.lon]);
+  const bearing = northLock
+    ? 0
+    : (navCompass != null ? navCompass : navBearing(navFix, [far.lat, far.lon]));
   let bearingDelta = 0;
   if (turnFrameBearing != null) {
     bearingDelta = Math.abs(bearing - turnFrameBearing) % 360;
@@ -5553,8 +5561,8 @@ function paintNavMotion(now) {
   }
   if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && routeMapReady && navShown && Date.now() >= navZoomHold) {
     const camera = { center: [navShown.lon, navShown.lat], zoom: navZoom };
-    if (navCompass != null) camera.bearing = navCompass;
-    else if (navTravel != null) camera.bearing = navTravel;
+    const bearing = followBearing();
+    if (bearing != null) camera.bearing = bearing;
     routeMap.jumpTo(camera);
   }
   navMotion = requestAnimationFrame(paintNavMotion);
@@ -5642,6 +5650,16 @@ function onNavCompass(event) {
   }
   if (heading == null || Number.isNaN(heading)) return;
   navCompass = heading;
+  if (northLock) {
+    compassAim = false;
+    return;
+  }
+  if (tripFit === "nextTurn" || tripFit === "full" || tripFit === "remaining" || (navFollowing && navFix && !navMapTouch)) {
+    compassAim = false;
+  } else if (compassAim && routeMap) {
+    compassAim = false;
+    routeMap.easeTo({ bearing: heading, duration: 350 });
+  }
   if (!navOn || !routeMap || !navFix) return;
   if (Date.now() < navZoomHold) return;
   const now = Date.now();
@@ -5653,6 +5671,56 @@ function onNavCompass(event) {
     if (delta < 12) return;
     frameNextTurn();
   }
+}
+
+function followBearing() {
+  if (northLock) return 0;
+  if (navCompass != null) return navCompass;
+  if (navTravel != null) return navTravel;
+  return null;
+}
+
+function paintCompassRose() {
+  const button = document.getElementById("routeCompass");
+  if (!button) return;
+  const raw = routeMap && typeof routeMap.getBearing === "function" ? routeMap.getBearing() : 0;
+  const bearing = ((raw % 360) + 360) % 360;
+  const shown = String(Math.round(bearing * 10) / 10);
+  if (button.dataset.bearing !== shown) {
+    button.dataset.bearing = shown;
+    button.style.setProperty("--compass", shown);
+  }
+  button.classList.toggle("on", northLock);
+  button.setAttribute("aria-pressed", northLock ? "true" : "false");
+  button.setAttribute("aria-label", northLock ? "Unlock heading-up" : "Lock map to true north");
+}
+
+function applyNorthLockCamera() {
+  if (!routeMap) return;
+  if (tripFit === "full" || tripFit === "remaining") return;
+  if (tripFit === "nextTurn" && navOn && navFix) {
+    turnFrameAt = null;
+    turnFrameTarget = null;
+    turnFrameBearing = null;
+    frameNextTurn();
+    return;
+  }
+  const bearing = northLock ? 0 : (navCompass != null ? navCompass : (navTravel != null ? navTravel : 0));
+  routeMap.stop();
+  if (navFollowing && navFix && !navMapTouch) {
+    routeMap.jumpTo({ center: [navFix[1], navFix[0]], zoom: routeMap.getZoom(), bearing });
+    return;
+  }
+  routeMap.easeTo({ bearing, duration: 350 });
+}
+
+async function toggleNorthLock() {
+  northLock = !northLock;
+  compassAim = !northLock && navCompass == null && tripFit !== "full" && tripFit !== "remaining";
+  paintCompassRose();
+  await enableNavCompass();
+  applyNorthLockCamera();
+  paintCompassRose();
 }
 
 async function enableNavCompass() {
@@ -5695,6 +5763,8 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  northLock = false;
+  compassAim = false;
   navAlongLock = null;
   navLineKey = "";
   navStopPicked = false;
@@ -5936,7 +6006,7 @@ function applyTurnZoom(map, focus) {
     metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getWest()]),
     metersBetween([bounds.getSouth(), bounds.getWest()], [bounds.getSouth(), bounds.getEast()]),
   );
-  const turnBearing = navCompass != null ? navCompass : map.getBearing();
+  const turnBearing = northLock ? 0 : (navCompass != null ? navCompass : map.getBearing());
   if (span < 30) {
     map.easeTo({
       center: [focus.lon, focus.lat],
@@ -6099,6 +6169,7 @@ function mountMap() {
     fadeDuration: 0,
   });
   routeMap = map;
+  map.on("rotate", paintCompassRose);
   map.addControl(new maplibre.AttributionControl({ compact: false }), "bottom-right");
   // Keep the rail on the stage, above the directions box. Inside the map,
   // a tall directions list can sit on top of Exit and zoom.
@@ -6168,12 +6239,13 @@ function mountMap() {
         fitCoords(navRemaining(from, Infinity), 14);
       } else if (navFollowing && tripFit !== "nextTurn") {
         const camera = { center: [navFix[1], navFix[0]], zoom: navZoom };
-        if (navCompass != null) camera.bearing = navCompass;
-        else if (navTravel != null) camera.bearing = navTravel;
+        const bearing = followBearing();
+        if (bearing != null) camera.bearing = bearing;
         map.jumpTo(camera);
       }
     } else if (pendingTurn) applyTurnZoom(map, pendingTurn);
     else map.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 8, animate: false });
+    paintCompassRose();
   });
 }
 
@@ -7373,6 +7445,7 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
+  $("#routeCompass")?.addEventListener("click", () => { void toggleNorthLock(); });
   $("#routeBasemap")?.addEventListener("click", () => selectBasemap(basemap === "satellite" ? "vector" : "satellite"));
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
@@ -7387,8 +7460,8 @@ function bind() {
     if (routeMap && navFix) {
       routeMap.stop();
       const camera = { center: [navFix[1], navFix[0]], zoom: navZoom };
-      if (navCompass != null) camera.bearing = navCompass;
-      else if (navTravel != null) camera.bearing = navTravel;
+      const bearing = followBearing();
+      if (bearing != null) camera.bearing = bearing;
       routeMap.jumpTo(camera);
     }
     if (navFix) onNavFix(navFix[0], navFix[1]);

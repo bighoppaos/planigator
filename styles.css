@@ -1697,10 +1697,52 @@ body.route-full {
 #routeStop,
 #routeFollow.on,
 #routeWhole.on,
-#routeBasemap.on {
+#routeBasemap.on,
+#routeCompass.on {
   border-color: #3dcaa0;
   background: rgb(0 0 0 / 0.35);
 }
+#routeCompass {
+  --compass: 0;
+  padding: 0;
+}
+#routeCompass.on {
+  background: rgb(61 202 160 / 0.32);
+}
+.compass-rose {
+  position: absolute;
+  inset: 0;
+  transform: rotate(calc(var(--compass) * -1deg));
+  pointer-events: none;
+}
+.compass-rose span {
+  position: absolute;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  transform: translate(-50%, -50%) rotate(calc(var(--compass) * 1deg));
+}
+.compass-rose .compass-n { left: 50%; top: 17%; color: #3dcaa0; }
+.compass-rose .compass-e { left: 83%; top: 50%; }
+.compass-rose .compass-s { left: 50%; top: 83%; }
+.compass-rose .compass-w { left: 17%; top: 50%; }
+.route-stage.is-full .compass-rose span { font-size: 11px; }
+#routeCompass .compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.route-stage.is-full #routeCompass .compass-needle { width: 16px; height: 16px; }
+#routeCompass.on .compass-needle { width: 16px; height: 16px; }
+.route-stage.is-full #routeCompass.on .compass-needle { width: 18px; height: 18px; }
+#routeCompass .compass-line { display: none; }
+#routeCompass.on .compass-fill { display: none; }
+#routeCompass.on .compass-line { display: block; }
 .route-rail-left {
   left: 8px;
   right: auto;
