@@ -4384,7 +4384,7 @@ function placeRouteStage() {
 }
 
 let navAlt = null;
-let navAltPast = null;
+let navAltFeet = null;
 let navAltTrend = "";
 let windMph = null;
 let windAt = 0;
@@ -4394,21 +4394,15 @@ let windToken = 0;
 function noteAltitude(alt) {
   if (!Number.isFinite(alt)) return;
   navAlt = alt;
-  const now = Date.now();
-  if (!navAltPast) {
-    navAltPast = { alt, at: now };
+  const feet = Math.round(alt * 3.28084);
+  if (navAltFeet == null) {
+    navAltFeet = feet;
     paintElevWind();
     return;
   }
-  if (now - navAltPast.at < 25000) {
-    paintElevWind();
-    return;
-  }
-  const feet = (alt - navAltPast.alt) * 3.28084;
-  if (feet >= 20) navAltTrend = "Up";
-  else if (feet <= -20) navAltTrend = "Down";
-  else navAltTrend = "Flat";
-  navAltPast = { alt, at: now };
+  if (feet < navAltFeet) navAltTrend = "Down";
+  else if (feet > navAltFeet) navAltTrend = "Up";
+  navAltFeet = feet;
   paintElevWind();
 }
 
