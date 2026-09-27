@@ -3068,7 +3068,7 @@ function planBox() {
     <div id="routeDirectionsHome"></div>
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Cat scale · 1 credit</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Love's · 1 credit</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next Walmart · 1 credit</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatPlanShort(plan.lastDeadline, zoneForStop((state.stops || []).find((item) => item.id === plan.lastStopId)))}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
@@ -4219,16 +4219,24 @@ function syncRouteChrome() {
   if (full) full.hidden = routeFull;
   const exit = document.getElementById("routeExit");
   if (exit) exit.hidden = !routeFull;
-  const placeBlocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
-  for (const id of ["nextTruck", "nextCat", "nextLoves", "nextWalmart"]) {
+  const navBlocked = !navOn || state.estimating;
+  const creditBlocked = navBlocked || (!state.unlimited && state.credits === 0);
+  for (const id of ["nextCat", "nextLoves", "nextWalmart"]) {
     const button = document.getElementById(id);
-    if (button) button.disabled = placeBlocked;
+    if (button) button.disabled = navBlocked;
   }
-  for (const id of ["routeTruck", "routeLoves", "routeWalmart", "routeCat"]) {
+  const nextTruck = document.getElementById("nextTruck");
+  if (nextTruck) nextTruck.disabled = creditBlocked;
+  for (const id of ["routeLoves", "routeWalmart", "routeCat"]) {
     const button = document.getElementById(id);
     if (!button) continue;
     button.hidden = !(routeFull && navOn);
-    button.disabled = placeBlocked;
+    button.disabled = navBlocked;
+  }
+  const routeTruck = document.getElementById("routeTruck");
+  if (routeTruck) {
+    routeTruck.hidden = !(routeFull && navOn);
+    routeTruck.disabled = creditBlocked;
   }
   const follow = document.getElementById("routeFollow");
   if (follow) {
@@ -5589,6 +5597,124 @@ function placeSearchButtons() {
     .filter(Boolean);
 }
 
+// Love's, Walmart, and Cat scale stay on this phone. Truck stop still asks HERE.
+const PLACE_OFF_METERS = 8047;
+let placeListsPromise = null;
+let placeGrids = null;
+
+function loadPlaceLists() {
+  if (placeGrids) return Promise.resolve(placeGrids);
+  if (!placeListsPromise) {
+    placeListsPromise = fetch("./data/places.json?v=1")
+      .then((res) => {
+        if (!res.ok) throw new Error("The place list did not load.");
+        return res.json();
+      })
+      .then((data) => {
+        const grids = {};
+        for (const place of ["loves", "walmart", "cat"]) {
+          const grid = new Map();
+          const rows = Array.isArray(data?.[place]) ? data[place] : [];
+          for (const row of rows) {
+            const lat = Number(row?.[0]);
+            const lon = Number(row?.[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+            const key = `${Math.floor(lat)}:${Math.floor(lon)}`;
+            const list = grid.get(key);
+            if (list) list.push(row);
+            else grid.set(key, [row]);
+          }
+          grids[place] = grid;
+        }
+        placeGrids = grids;
+        return grids;
+      })
+      .catch((error) => {
+        placeListsPromise = null;
+        throw error;
+      });
+  }
+  return placeListsPromise;
+}
+
+function nextLocalPlace(points, place) {
+  return loadPlaceLists().then((grids) => {
+    const grid = grids[place];
+    if (!grid || !grid.size) throw new Error("The place list did not load.");
+    const seenCells = new Set();
+    const candidates = [];
+    for (const pair of points) {
+      const lat = Number(pair?.[0]);
+      const lon = Number(pair?.[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const latPad = 5 / 69;
+      const lonPad = 5 / (69 * Math.max(0.2, Math.cos(lat * Math.PI / 180)));
+      const lat0 = Math.floor(lat - latPad);
+      const lat1 = Math.floor(lat + latPad);
+      const lon0 = Math.floor(lon - lonPad);
+      const lon1 = Math.floor(lon + lonPad);
+      for (let a = lat0; a <= lat1; a += 1) {
+        for (let b = lon0; b <= lon1; b += 1) {
+          const key = `${a}:${b}`;
+          if (seenCells.has(key)) continue;
+          seenCells.add(key);
+          const bucket = grid.get(key);
+          if (bucket) candidates.push(...bucket);
+        }
+      }
+    }
+    let next = null;
+    for (const row of candidates) {
+      const lat = Number(row[0]);
+      const lon = Number(row[1]);
+      const name = String(row[2] || "").trim();
+      if (!name) continue;
+      // A one-degree cell is wider than the corridor. Skip a store that is
+      // nowhere near the line before measuring the real offset.
+      const latSlack = 0.25;
+      let close = false;
+      for (let i = 0; i < points.length; i += 1) {
+        const dlat = lat - points[i][0];
+        if (Math.abs(dlat) > latSlack) continue;
+        const dlon = (lon - points[i][1]) * Math.max(0.2, Math.cos(lat * Math.PI / 180));
+        if (dlat * dlat + dlon * dlon <= latSlack * latSlack) {
+          close = true;
+          break;
+        }
+      }
+      if (!close) continue;
+      const spot = nearestOnPath(lat, lon, points);
+      if (spot.dist > PLACE_OFF_METERS) continue;
+      if (spot.along < 30 && spot.dist > 200) continue;
+      const milesAhead = spot.along / 1609.344;
+      if (next && milesAhead >= next.milesAhead) continue;
+      const city = String(row[3] || "").trim();
+      const state = String(row[4] || "").trim();
+      const where = [city, state].filter(Boolean).join(", ");
+      const stored = String(row[5] || "").trim();
+      next = {
+        name,
+        city,
+        state,
+        label: stored || [name, where].filter(Boolean).join(", "),
+        lat,
+        lon,
+        milesAhead: Math.round(milesAhead * 10) / 10,
+        milesOff: Math.round((spot.dist / 1609.344) * 10) / 10,
+      };
+    }
+    if (!next) {
+      const miss = {
+        loves: "No Love's within 5 miles of the route line.",
+        walmart: "No Walmart within 5 miles of the route line.",
+        cat: "No Cat Scale within 5 miles of the route line.",
+      };
+      throw new Error(miss[place] || "No place within 5 miles of the route line.");
+    }
+    return next;
+  });
+}
+
 async function findNextTruckStop(options = {}) {
   if (!navOn || state.estimating) return;
   const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
@@ -5611,7 +5737,7 @@ async function findNextTruckStop(options = {}) {
     }
     const points = routeAheadPoints();
     if (points.length < 2) throw new Error("Calculate the trip first.");
-    const data = await nextTruckStop(points, place);
+    const data = place === "truck" ? await nextTruckStop(points, place) : await nextLocalPlace(points, place);
     if (data.credits != null) state.credits = data.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
@@ -5639,8 +5765,7 @@ async function findNextTruckStop(options = {}) {
     syncTruckAdd();
     if (note) note.textContent = error.message || `No ${word} within 5 miles of the route line.`;
   } finally {
-    const blocked = !navOn || state.estimating || (!state.unlimited && state.credits === 0);
-    for (const button of buttons) button.disabled = blocked;
+    syncRouteChrome();
   }
 }
 
