@@ -2847,7 +2847,7 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeWhole">Trip</button>
+        <button type="button" id="routeWhole" aria-label="Zoom trip"><span>Zoom</span><span>trip</span></button>
         <button type="button" id="routeRecalc" aria-label="Recalculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}><span>Recalc</span><span>ulate</span></button>
         <button type="button" id="routeFollow" hidden aria-label="Follow me"><span>Follow</span><span>me</span></button>
       </aside>
@@ -4321,16 +4321,18 @@ function paintStopButton() {
 let navStopTapAt = 0;
 let tripFit = "off";
 
-function tripFitWord() {
-  if (tripFit === "remaining") return "Left";
-  if (tripFit === "nextTurn") return "Turn";
-  return "Trip";
+function tripFitLines() {
+  if (tripFit === "remaining") return ["Zoom", "left"];
+  if (tripFit === "nextTurn") return ["Zoom", "turn"];
+  return ["Zoom", "trip"];
 }
 
 function syncTripFitButton() {
   const button = document.getElementById("routeWhole");
   if (!button) return;
-  button.textContent = tripFitWord();
+  const [top, bottom] = tripFitLines();
+  button.innerHTML = `<span>${top}</span><span>${bottom}</span>`;
+  button.setAttribute("aria-label", `${top} ${bottom}`);
   button.classList.toggle("on", tripFit !== "off");
 }
 
@@ -4368,23 +4370,6 @@ function upcomingTurn(hereAlong) {
   return last ? { along: last.end, stop: last.stop, index: 0 } : null;
 }
 
-function turnListPad(base) {
-  const map = document.getElementById("routeMap");
-  if (!map) return base;
-  const mapBox = map.getBoundingClientRect();
-  let top = mapBox.bottom;
-  for (const id of ["routeDirections", "routeStopMiles", "routePlaceRow"]) {
-    const el = document.getElementById(id);
-    if (!el || el.hidden) continue;
-    const box = el.getBoundingClientRect();
-    if (box.height < 2 || box.top >= mapBox.bottom) continue;
-    if (box.top < top) top = box.top;
-  }
-  const cover = mapBox.bottom - top;
-  if (cover <= 0) return base;
-  return Math.max(base, Math.round(cover + 48));
-}
-
 function frameNextTurn() {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre) return;
@@ -4399,44 +4384,45 @@ function frameNextTurn() {
   }
   const turn = upcomingTurn(along);
   if (!turn) return;
-  // Fitting all the way to a turn that is still miles ahead zooms the map out
-  // before the truck gets there. Stay on the next stretch of road, and include
-  // the turn itself only once it is close.
+  // A turn that is still miles ahead must not pull the camera out. Stay close
+  // on the road in front of the truck, and mark the turn once it is near.
   const lookAhead = 400;
-  const pastTurn = 150;
-  const turnClose = turn.along - hit.along <= lookAhead;
+  const turnClose = turn.along - along <= lookAhead;
   const frameKey = turnClose ? turn.along : -1;
-  // A new fit on every GPS fix reloads the satellite tiles, so the same image
-  // draws again across the screen. Hold this frame until the truck has moved.
-  if (turnFrameAt && turnFrameTarget != null && routeMap.getZoom() >= 14
+  const closeZoom = 16.8;
+  // A new fit on every GPS fix reloads the satellite tiles. Hold the frame
+  // only after the close zoom is actually on.
+  if (routeMap.getZoom() >= closeZoom - 0.35
+    && turnFrameAt && turnFrameTarget != null
     && Math.abs(turnFrameTarget - frameKey) < 40
-    && metersBetween(turnFrameAt, navFix) < 120) return;
-  const end = Math.min(polylineMeters(navLine), turnClose ? turn.along + pastTurn : hit.along + lookAhead);
-  const coords = navRemaining(Math.min(hit.along, end), end);
-  coords.push([navFix[1], navFix[0]]);
-  const at = turnClose ? pointAlong(navLine, turn.along) : null;
-  if (at) coords.push([at.lon, at.lat]);
-  if (coords.length < 2) return;
+    && metersBetween(turnFrameAt, navFix) < 70) return;
+  const lineEnd = polylineMeters(navLine);
+  const gap = Math.max(0, turn.along - along);
+  const shift = turnClose ? Math.min(160, Math.max(40, gap * 0.45)) : 150;
+  const focus = pointAlong(navLine, Math.min(lineEnd, along + shift));
+  if (!focus) return;
+  const ahead = pointAlong(navLine, Math.min(lineEnd, along + 80));
+  const bearing = navCompass != null
+    ? navCompass
+    : (ahead ? navBearing(navFix, [ahead.lat, ahead.lon]) : routeMap.getBearing());
   turnFrameAt = [navFix[0], navFix[1]];
   turnFrameTarget = frameKey;
   if (turnMarker) turnMarker.remove();
-  if (at) {
-    const pin = document.createElement("span");
-    pin.className = "turn-pin";
-    turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
+  turnMarker = null;
+  if (turnClose) {
+    const at = pointAlong(navLine, turn.along);
+    if (at) {
+      const pin = document.createElement("span");
+      pin.className = "turn-pin";
+      turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
+    }
   }
-  const bounds = coords.reduce(
-    (box, coord) => box.extend(coord),
-    new maplibre.LngLatBounds(coords[0], coords[0]),
-  );
-  const pad = routeFull ? 88 : 56;
-  const bottom = turnListPad(pad);
   navZoomHold = Date.now() + 900;
   routeMap.stop();
-  routeMap.fitBounds(bounds, {
-    padding: { top: pad, right: pad + 36, bottom, left: pad },
-    maxZoom: 17,
-    bearing: navCompass != null ? navCompass : routeMap.getBearing(),
+  routeMap.easeTo({
+    center: [focus.lon, focus.lat],
+    zoom: closeZoom,
+    bearing,
     duration: 700,
   });
 }
