@@ -4479,6 +4479,7 @@ let routeCoverSize = "";
 
 function nextRealManeuver(hereAlong) {
   for (const leg of navLegs) {
+    if (leg.stop?.done || leg.stop?.skipRoute) continue;
     const steps = Array.isArray(leg.stop?.directions) ? leg.stop.directions : [];
     const lengths = steps.map(stepLengthMeters);
     const sum = lengths.reduce((total, length) => total + length, 0);
@@ -4624,7 +4625,7 @@ function liveDirection() {
     return stop ? { stopId: stop.id, index: 0 } : null;
   }
   const hit = navNearest(navFix[0], navFix[1], navLine);
-  const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+  const leg = activeNavLeg(hit);
   const found = leg ? navStep(leg, Math.max(0, hit.along - leg.start)) : null;
   if (!found || !leg?.stop?.id) return null;
   return { stopId: leg.stop.id, index: found.index };
@@ -4867,6 +4868,18 @@ function currentFix() {
       { enableHighAccuracy: true, maximumAge: 4000, timeout: 15000 },
     );
   });
+}
+
+function activeNavLeg(hit) {
+  if (!hit || !navLegs.length) return null;
+  let index = navLegs.findIndex((item) => hit.along >= item.start && hit.along <= item.end);
+  if (index < 0) index = navLegs.length - 1;
+  for (let i = index; i < navLegs.length; i += 1) {
+    const stop = navLegs[i].stop;
+    if (!stop || stop.done || stop.skipRoute) continue;
+    return navLegs[i];
+  }
+  return null;
 }
 
 function legUnderFix(lat, lon) {
@@ -5487,6 +5500,7 @@ function onNavFix(lat, lon) {
   navFix = [lat, lon];
   refreshPlace(lat, lon);
   rebuildNavLegs();
+  noteArrivedStops(lat, lon);
   if (navLine.length < 2) {
     paintDrive(null);
     setStopChip(-1, "");
@@ -5495,26 +5509,33 @@ function onNavFix(lat, lon) {
     const hit = navNearest(lat, lon, navLine);
     paintDrive(hit.along);
     const off = hit.dist > 250;
-    const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
-    const alongInLeg = leg ? hit.along - leg.start : 0;
-    const found = !off && leg ? navStep(leg, alongInLeg) : null;
+    const raw = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+    const leg = activeNavLeg(hit);
+    const gap = leg ? Math.max(0, leg.start - hit.along) : 0;
+    const alongInLeg = leg ? Math.max(0, hit.along - leg.start) : 0;
+    const found = leg && (!off || raw?.stop?.done) ? navStep(leg, alongInLeg) : null;
     const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
     const towardStop = leg?.stop;
     const toward = towardStop ? navStopTitle(towardStop) : "the stop";
     const until = leg ? leg.end : Infinity;
-    if (towardStop?.skipRoute) {
+    if (!leg) {
+      setStopChip(-1, "");
+      sayNav("You're at the last stop.", "", "");
+      paintNavLine(hit.along, hit.along);
+      clearStopNote(true);
+    } else if (towardStop?.skipRoute) {
       setStopChip(-1, "");
       sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
       paintNavLine(hit.along, Infinity);
-    } else if (off) {
+    } else if (off && !raw?.stop?.done) {
       setStopChip(-1, "");
       sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(0, until);
       clearStopNote(true);
     } else {
-      const leftInStep = found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0;
+      const leftInStep = (found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0) + gap;
       const title = String(step?.text || "").trim();
       const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
       setStopChip(leftOnLeg, toward);
@@ -5529,7 +5550,6 @@ function onNavFix(lat, lon) {
       speakNavProgress(leg, found, hit.along);
     }
   }
-  noteArrivedStops(lat, lon);
   if (tripFit === "nextTurn") {
     if (Date.now() < navZoomHold) return;
     frameNextTurn();
@@ -5722,7 +5742,10 @@ function focusDirectionWindow(stopId, index) {
     scrolling.querySelectorAll("li.dir-far").forEach((li) => li.classList.remove("dir-far"));
     return;
   }
-  const steps = [...scrolling.querySelectorAll("[data-dir-stop]")];
+  const steps = [...scrolling.querySelectorAll("[data-dir-stop]")].filter((button) => {
+    const stop = state.stops.find((item) => item.id === button.getAttribute("data-dir-stop"));
+    return stop && !stop.done && !stop.skipRoute;
+  });
   const current = steps.findIndex((button) => (
     button.getAttribute("data-dir-stop") === stopId
     && Number(button.getAttribute("data-dir-index")) === index
@@ -5735,6 +5758,11 @@ function focusDirectionWindow(stopId, index) {
       return;
     }
     if (!button) {
+      li.classList.add("dir-far");
+      return;
+    }
+    const rowStop = state.stops.find((item) => item.id === button.getAttribute("data-dir-stop"));
+    if (rowStop?.done || rowStop?.skipRoute) {
       li.classList.add("dir-far");
       return;
     }
@@ -5918,12 +5946,13 @@ function paintLiveDirections() {
   rebuildNavLegs();
   if (navLine.length < 2 || !navLegs.length) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
-  const leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
+  const leg = activeNavLeg(hit);
   if (!leg?.stop?.id || leg.stop.skipRoute) return;
+  const gap = Math.max(0, leg.start - hit.along);
   const alongInLeg = Math.max(0, hit.along - leg.start);
   const found = navStep(leg, alongInLeg);
   if (!found?.step) return;
-  const leftInStep = metersLeftInStep(leg, alongInLeg, found.index);
+  const leftInStep = metersLeftInStep(leg, alongInLeg, found.index) + gap;
   markDirection(leg.stop.id, found.index);
   paintDirectionMiles(leg.stop.id, found.index, leftInStep);
   const leftOnLeg = Math.max(0, leg.end - hit.along);
