@@ -1725,6 +1725,7 @@ body.route-full {
 }
 #routeCompass {
   --compass: 0;
+  --heading: 0;
   padding: 0;
 }
 #routeCompass.on {
@@ -1755,7 +1756,7 @@ body.route-full {
   top: 50%;
   width: 14px;
   height: 14px;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) rotate(calc((var(--heading) - var(--compass)) * 1deg));
   pointer-events: none;
 }
 .route-stage.is-full #routeCompass .compass-needle { width: 16px; height: 16px; }

@@ -5729,6 +5729,7 @@ function onNavFix(lat, lon, alt) {
   if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
   if (travel != null) navTravel = travel;
   navFix = [lat, lon];
+  paintCompassRose();
   refreshPlace(lat, lon);
   rebuildNavLegs();
   noteArrivedStops(lat, lon);
@@ -5831,15 +5832,37 @@ function followBearing() {
   return null;
 }
 
+function routeHeading() {
+  const here = navFix;
+  if (here && navLine.length >= 2) {
+    const hit = navNearest(here[0], here[1], navLine);
+    if (hit.dist <= 250) {
+      const ahead = pointAlong(navLine, Math.min(polylineMeters(navLine), hit.along + 150));
+      if (ahead && metersBetween(here, [ahead.lat, ahead.lon]) > 20) {
+        const bearing = navBearing(here, [ahead.lat, ahead.lon]);
+        if (Number.isFinite(bearing)) return bearing;
+      }
+    }
+  }
+  if (navTravel != null) return navTravel;
+  if (navCompass != null) return navCompass;
+  return null;
+}
+
 function paintCompassRose() {
   const button = document.getElementById("routeCompass");
   if (!button) return;
   const raw = routeMap && typeof routeMap.getBearing === "function" ? routeMap.getBearing() : 0;
   const bearing = ((raw % 360) + 360) % 360;
   const shown = String(Math.round(bearing * 10) / 10);
-  if (button.dataset.bearing !== shown) {
+  const headingRaw = routeHeading();
+  const heading = headingRaw == null ? bearing : ((headingRaw % 360) + 360) % 360;
+  const headShown = String(Math.round(heading * 10) / 10);
+  if (button.dataset.bearing !== shown || button.dataset.heading !== headShown) {
     button.dataset.bearing = shown;
+    button.dataset.heading = headShown;
     button.style.setProperty("--compass", shown);
+    button.style.setProperty("--heading", headShown);
   }
   button.classList.toggle("on", northLock);
   button.setAttribute("aria-pressed", northLock ? "true" : "false");
