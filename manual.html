@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual — Planigator</title>
+  <meta name="description" content="How to plan and navigate a truck trip on Planigator, and what each button does.">
+  <link rel="canonical" href="https://planigator.help/manual.html">
+  <script>
+    if (location.hostname === "www.planigator.help") {
+      location.replace("https://planigator.help" + location.pathname + location.search + location.hash);
+    }
+  </script>
+  <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .manual h2 { scroll-margin-top: 16px; }
+    .toc { margin: 0 0 8px; padding-left: 1.2rem; }
+    .toc a { font-weight: 700; }
+    .samples { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin: 10px 0; }
+    .samples .set-box { width: auto; }
+    .caption { margin: 4px 0 14px; color: var(--muted); font-size: 15px; }
+    .book-map {
+      position: relative;
+      height: 460px;
+      margin: 12px 0 4px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: linear-gradient(165deg, #1c4634 0%, #0e2433 46%, #16324a 100%);
+    }
+    .book-map.short { height: 300px; }
+    .book-road {
+      position: absolute;
+      left: -8%;
+      right: 8%;
+      top: 48%;
+      height: 22px;
+      background: #d5dbe2;
+      transform: rotate(-6deg);
+      box-shadow: 0 0 0 3px #fff;
+    }
+    .book-you {
+      position: absolute;
+      left: 18%;
+      top: 44%;
+      width: 18px;
+      height: 18px;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      background: #2f6fed;
+      box-shadow: 0 0 0 6px rgb(47 111 237 / 0.28);
+    }
+    .book-pin {
+      position: absolute;
+      right: 22%;
+      top: 28%;
+      width: 18px;
+      height: 18px;
+      border-radius: 50% 50% 50% 0;
+      background: #e23b3b;
+      transform: rotate(-45deg);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+    }
+    .book-pin::after {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 5px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fff;
+    }
+    .book-rail {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      width: 48px;
+    }
+    .book-rail.left { left: 8px; right: auto; }
+    .book-rail button {
+      width: 48px;
+      height: 48px;
+      margin: 0;
+      padding: 4px;
+      border: 2px solid transparent;
+      border-radius: 50%;
+      background: rgb(0 0 0 / 0.35);
+      color: #fff;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.05;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .book-rail button.on { border-color: #3dcaa0; }
+    .book-compass { position: relative; padding: 0; --compass: 0; --heading: 90; }
+    .book-compass.on { background: rgb(61 202 160 / 0.32); }
+    .book-rose { position: absolute; inset: 0; transform: rotate(calc(var(--compass) * -1deg)); pointer-events: none; }
+    .book-rose span {
+      position: absolute;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      transform: translate(-50%, -50%) rotate(calc(var(--compass) * 1deg));
+    }
+    .book-rose .n { left: 50%; top: 17%; color: #3dcaa0; }
+    .book-rose .e { left: 83%; top: 50%; }
+    .book-rose .s { left: 50%; top: 83%; }
+    .book-rose .w { left: 17%; top: 50%; }
+    .book-needle {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      transform: translate(-50%, -50%) rotate(calc((var(--heading) - var(--compass)) * 1deg));
+      pointer-events: none;
+    }
+    .book-compass.on .book-fill { display: none; }
+    .book-compass:not(.on) .book-line { display: none; }
+    .done-sample { max-width: 280px; min-height: 150px; background: #6f8f62; color: #14201c; }
+    .done-sample p { margin: 0; font-weight: 700; }
+    .done-sample .addr { margin-top: 8px; font-weight: 600; }
+    table.credits { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 16px; }
+    table.credits th, table.credits td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+    table.credits th { font-size: 14px; }
+    @media (max-width: 520px) {
+      .book-map.tall { height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="./">Planigator</a>
+    <nav>
+      <a href="./">Plan</a>
+      <a href="./manual.html" aria-current="page">Manual</a>
+      <a href="./support.html">Support</a>
+      <a href="./privacy.html">Privacy</a>
+      <a href="./terms.html">Terms</a>
+      <a href="./releases.html">Release notes</a>
+    </nav>
+  </header>
+  <main class="manual">
+    <h1>Manual</h1>
+    <p>This page shows the buttons on <a href="./">the planner</a> and what each one does. The pictures are the same buttons, drawn here so you can match them. They are not a live map, and they are not a saved trip.</p>
+    <p>Planigator plans a truck trip in the browser, then navigates that route on the same page. The clocks are a planning aid. They are not legal advice and they are not a substitute for your ELD.</p>
+    <ul class="toc">
+      <li><a href="#plan">Plan a trip</a></li>
+      <li><a href="#credits">Credits</a></li>
+      <li><a href="#stops">Stops</a></li>
+      <li><a href="#times">Times, delays, and a finished stop</a></li>
+      <li><a href="#map">Map buttons</a></li>
+      <li><a href="#navigate">Navigate</a></li>
+      <li><a href="#places">Love's, Walmart, truck stops, Cat scales</a></li>
+      <li><a href="#share">Share, dark mode, and home screen</a></li>
+    </ul>
+
+    <div class="card" id="plan">
+      <h2>Plan a trip</h2>
+      <p>The planner is six steps, in order.</p>
+      <h3>Step 1. Sign in for credits</h3>
+      <p>Sign in with Google. A new account gets 40 credits. Trips stay in this browser until you sign in. After you sign in, saved trips stay with that account.</p>
+
+      <h3>Step 2. Choose where the trip starts</h3>
+      <div class="samples" aria-hidden="true">
+        <span class="set-box on">Start from my location</span>
+        <span class="set-box">Start from an address</span>
+      </div>
+      <p class="caption">Green means that choice is on.</p>
+      <p>Start from my location uses the phone or computer location. The browser asks first. That lookup is free. Start from an address is a normal stop: you type it, then look it up, and that lookup is 1 credit.</p>
+
+      <h3>Step 3. Set speed, hours, and when you leave</h3>
+      <div class="samples" aria-hidden="true">
+        <span class="set-box on"><span class="set-name">Governed speed</span><strong class="set-value">65</strong></span>
+        <span class="set-box">Leave now</span>
+        <span class="set-box"><span class="set-name">Leave at</span><strong class="set-value">6:00 AM</strong></span>
+        <span class="set-box">Start anytime</span>
+        <span class="set-box"><span class="set-name">Day start</span><strong class="set-value">6:00 AM</strong></span>
+        <span class="set-box">End anytime</span>
+        <span class="set-box"><span class="set-name">Day end</span><strong class="set-value">8:00 PM</strong></span>
+        <span class="set-box">Military time</span>
+        <span class="set-box">Kilometers</span>
+        <span class="set-box set-fill"><span class="set-name">Hours I’ll drive out of the 11</span><strong class="set-value">11</strong></span>
+        <span class="set-box set-fill"><span class="set-name">Hours into driving before 30-minute break</span><strong class="set-value">8</strong></span>
+        <span class="flag-box">Update times</span>
+      </div>
+      <ul>
+        <li>Governed speed starts on at 65. Tap the number to pick 55 through 75. Tap Governed speed to turn the cap off.</li>
+        <li>Leave now uses the current time. Leave at is the clock you pick. The numbers you type stay the numbers you typed.</li>
+        <li>Day start is 6:00 AM and Day end is 8:00 PM until you change them. Driving stops at the day end. Start anytime and End anytime turn those clocks off.</li>
+        <li>Military time shows 24-hour clocks, such as 18:00 instead of 6:00 PM. Kilometers shows distance in kilometers.</li>
+        <li>Hours I’ll drive out of the 11 starts at 11. You can set it from 1 to 11. Hours into driving before the 30-minute break starts at 8.</li>
+        <li>Update times appears after a plan exists. It moves later clocks from where you are now. It does not use a credit, and it does not ask HERE<sup>©</sup> for a new route. See <a href="#times">Times</a>.</li>
+      </ul>
+
+      <h3>Step 4. Add each stop</h3>
+      <p>Each stop is a card. See <a href="#stops">Stops</a> for every button on the card.</p>
+
+      <h3>Step 5. Calculate the truck route</h3>
+      <div class="samples" aria-hidden="true">
+        <span class="flag-box">Fast mode</span>
+        <span class="flag-box on">Short mode</span>
+        <span class="flag-box on">Calculate · 1 credit</span>
+        <span class="flag-box on">Recalculate from Stop 1 · 1 credit</span>
+        <span class="flag-box">Share trip link</span>
+      </div>
+      <p>Fast mode picks the least time. Short mode picks the least distance. The green one is the one that will be used. Fast mode is the start.</p>
+      <p>Calculate asks HERE<sup>©</sup> for a truck route: a 53-ft trailer, 80,000 lb, 13 ft 6 in high. Truck only. Not car, bike, or walk. Each leg is 1 credit. A leg is the drive from one stop to the next. The start is not a leg.</p>
+      <p>After a route exists, a new stop added at the end calculates only from the last stop that already has miles. The button then says Recalculate from that stop, and only the new leg uses a credit. A stop inserted in the middle recalculates the trip, and each leg that has to be routed uses a credit. Stops you have already reached are skipped.</p>
+      <p>Share trip link appears after Calculate. It puts the plan in the address bar so you can send it.</p>
+
+      <h3>Step 6. Read the plan and navigate</h3>
+      <p>The map, the leave-by and arrive clocks, the miles, the 30-minute breaks, and the 10-hour rests show up here. Start navigation is under the directions. See <a href="#map">Map buttons</a> and <a href="#navigate">Navigate</a>.</p>
+    </div>
+
+    <div class="card" id="credits">
+      <h2>Credits</h2>
+      <p>This table is a whole trip when you start from your location and look up every stop address. Picking a suggestion after the lookup is free. The start itself is not a lookup.</p>
+      <table class="credits">
+        <thead>
+          <tr><th>Stops</th><th>Credits</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>2</td></tr>
+          <tr><td>2</td><td>4</td></tr>
+          <tr><td>3</td><td>6</td></tr>
+          <tr><td>4</td><td>8</td></tr>
+          <tr><td>5</td><td>10</td></tr>
+          <tr><td>6</td><td>12</td></tr>
+          <tr><td>7</td><td>14</td></tr>
+          <tr><td>8</td><td>16</td></tr>
+          <tr><td>9</td><td>18</td></tr>
+          <tr><td>10</td><td>20</td></tr>
+        </tbody>
+      </table>
+      <p>One stop is 2 credits: 1 to look up the address, and 1 to calculate the leg. Ten stops are 20.</p>
+      <ul>
+        <li>Looking up a start address adds 1 credit. A one-stop trip is then 3.</li>
+        <li>Use this spot does not use a lookup credit. You still pay 1 credit when you Calculate that leg.</li>
+        <li>Search on the map is 1 credit and takes the place of Look up this address. Calculate is still 1 credit for the leg.</li>
+        <li>A lookup that finds nothing is refunded.</li>
+        <li>Navigation, the compass, zoom, Update times, elevation, and wind do not use credits.</li>
+        <li>Finding the next Love's, Walmart, truck stop, or Cat scale is 1 credit. Adding it onto the route is 2 more: one leg to that place, and one leg from there to the stop you were already driving toward.</li>
+      </ul>
+      <p>Google sign-in gives 40 credits. The first time a debit or credit card is saved, that account gets 40 more, once. A prepaid card does not get that extra 40. Removing the card and adding another one does not give another 40. The saved card is not charged when the free credits run out. Extra packs are 124 credits for $1.49, and that button shows only when a card is already on file.</p>
+    </div>
+
+    <div class="card" id="stops">
+      <h2>Stops</h2>
+      <div class="samples" aria-hidden="true">
+        <span class="flag-box">Paste</span>
+        <span class="flag-box">search/choose from map</span>
+        <span class="flag-box">Look up this address · 1 credit</span>
+        <span class="flag-box on">Anytime</span>
+        <span class="flag-box">Window</span>
+        <span class="flag-box">Add a stop after Stop 1</span>
+      </div>
+      <ul>
+        <li>The stop name is at most 8 characters.</li>
+        <li>Paste fills the address. If the pasted text has times, those can fill too. You still look up the address. Lookup is 1 credit. Tap one of the suggestions. Choosing the suggestion does not cost another credit.</li>
+        <li>search/choose from map opens a map. Search · 1 credit finds places and drops red pins. Or long-press the map and then press "Use this spot". Use this spot does not use a credit.</li>
+        <li>Anytime means no appointment clock. Window shows Opens and Closes. Without Window, the clock is Be there by.</li>
+        <li>The up and down arrows move the stop. The minus removes it. Tap the minus again when it says Remove.</li>
+        <li>Add a stop after this one sits under the card, so you can still add a stop after one you have already reached.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="times">
+      <h2>Times, delays, and a finished stop</h2>
+      <p>After Calculate, the plan lists leave-by, arrive, driving time, miles, each 30-minute break, and each rest. A 10-hour rest is labeled <strong>10-hour reset/Off-duty</strong>.</p>
+      <p>On a driving line you can add Possible delay time, in minutes. The clocks move. That does not use a credit and does not ask HERE<sup>©</sup> for a new road.</p>
+      <p>Update times uses your location on the saved route. It shortens the current leg to what is left and moves the later clocks. The roads and the miles on later stops stay the saved HERE<sup>©</sup> legs. The clocks you typed, and Leave at, stay as you typed them. If you are more than 2 miles off the saved line, it tells you to recalculate the stop you are driving toward. If you are already at the last stop, it says so and does not move the plan.</p>
+      <p>When you reach a stop, that card locks. A green check with a smile covers it. The word Done is not on the card. Recalculate skips that stop. You can still add a stop after it.</p>
+      <article class="stop-card is-done done-sample" aria-hidden="true">
+        <p>Stop 1</p>
+        <p class="addr">123 Example Street</p>
+        <div class="done-mark"><svg viewBox="0 0 200 180" focusable="false"><path d="M20 102 L70 152 L168 40" fill="none" stroke="#083526" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 102 L70 152 L168 40" fill="none" stroke="#3dcaa0" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112" cy="104" r="34" fill="#3dcaa0" stroke="#083526" stroke-width="5"/><circle cx="100" cy="96" r="4.4" fill="#083526"/><circle cx="126" cy="96" r="4.4" fill="#083526"/><path d="M96 112 Q113 130 130 112" fill="none" stroke="#083526" stroke-width="4.4" stroke-linecap="round"/></svg></div>
+      </article>
+      <p class="caption">A reached stop. The card cannot be edited. The check is the same one on the planner.</p>
+    </div>
+
+    <div class="card" id="map">
+      <h2>Map buttons</h2>
+      <p>Before full screen, the right side of the map has these. The compass is always there. Elevation and wind are not.</p>
+      <div class="book-map short" aria-hidden="true">
+        <div class="book-road"></div>
+        <div class="book-you"></div>
+        <div class="book-pin"></div>
+        <div class="book-rail">
+          <button type="button" tabindex="-1"><span>Full</span><span>screen</span></button>
+          <button type="button" class="book-compass" tabindex="-1" style="--heading:90">
+            <span class="book-rose"><span class="n">N</span><span class="e">E</span><span class="s">S</span><span class="w">W</span></span>
+            <svg class="book-needle book-fill" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
+          </button>
+          <button type="button" tabindex="-1"><span>Trip</span><span>zoom</span></button>
+          <button type="button" tabindex="-1"><span>Recalc</span><span>ulate</span></button>
+        </div>
+      </div>
+      <p class="caption">Not full screen. Top to bottom: Full screen, compass, Trip zoom, Recalculate.</p>
+
+      <p>Full screen while you are navigating adds Exit, elevation, wind, and the place buttons on the left. The zoom button cycles. This picture is Turn zoom, which is how navigation starts.</p>
+      <div class="book-map tall" aria-hidden="true">
+        <div class="book-road"></div>
+        <div class="book-you"></div>
+        <div class="book-pin"></div>
+        <div class="book-rail left">
+          <button type="button" tabindex="-1"><span>Love's</span></button>
+          <button type="button" tabindex="-1"><span>Wal</span><span>mart</span></button>
+          <button type="button" tabindex="-1"><span>Truck</span><span>stop</span></button>
+          <button type="button" tabindex="-1"><span>Cat</span><span>scale</span></button>
+          <button type="button" class="on" tabindex="-1"><span>Street</span><span>map</span></button>
+          <button type="button" tabindex="-1"><span>Zoom</span><span>in</span></button>
+          <button type="button" tabindex="-1"><span>Zoom</span><span>out</span></button>
+        </div>
+        <div class="book-rail">
+          <button type="button" tabindex="-1">Exit</button>
+          <button type="button" tabindex="-1"><span>1125</span><span>Down</span></button>
+          <button type="button" tabindex="-1"><span>8</span><span>mph</span></button>
+          <button type="button" class="book-compass" tabindex="-1" style="--heading:90">
+            <span class="book-rose"><span class="n">N</span><span class="e">E</span><span class="s">S</span><span class="w">W</span></span>
+            <svg class="book-needle book-fill" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
+          </button>
+          <button type="button" class="on" tabindex="-1"><span>Turn</span><span>zoom</span></button>
+          <button type="button" tabindex="-1"><span>Recalc</span><span>ulate</span></button>
+          <button type="button" class="on" tabindex="-1"><span>Follow</span><span>me</span></button>
+        </div>
+      </div>
+      <p class="caption">Full screen, navigating, on an eastbound road. North stays at the top of the compass. The arrow points at E, the way the road goes. Elevation here is 1,125 feet and going down. Wind is 8 mph. A green ring means that button is on.</p>
+      <ul>
+        <li><strong>Full screen</strong> fills the page with the map. <strong>Exit</strong> leaves full screen. Exit is only there in full screen.</li>
+        <li><strong>Elevation</strong> shows only in full screen. Before the phone reports a height, the button says Elev and a dash. Then it shows feet from the phone GPS. Until that number changes, the second line stays a dash. One foot lower says Down. One foot higher says Up. It is not sent to Planigator.</li>
+        <li><strong>Wind</strong> shows only in full screen. Before it loads, the button says Wind and a dash. Then it shows the speed and mph. The number comes from a weather service, not from Planigator, and it is not sent to Planigator. It refreshes about every 10 minutes or about 5 miles, when you enter full screen, and when you tap the wind button.</li>
+        <li><strong>Street map</strong> and <strong>Satellite</strong> are the same button. Tap it to switch. The green ring is the map you are on.</li>
+        <li><strong>Zoom in</strong> and <strong>Zoom out</strong> change how close the map is.</li>
+        <li><strong>Recalculate</strong> on the map needs location. It asks HERE<sup>©</sup> for a new truck route from where you are to the next stop that is not done. That is 1 credit. Stops you already passed are left behind.</li>
+        <li><strong>Follow me</strong> appears after Start navigation. The green ring means the map is following you. Dragging the map turns that off. Tap Follow me to follow again.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="navigate">
+      <h2>Navigate</h2>
+      <div class="samples" aria-hidden="true">
+        <span class="flag-box">Start navigation</span>
+        <span class="flag-box">End navigation</span>
+        <span class="flag-box on">Light mode</span>
+        <span class="flag-box">Dark mode</span>
+      </div>
+      <p>Start navigation stays on this page. The browser asks before it uses location, compass, or motion. Those readings stay on the phone. They are not saved and they are not sent to Planigator. The button then says Navigation in progress. End navigation stops it. The zoom button goes back to Trip zoom.</p>
+      <p>Navigation starts in <strong>Turn zoom</strong>. Each tap of the zoom button moves to the next view:</p>
+      <div class="samples" aria-hidden="true">
+        <span class="set-box" style="border-radius:50%;width:60px;height:60px;padding:4px"><span class="set-name">Trip</span><span class="set-value" style="border:0;margin:0;padding:0;font-size:12px">zoom</span></span>
+        <span class="set-box" style="border-radius:50%;width:60px;height:60px;padding:4px"><span class="set-name">Left</span><span class="set-value" style="border:0;margin:0;padding:0;font-size:12px">zoom</span></span>
+        <span class="set-box on" style="border-radius:50%;width:60px;height:60px;padding:4px"><span class="set-name">Turn</span><span class="set-value" style="border:0;margin:0;padding:0;font-size:12px">zoom</span></span>
+        <span class="set-box" style="border-radius:50%;width:60px;height:60px;padding:4px"><span class="set-name">Stop</span><span class="set-value" style="border:0;margin:0;padding:0;font-size:12px">zoom</span></span>
+      </div>
+      <ul>
+        <li><strong>Trip zoom</strong> shows the whole route, north up.</li>
+        <li><strong>Left zoom</strong> shows what is left, north up.</li>
+        <li><strong>Turn zoom</strong> shows from you to about half a mile past the end of the direction you are on. The map turns with your heading unless north is locked.</li>
+        <li><strong>Stop zoom</strong> shows you and the next stop, north up.</li>
+      </ul>
+      <p>While you are driving, the directions show the step you are on, the one before it, and the one after it. Each line names the next move and how far until it. The voice uses those same words. The screen may say Tpke. The voice says Turnpike.</p>
+
+      <h3>Compass</h3>
+      <div class="samples" aria-hidden="true">
+        <button type="button" class="book-compass" tabindex="-1" style="width:60px;height:60px;border-radius:50%;border:2px solid transparent;background:rgb(0 0 0 / 0.55);color:#fff;position:relative;padding:0;--heading:90">
+          <span class="book-rose"><span class="n">N</span><span class="e">E</span><span class="s">S</span><span class="w">W</span></span>
+          <svg class="book-needle book-fill" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
+          <svg class="book-needle book-line" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M12 3 17.2 19.6 12 16.1 6.8 19.6Z"/></svg>
+        </button>
+        <button type="button" class="book-compass on" tabindex="-1" style="width:60px;height:60px;border-radius:50%;border:2px solid #3dcaa0;position:relative;padding:0;--heading:0">
+          <span class="book-rose"><span class="n">N</span><span class="e">E</span><span class="s">S</span><span class="w">W</span></span>
+          <svg class="book-needle book-fill" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
+          <svg class="book-needle book-line" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M12 3 17.2 19.6 12 16.1 6.8 19.6Z"/></svg>
+        </button>
+      </div>
+      <p class="caption">Left: driving east on a north-up map. N is at the top. The arrow points at E. Right: north is locked. The ring is green and the arrow is an outline.</p>
+      <p>N on the compass is north on the map. The arrow is the way you are driving, not a second north. On an eastbound road with north up, N stays at the top and the arrow points at E.</p>
+      <p>Tap the compass to lock the map to true north. Tap it again to follow the phone. Locking north does not change Trip, Left, Turn, or Stop zoom. Trip, Left, and Stop stay north up either way. Turn zoom follows the phone until you lock north.</p>
+    </div>
+
+    <div class="card" id="places">
+      <h2>Love's, Walmart, truck stops, Cat scales</h2>
+      <div class="samples" aria-hidden="true">
+        <span class="flag-box">Next truck stop · 1 credit</span>
+        <span class="flag-box">Next Cat scale · 1 credit</span>
+        <span class="flag-box">Next Love's · 1 credit</span>
+        <span class="flag-box">Next Walmart · 1 credit</span>
+        <span class="flag-box">Add as next stop</span>
+        <span class="flag-box">Add and recalculate</span>
+      </div>
+      <p>The four Next buttons sit under the directions. They do nothing until Start navigation. Each search is 1 credit. The place has to be within about 5 miles of the route ahead.</p>
+      <p>Add as next stop puts that place on the stop list. You still Calculate to put it on the road.</p>
+      <p>In full screen the same four places are round buttons on the left. After one is selected, Add and recalculate routes it in as the next stop. That uses 2 credits: from where you are to that place, then from that place to the stop you were driving toward. You need 2 credits left. The new stop is Anytime.</p>
+    </div>
+
+    <div class="card" id="share">
+      <h2>Share, dark mode, and home screen</h2>
+      <ul>
+        <li><strong>Share trip link</strong> puts this plan in the address bar after Calculate.</li>
+        <li><strong>Light mode</strong> and <strong>Dark mode</strong> appear after directions exist. The button names the mode you are in. It starts in light mode, so the button says Light mode. Tap it to switch. The map stays up.</li>
+        <li><strong>Add Planigator to your home screen</strong> can appear after a plan exists, when the browser offers to install the page.</li>
+        <li><strong>If you need more credits, buy 124 credits for $1.49</strong> appears when a card is already saved.</li>
+      </ul>
+      <p>Questions go to <strong>37_mouse_dutiful@icloud.com</strong>. For a purchase, include the Stripe receipt. More short answers are on <a href="./support.html">Support</a>.</p>
+    </div>
+  </main>
+  <footer>
+    <p><a href="./">Plan</a> · <a href="./support.html">Support</a> · <a href="./privacy.html">Privacy Policy</a> · <a href="./terms.html">Terms of Use</a> · <a href="./releases.html">Release notes</a></p>
+  </footer>
+</body>
+</html>
