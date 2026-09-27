@@ -5966,7 +5966,7 @@ function chip(event) {
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
-  return `
+  const body = `
     <div class="chip ${event.kind}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
       ${section(middle)}
@@ -5974,6 +5974,16 @@ function chip(event) {
       ${section(arrive, event.late ? "late" : "")}
     </div>
   `;
+  const ownerId = driveDelayOwnerId(event);
+  if (!ownerId) return body;
+  return `<div class="chip-row">${body}${delayBox(ownerId)}</div>`;
+}
+
+function driveDelayOwnerId(event) {
+  if (event.kind !== "lead" && event.kind !== "stop") return "";
+  const stop = state.stops.find((item) => item.id === event.stopID);
+  if (!stop || stop.skipRoute) return "";
+  return stop.id;
 }
 
 function eventsAround(stopId) {
@@ -6009,17 +6019,20 @@ function delayLabel(minutes) {
   return `${hours} hr ${remain} min`;
 }
 
-function delayStepper(stop, index) {
-  if (index >= state.stops.length - 1) return "";
+function delayBox(ownerId) {
+  const stop = state.stops.find((item) => item.id === ownerId);
+  if (!stop) return "";
   const minutes = Math.max(0, Number(stop.delayMinutes) || 0);
   return `
-    <div class="delay-step">
-      <span>Possible delay time</span>
-      <span class="delay-controls">
-        <button type="button" data-delay="${stop.id}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
-        <span class="delay-read">${delayLabel(minutes)}</span>
-        <button type="button" data-delay="${stop.id}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
-      </span>
+    <div class="delay-slot">
+      <div class="delay-box">
+        <span class="delay-name">Possible delay time</span>
+        <span class="delay-controls">
+          <button type="button" data-delay="${stop.id}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
+          <span class="delay-read">${delayLabel(minutes)}</span>
+          <button type="button" data-delay="${stop.id}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
+        </span>
+      </div>
     </div>
   `;
 }
@@ -6093,7 +6106,6 @@ function stopCard(stop, index) {
     ${around.self ? chip(around.self) : ""}
     ${around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
-    ${delayStepper(stop, index)}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;
 }
