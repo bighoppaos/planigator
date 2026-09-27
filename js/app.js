@@ -3045,6 +3045,8 @@ function planBox() {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeElev" hidden aria-label="Elevation"><span>Elev</span><span>—</span></button>
+        <button type="button" id="routeWind" hidden aria-label="Wind speed"><span>Wind</span><span>—</span></button>
         <button type="button" id="routeCompass" aria-label="Lock map to true north" aria-pressed="false">
           <span class="compass-rose" aria-hidden="true"><span class="compass-n">N</span><span class="compass-e">E</span><span class="compass-s">S</span><span class="compass-w">W</span></span>
           <svg class="compass-needle compass-fill" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
@@ -4251,6 +4253,7 @@ function syncRouteChrome() {
   syncTripFitButton();
   paintStopNote();
   paintCompassRose();
+  paintElevWind();
   if (navOn) freezeTyping(true);
   requestAnimationFrame(seatRails);
 }
@@ -4380,6 +4383,89 @@ function placeRouteStage() {
   watchRouteCover(true);
 }
 
+let navAlt = null;
+let navAltPast = null;
+let navAltTrend = "";
+let windMph = null;
+let windAt = 0;
+let windFix = null;
+let windToken = 0;
+
+function noteAltitude(alt) {
+  if (!Number.isFinite(alt)) return;
+  navAlt = alt;
+  const now = Date.now();
+  if (!navAltPast) {
+    navAltPast = { alt, at: now };
+    paintElevWind();
+    return;
+  }
+  if (now - navAltPast.at < 25000) {
+    paintElevWind();
+    return;
+  }
+  const feet = (alt - navAltPast.alt) * 3.28084;
+  if (feet >= 20) navAltTrend = "Up";
+  else if (feet <= -20) navAltTrend = "Down";
+  else navAltTrend = "Flat";
+  navAltPast = { alt, at: now };
+  paintElevWind();
+}
+
+function paintElevWind() {
+  const elev = document.getElementById("routeElev");
+  const wind = document.getElementById("routeWind");
+  if (elev) {
+    elev.hidden = !routeFull;
+    if (!routeFull || navAlt == null) {
+      elev.innerHTML = "<span>Elev</span><span>—</span>";
+      elev.setAttribute("aria-label", "Elevation");
+    } else {
+      const feet = Math.round(navAlt * 3.28084);
+      const trend = navAltTrend || "—";
+      elev.innerHTML = `<span>${feet}</span><span>${trend}</span>`;
+      elev.setAttribute("aria-label", navAltTrend ? `${feet} feet, ${navAltTrend}` : `${feet} feet`);
+    }
+  }
+  if (wind) {
+    wind.hidden = !routeFull;
+    if (!routeFull || windMph == null) {
+      wind.innerHTML = "<span>Wind</span><span>—</span>";
+      wind.setAttribute("aria-label", "Wind speed");
+    } else {
+      wind.innerHTML = `<span>${windMph}</span><span>mph</span>`;
+      wind.setAttribute("aria-label", `Wind ${windMph} miles per hour`);
+    }
+  }
+}
+
+async function refreshWind(lat, lon, force) {
+  if (!routeFull || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (!force && windFix && Date.now() - windAt < 600000 && metersBetween(windFix, [lat, lon]) < 8047) return;
+  const token = windToken + 1;
+  windToken = token;
+  windAt = Date.now();
+  windFix = [lat, lon];
+  try {
+    const url = new URL("https://api.open-meteo.com/v1/forecast");
+    url.searchParams.set("latitude", String(Math.round(lat * 100) / 100));
+    url.searchParams.set("longitude", String(Math.round(lon * 100) / 100));
+    url.searchParams.set("current", "wind_speed_10m");
+    url.searchParams.set("wind_speed_unit", "mph");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("wind");
+    const data = await response.json();
+    if (token !== windToken) return;
+    const speed = Number(data.current?.wind_speed_10m);
+    if (!Number.isFinite(speed)) throw new Error("wind");
+    windMph = Math.round(speed);
+  } catch {
+    if (token !== windToken) return;
+    windAt = Date.now() - 540000;
+  }
+  paintElevWind();
+}
+
 function setRouteFull(on) {
   const next = Boolean(on);
   if (next === routeFull) return;
@@ -4389,7 +4475,18 @@ function setRouteFull(on) {
     exit?.call(document)?.catch(() => {});
   }
   routeFull = next;
-  if (routeFull) scheduleTypingUndoClear();
+  if (routeFull) {
+    scheduleTypingUndoClear();
+    if (navFix) void refreshWind(navFix[0], navFix[1], true);
+    else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        if (!routeFull) return;
+        if (Number.isFinite(pos.coords.altitude)) noteAltitude(pos.coords.altitude);
+        void refreshWind(pos.coords.latitude, pos.coords.longitude, true);
+        paintElevWind();
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 8000 });
+    }
+  }
   placeRouteStage();
   syncRouteChrome();
   requestAnimationFrame(() => {
@@ -4545,6 +4642,7 @@ let tripFit = "off";
 function tripFitLines() {
   if (tripFit === "remaining") return ["Left", "zoom"];
   if (tripFit === "nextTurn") return ["Turn", "zoom"];
+  if (tripFit === "nextStop") return ["Stop", "zoom"];
   return ["Trip", "zoom"];
 }
 
@@ -4570,6 +4668,8 @@ function fitCoords(coordinates, maxZoom) {
 let turnFrameAt = null;
 let turnFrameTarget = null;
 let turnFrameBearing = null;
+let stopFrameAt = null;
+let stopFrameId = "";
 let routeCoverSize = "";
 
 function currentDirectionEnd(hereAlong) {
@@ -4665,6 +4765,47 @@ function frameNextTurn() {
   });
 }
 
+function frameNextStop() {
+  const maplibre = window.maplibregl;
+  const origin = originPoint();
+  const here = navFix || (origin ? [origin.lat, origin.lon] : null);
+  if (!routeMap || !maplibre || !here) return;
+  rebuildNavLegs();
+  const hit = navLine.length >= 2 ? navNearest(here[0], here[1], navLine) : null;
+  const leg = activeNavLeg(hit || { along: 0 });
+  const stop = leg?.stop;
+  const lat = Number(stop?.lat);
+  const lon = Number(stop?.lon);
+  if (!stop || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (stopFrameAt && stopFrameId === stop.id && metersBetween(stopFrameAt, here) < 150) return;
+  const from = hit ? hit.along : 0;
+  const until = Number.isFinite(leg?.end) ? leg.end : from;
+  const coords = navLine.length >= 2 ? navRemaining(Math.min(from, until), until) : [];
+  coords.push([here[1], here[0]], [lon, lat]);
+  if (coords.length < 2) return;
+  const bounds = coords.reduce(
+    (box, coord) => box.extend(coord),
+    new maplibre.LngLatBounds(coords[0], coords[0]),
+  );
+  const padding = turnViewPadding();
+  padding.left = Math.max(padding.left, 78);
+  padding.right = Math.max(padding.right, 78);
+  stopFrameAt = [here[0], here[1]];
+  stopFrameId = stop.id;
+  if (turnMarker) {
+    turnMarker.remove();
+    turnMarker = null;
+  }
+  navZoomHold = Date.now() + 700;
+  routeMap.stop();
+  routeMap.fitBounds(bounds, {
+    padding,
+    bearing: 0,
+    maxZoom: 15,
+    duration: 600,
+  });
+}
+
 function changeMapZoom(delta) {
   if (!routeMap) return;
   navZoomHold = Date.now() + 1200;
@@ -4686,9 +4827,10 @@ function cycleTripFit() {
   navReturnTimer = 0;
   navFollowing = false;
   syncRouteChrome();
-  if (tripFit === "off" || tripFit === "nextTurn") tripFit = "full";
+  if (tripFit === "off" || tripFit === "nextStop") tripFit = "full";
   else if (tripFit === "full") tripFit = "remaining";
-  else tripFit = "nextTurn";
+  else if (tripFit === "remaining") tripFit = "nextTurn";
+  else tripFit = "nextStop";
   syncTripFitButton();
   if (tripFit === "full") {
     showWholeTrip();
@@ -4698,6 +4840,12 @@ function cycleTripFit() {
   if (tripFit === "remaining") {
     const from = navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : 0;
     fitCoords(navRemaining(from, Infinity), 14);
+    return;
+  }
+  if (tripFit === "nextStop") {
+    stopFrameAt = null;
+    stopFrameId = "";
+    frameNextStop();
     return;
   }
   turnFrameAt = null;
@@ -5576,7 +5724,9 @@ function startNavMotion() {
   navMotion = requestAnimationFrame(paintNavMotion);
 }
 
-function onNavFix(lat, lon) {
+function onNavFix(lat, lon, alt) {
+  if (Number.isFinite(alt)) noteAltitude(alt);
+  if (routeFull) void refreshWind(lat, lon);
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
   aimNavDot(lat, lon);
@@ -5642,6 +5792,10 @@ function onNavFix(lat, lon) {
     frameNextTurn();
     return;
   }
+  if (tripFit === "nextStop") {
+    if (Date.now() < navZoomHold) return;
+    frameNextStop();
+  }
 }
 
 function onNavCompass(event) {
@@ -5657,7 +5811,7 @@ function onNavCompass(event) {
     compassAim = false;
     return;
   }
-  if (tripFit === "nextTurn" || tripFit === "full" || tripFit === "remaining" || (navFollowing && navFix && !navMapTouch)) {
+  if (tripFit === "nextTurn" || tripFit === "nextStop" || tripFit === "full" || tripFit === "remaining" || (navFollowing && navFix && !navMapTouch)) {
     compassAim = false;
   } else if (compassAim && routeMap) {
     compassAim = false;
@@ -5700,7 +5854,7 @@ function paintCompassRose() {
 
 function applyNorthLockCamera() {
   if (!routeMap) return;
-  if (tripFit === "full" || tripFit === "remaining") return;
+  if (tripFit === "full" || tripFit === "remaining" || tripFit === "nextStop") return;
   if (tripFit === "nextTurn" && navOn && navFix) {
     turnFrameAt = null;
     turnFrameTarget = null;
@@ -5719,7 +5873,7 @@ function applyNorthLockCamera() {
 
 async function toggleNorthLock() {
   northLock = !northLock;
-  compassAim = !northLock && navCompass == null && tripFit !== "full" && tripFit !== "remaining";
+  compassAim = !northLock && navCompass == null && tripFit !== "full" && tripFit !== "remaining" && tripFit !== "nextStop";
   paintCompassRose();
   await enableNavCompass();
   applyNorthLockCamera();
@@ -5979,7 +6133,7 @@ function beginRouteNav() {
   sayNav("Finding you…", "Allow location to move along this trip.", "");
   if (navWatch == null && navigator.geolocation) {
     navWatch = navigator.geolocation.watchPosition(
-      (pos) => onNavFix(pos.coords.latitude, pos.coords.longitude),
+      (pos) => onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude),
       () => sayNav("Allow location", "Planigator needs location to show you on this trip.", ""),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
     );
@@ -7448,6 +7602,9 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
+  $("#routeWind")?.addEventListener("click", () => {
+    if (navFix) void refreshWind(navFix[0], navFix[1], true);
+  });
   $("#routeCompass")?.addEventListener("click", () => { void toggleNorthLock(); });
   $("#routeBasemap")?.addEventListener("click", () => selectBasemap(basemap === "satellite" ? "vector" : "satellite"));
   $("#routeFollow")?.addEventListener("click", async () => {
