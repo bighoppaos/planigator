@@ -433,7 +433,21 @@ function stopsAndLeaveForPlan() {
     const hide = new Set(pending.indexes);
     stops = stops.map((stop, index) => (hide.has(index) ? { ...stop, skipRoute: true } : stop));
   }
-  const progress = state.driveProgress;
+  let progress = state.driveProgress;
+  if (progress) {
+    const held = state.stops.find((stop) => stop.id === progress.stopId);
+    // Arriving marks the stop done and leaves the old progress in place.
+    // That remainder is already driven, and its leave time is stale.
+    if (!held || held.done || held.skipRoute) {
+      const next = state.stops.find((stop, index) => (
+        !isOriginStop(state.stops, index) && !stop.done && !stop.skipRoute && stopHasSavedLeg(stop)
+      ));
+      progress = next && state.stops.some((stop) => stop.done)
+        ? { stopId: next.id, remainFraction: 1, leftAt: Date.now() }
+        : null;
+      state.driveProgress = progress;
+    }
+  }
   if (!progress) return { stops, leaveAt: leaveAtNow() };
   const index = stops.findIndex((stop) => stop.id === progress.stopId);
   if (index < 0) {
@@ -1057,6 +1071,12 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     }
     state.estimating = false;
     rememberOrigin();
+  }
+  if (hereLegs?.from && !state.driveProgress && state.stops.some((stop) => stop?.done)) {
+    const next = state.stops.find((stop, index) => (
+      !isOriginStop(state.stops, index) && !stop.done && !stop.skipRoute && stopHasSavedLeg(stop)
+    ));
+    if (next) state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
   }
   const timed = stopsAndLeaveForPlan();
   let leaveAt = timed.leaveAt;
