@@ -1494,11 +1494,24 @@ function paintDoneStop(id) {
   else card.prepend(line);
 }
 
+function closerLegEnd(leg, hit) {
+  const distance = Math.abs(leg.end - hit.along);
+  return navLegs.some((other) => {
+    if (!other || other === leg) return false;
+    const otherDistance = Math.abs(other.end - hit.along);
+    if (otherDistance < distance - 1) return true;
+    return otherDistance <= distance + 1 && other.end < leg.end;
+  });
+}
+
 function nearStopEnd(stop, lat, lon, hit) {
   const leg = navLegs.find((item) => item.stop.id === stop.id);
   if (!leg || !hit) return false;
   const remaining = leg.end - hit.along;
-  if (hit.dist <= STOP_LINE_M && remaining <= STOP_NEAR_M && remaining >= -STOP_NEAR_M) return true;
+  const onLine = hit.dist <= STOP_LINE_M && remaining <= STOP_NEAR_M && remaining >= -STOP_NEAR_M;
+  const passed = onLine && remaining <= STOP_PAST_M;
+  if (!passed && closerLegEnd(leg, hit)) return false;
+  if (onLine) return true;
   const pinDist = metersBetween([lat, lon], [Number(stop.lat), Number(stop.lon)]);
   if (pinDist > STOP_NEAR_M || hit.along < leg.end - STOP_NEAR_M) return false;
   return !state.stops.some((other) => {
@@ -2267,13 +2280,10 @@ async function fillHereLegs() {
     throw new Error(`Press lookup address on ${list} and choose an address before pressing Calculate.`);
   }
   const routed = [];
+  const skipped = [];
   for (const stop of state.stops) {
     if (stop.skipRoute || stop.done) {
-      stop.skipRoute = true;
-      stop.miles = "";
-      stop.hours = "";
-      stop.path = [];
-      stop.directions = [];
+      skipped.push(stop);
       continue;
     }
     routed.push(stop);
@@ -2303,6 +2313,13 @@ async function fillHereLegs() {
     routed[i].path = Array.isArray(leg.points) ? leg.points : [];
     routed[i].directions = Array.isArray(leg.directions) ? leg.directions : [];
     if (leg.credits != null) state.credits = leg.credits;
+  }
+  for (const stop of skipped) {
+    stop.skipRoute = true;
+    stop.miles = "";
+    stop.hours = "";
+    stop.path = [];
+    stop.directions = [];
   }
   persist();
 }
