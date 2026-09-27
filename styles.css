@@ -1960,12 +1960,62 @@ button.lookup.lookup-flash {
   #fromAddress.choose-start { animation: none; outline: 2px solid #1f8a62; }
   .start-choice-note { animation: none; background: #1f8a62; color: #fff; }
 }
+.place-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+}
+.place-list[hidden] { display: none; }
+#nextPlaceList .flag-box {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: calc(var(--box-font, 13px) * 22 / 13);
+  line-height: 1.2;
+  text-align: left;
+}
+.route-place-list { display: none; }
+.route-stage.is-full .route-place-list:not([hidden]) {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: 76px;
+  right: 76px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 38vh;
+  overflow: auto;
+  pointer-events: auto;
+}
+.route-place-list button {
+  margin: 0;
+  padding: 4px 8px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: rgb(7 21 37 / 0.92);
+  color: #fffdf8;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
+}
+.route-place-list button.on { border-color: #3dcaa0; }
 .truck-pin-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   pointer-events: none;
+}
+.truck-pin-wrap.is-pick { pointer-events: auto; cursor: pointer; }
+.truck-pin-wrap.is-chosen .truck-pin {
+  background: #1f8a62;
+  box-shadow: 0 0 0 6px rgb(31 138 98 / 0.45);
 }
 .truck-pin-label {
   display: flex;

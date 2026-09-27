@@ -3064,11 +3064,12 @@ function planBox() {
         <p class="route-place" id="routePlace" hidden></p>
       </div>
       </div>
+      <div id="routePlaceList" class="route-place-list" hidden></div>
     </div>
     <div id="routeDirectionsHome"></div>
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${truckHit ? "" : " hidden"}>${truckHit ? escapeAttr(truckNoteText(truckHit)) : ""}</p><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatPlanShort(plan.lastDeadline, zoneForStop((state.stops || []).find((item) => item.id === plan.lastStopId)))}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
@@ -3634,6 +3635,7 @@ function pinLabel(label) {
 
 let routeMap = null;
 let truckMarker = null;
+let truckMarkers = [];
 let routeMapReady = false;
 let turnMarker = null;
 let pendingTurn = null;
@@ -3667,6 +3669,8 @@ let navStopSpeakKey = "";
 let navStopNoteText = "";
 let navStopNoteUntil = 0;
 let truckHit = null;
+let truckHits = [];
+let placeListMode = false;
 let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
@@ -3702,11 +3706,11 @@ function clearRouteMap() {
     turnMarker.remove();
     turnMarker = null;
   }
+  clearTruckPins();
   if (routeMap) {
     routeMap.remove();
     routeMap = null;
   }
-  truckMarker = null;
 }
 
 function navStopTitle(stop) {
@@ -5363,58 +5367,134 @@ function truckNoteText(hit) {
   return [hit.name, place, ahead, off].filter(Boolean).join(" · ");
 }
 
-function frameTruckStop(hit) {
+function clearTruckPins() {
+  for (const marker of truckMarkers) marker.remove();
+  truckMarkers = [];
+  truckMarker = null;
+}
+
+function paintTruckPins() {
   const maplibre = window.maplibregl;
-  const lat = Number(hit?.lat);
-  const lon = Number(hit?.lon);
-  if (!routeMap || !maplibre || !navFix || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  clearTruckPins();
+  if (!routeMap || !maplibre) return;
+  truckHits.forEach((hit, index) => {
+    const lat = Number(hit.lat);
+    const lon = Number(hit.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const wrap = document.createElement("span");
+    const many = truckHits.length > 1;
+    wrap.className = `truck-pin-wrap${many ? " is-pick" : ""}${hit === truckHit ? " is-chosen" : ""}`;
+    const label = document.createElement("span");
+    label.className = "truck-pin-label";
+    const name = document.createElement("span");
+    name.textContent = many ? String(index + 1) : (hit.name || "Truck stop");
+    const miles = document.createElement("span");
+    const ahead = Number(hit.milesAhead);
+    const meters = Number.isFinite(ahead)
+      ? ahead * 1609.344
+      : (navFix ? metersBetween(navFix, [lat, lon]) : NaN);
+    miles.textContent = Number.isFinite(meters) ? navMiles(meters) : "";
+    label.append(name, miles);
+    const pin = document.createElement("span");
+    pin.className = "truck-pin";
+    wrap.append(label, pin);
+    if (many) {
+      wrap.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectTruckHit(index);
+      });
+    }
+    const marker = new maplibre.Marker({ element: wrap, anchor: "bottom" }).setLngLat([lon, lat]).addTo(routeMap);
+    truckMarkers.push(marker);
+  });
+  truckMarker = truckMarkers[0] || null;
+}
+
+function fillPlaceChoices(list, compact) {
+  if (!list) return;
+  list.replaceChildren();
+  const show = placeListMode && truckHits.length > 0;
+  list.hidden = !show;
+  if (!show) return;
+  truckHits.forEach((hit, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = compact ? (hit === truckHit ? "on" : "") : `flag-box${hit === truckHit ? " on" : ""}`;
+    button.textContent = `${index + 1}. ${truckNoteText(hit)}`;
+    button.addEventListener("click", () => selectTruckHit(index));
+    list.append(button);
+  });
+}
+
+function paintPlaceList() {
+  const note = document.getElementById("nextTruckNote");
+  const add = document.getElementById("addTruckStop");
+  const many = placeListMode && truckHits.length > 0;
+  if (note && many) {
+    note.hidden = true;
+    note.textContent = "";
+  } else if (note && !note.hidden && note.textContent.startsWith("Looking")) {
+    // A search message owns the note until the results land.
+  } else if (note) {
+    note.hidden = !truckHit;
+    note.textContent = truckHit ? truckNoteText(truckHit) : "";
+  }
+  fillPlaceChoices(document.getElementById("nextPlaceList"), false);
+  fillPlaceChoices(document.getElementById("routePlaceList"), true);
+  if (add) add.hidden = !truckHit;
+}
+
+function selectTruckHit(index) {
+  const hit = truckHits[index];
+  if (!hit || state.estimating) return;
+  truckHit = hit;
+  paintPlaceList();
+  paintTruckPins();
+  syncTruckAdd();
+}
+
+function showTruckHits(hits, list) {
+  truckHits = hits.slice();
+  truckHit = truckHits[0] || null;
+  placeListMode = list && truckHits.length > 0;
+  paintPlaceList();
+  paintTruckPins();
+  syncTruckAdd();
+}
+
+function forgetTruckChoice() {
+  truckHit = null;
+  truckHits = [];
+  placeListMode = false;
+  clearTruckPins();
+  paintPlaceList();
+}
+
+function frameTruckStop() {
+  const maplibre = window.maplibregl;
+  const hits = truckHits.filter((hit) => Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon)));
+  if (!routeMap || !maplibre || !navFix || !hits.length) return;
   navFollowing = false;
   tripFit = "off";
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   syncRouteChrome();
-  if (truckMarker) truckMarker.remove();
-  const wrap = document.createElement("span");
-  wrap.className = "truck-pin-wrap";
-  const label = document.createElement("span");
-  label.className = "truck-pin-label";
-  const name = document.createElement("span");
-  name.textContent = hit.name || "Truck stop";
-  const miles = document.createElement("span");
-  const ahead = Number(hit.milesAhead);
-  const meters = Number.isFinite(ahead)
-    ? ahead * 1609.344
-    : metersBetween(navFix, [lat, lon]);
-  miles.textContent = navMiles(meters);
-  label.append(name, miles);
-  const pin = document.createElement("span");
-  pin.className = "truck-pin";
-  wrap.append(label, pin);
-  truckMarker = new maplibre.Marker({ element: wrap, anchor: "bottom" }).setLngLat([lon, lat]).addTo(routeMap);
-  const coordinates = [[navFix[1], navFix[0]], [lon, lat]];
+  paintTruckPins();
+  const coordinates = [[navFix[1], navFix[0]]];
+  for (const hit of hits) coordinates.push([Number(hit.lon), Number(hit.lat)]);
   const bounds = coordinates.reduce(
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coordinates[0], coordinates[0]),
   );
   routeMap.stop();
+  const pad = hits.length > 1 ? 150 : 120;
   routeMap.fitBounds(bounds, {
-    padding: { top: 120, bottom: 120, left: 88, right: 88 },
-    maxZoom: 15,
+    padding: { top: pad, bottom: pad, left: 88, right: 88 },
+    maxZoom: hits.length > 1 ? 12 : 15,
     bearing: 0,
     duration: 600,
   });
-}
-
-function showTruckHit(hit) {
-  truckHit = hit;
-  const note = document.getElementById("nextTruckNote");
-  const add = document.getElementById("addTruckStop");
-  if (note) {
-    note.hidden = !hit;
-    note.textContent = hit ? truckNoteText(hit) : "";
-  }
-  if (add) add.hidden = !hit;
-  syncTruckAdd();
 }
 
 function syncTruckAdd() {
@@ -5457,7 +5537,7 @@ function addTruckAsNextStop() {
   state.stops.splice(index, 0, next);
   const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
   if (cursor >= 0) navStopCursor = cursor;
-  truckHit = null;
+  forgetTruckChoice();
   persist();
   const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
@@ -5479,7 +5559,13 @@ function addTruckAndRecalculate() {
   truckHit = null;
   // Let the tap finish before any map rebuild. Removing the button under
   // the finger makes iOS swallow Exit and zoom until a refresh.
-  window.setTimeout(() => { void addPlaceAsNextStop(hit); }, 0);
+  window.setTimeout(() => {
+    truckHits = [];
+    placeListMode = false;
+    clearTruckPins();
+    paintPlaceList();
+    void addPlaceAsNextStop(hit);
+  }, 0);
 }
 
 async function addPlaceAsNextStop(hit) {
@@ -5663,7 +5749,7 @@ function nextLocalPlace(points, place) {
         }
       }
     }
-    let next = null;
+    const found = [];
     for (const row of candidates) {
       const lat = Number(row[0]);
       const lon = Number(row[1]);
@@ -5687,23 +5773,24 @@ function nextLocalPlace(points, place) {
       if (spot.dist > PLACE_OFF_METERS) continue;
       if (spot.along < 30 && spot.dist > 200) continue;
       const milesAhead = spot.along / 1609.344;
-      if (next && milesAhead >= next.milesAhead) continue;
       const city = String(row[3] || "").trim();
-      const state = String(row[4] || "").trim();
-      const where = [city, state].filter(Boolean).join(", ");
+      const stateName = String(row[4] || "").trim();
+      const where = [city, stateName].filter(Boolean).join(", ");
       const stored = String(row[5] || "").trim();
-      next = {
+      found.push({
         name,
         city,
-        state,
+        state: stateName,
         label: stored || [name, where].filter(Boolean).join(", "),
         lat,
         lon,
         milesAhead: Math.round(milesAhead * 10) / 10,
         milesOff: Math.round((spot.dist / 1609.344) * 10) / 10,
-      };
+      });
     }
-    if (!next) {
+    found.sort((a, b) => a.milesAhead - b.milesAhead || a.milesOff - b.milesOff);
+    const chosen = found.slice(0, 5);
+    if (!chosen.length) {
       const miss = {
         loves: "No Love's within 5 miles of the route line.",
         walmart: "No Walmart within 5 miles of the route line.",
@@ -5711,7 +5798,7 @@ function nextLocalPlace(points, place) {
       };
       throw new Error(miss[place] || "No place within 5 miles of the route line.");
     }
-    return next;
+    return chosen;
   });
 }
 
@@ -5724,7 +5811,7 @@ async function findNextTruckStop(options = {}) {
   const add = document.getElementById("addTruckStop");
   for (const button of buttons) button.disabled = true;
   if (add) add.hidden = true;
-  truckHit = null;
+  forgetTruckChoice();
   syncTruckAdd();
   if (note) {
     note.hidden = false;
@@ -5737,33 +5824,43 @@ async function findNextTruckStop(options = {}) {
     }
     const points = routeAheadPoints();
     if (points.length < 2) throw new Error("Calculate the trip first.");
-    const data = place === "truck" ? await nextTruckStop(points, place) : await nextLocalPlace(points, place);
-    if (data.credits != null) state.credits = data.credits;
+    let hits;
+    if (place === "truck") {
+      const data = await nextTruckStop(points, place);
+      if (data.credits != null) state.credits = data.credits;
+      const lat = Number(data.lat);
+      const lon = Number(data.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`That ${word} has no map point.`);
+      hits = [{
+        name: data.name,
+        city: data.city,
+        state: data.state,
+        label: data.label,
+        lat,
+        lon,
+        milesAhead: data.milesAhead,
+        milesOff: data.milesOff,
+        place,
+      }];
+    } else {
+      hits = (await nextLocalPlace(points, place)).map((hit) => ({ ...hit, place }));
+      if (!hits.length) throw new Error(`No ${word} within 5 miles of the route line.`);
+    }
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
-    const lat = Number(data.lat);
-    const lon = Number(data.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`That ${word} has no map point.`);
-    showTruckHit({
-      name: data.name,
-      city: data.city,
-      state: data.state,
-      label: data.label,
-      lat,
-      lon,
-      milesAhead: data.milesAhead,
-      milesOff: data.milesOff,
-      place,
-    });
-    if (options.frame) frameTruckStop(truckHit);
+    showTruckHits(hits, place !== "truck");
+    if (options.frame) frameTruckStop();
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
-    truckHit = null;
+    forgetTruckChoice();
     if (add) add.hidden = true;
     syncTruckAdd();
-    if (note) note.textContent = error.message || `No ${word} within 5 miles of the route line.`;
+    if (note) {
+      note.hidden = false;
+      note.textContent = error.message || `No ${word} within 5 miles of the route line.`;
+    }
   } finally {
     syncRouteChrome();
   }
@@ -6538,7 +6635,7 @@ function mountMap() {
       if (follow) follow.classList.remove("on");
     };
     el.addEventListener("touchstart", (event) => {
-      if (event.target.closest("button, a, summary")) return;
+      if (event.target.closest("button, a, summary, .truck-pin-wrap")) return;
       holdCamera();
     }, { capture: true, passive: true });
     el.addEventListener("touchend", () => { navMapTouch = false; }, { capture: true });
@@ -6546,7 +6643,7 @@ function mountMap() {
     el.addEventListener("pointerup", () => { navMapTouch = false; }, { capture: true });
     el.addEventListener("pointercancel", () => { navMapTouch = false; }, { capture: true });
     map.on("pointerdown", (event) => {
-      if (event.originalEvent?.target?.closest?.("button, a, summary")) return;
+      if (event.originalEvent?.target?.closest?.("button, a, summary, .truck-pin-wrap")) return;
       holdCamera();
     });
     map.on("dragstart", releaseCamera);
@@ -6570,6 +6667,7 @@ function mountMap() {
     } else if (pendingTurn) applyTurnZoom(map, pendingTurn);
     else map.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 8, animate: false });
     paintCompassRose();
+    if (truckHits.length) paintTruckPins();
   });
 }
 
@@ -7734,6 +7832,7 @@ function bind() {
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
   syncRouteChrome();
+  paintPlaceList();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());
   $("#nextCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat" }));
   $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
