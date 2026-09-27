@@ -4025,17 +4025,6 @@ function resetNavVoice() {
   window.speechSynthesis?.cancel();
 }
 
-function spokenGoFor(meters) {
-  const miles = meters / 1609.344;
-  if (miles < 0.1) {
-    const feet = Math.max(1, Math.round(meters * 3.28084));
-    return `for ${feet} ${feet === 1 ? "foot" : "feet"}`;
-  }
-  const rounded = miles >= 100 ? Math.round(miles) : Math.round(miles * 10) / 10;
-  const unit = rounded === 1 ? "mile" : "miles";
-  return `for ${rounded} ${unit}`;
-}
-
 function withoutGo(text) {
   return String(text || "").trim()
     .replace(/\.\s*Go for\b/gi, " for")
@@ -4045,14 +4034,11 @@ function withoutGo(text) {
 }
 
 function directionWithMilesLeft(text, metersLeft) {
-  const phrase = spokenGoFor(metersLeft);
-  const body = String(text || "").trim();
-  const goFor = /\.\s*Go for\s+[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:mi|ft|feet|mile|miles)\b\.?/i;
-  const goForBare = /\bGo for\s+[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:mi|ft|feet|mile|miles)\b\.?/i;
-  if (goFor.test(body)) return body.replace(goFor, ` ${phrase}`).replace(/\s+/g, " ").trim();
-  if (goForBare.test(body)) return body.replace(goForBare, phrase).replace(/\s+/g, " ").trim();
-  const cleaned = body.replace(/\.\s*$/, "");
-  return cleaned ? `${cleaned} ${phrase}` : phrase;
+  const lead = inDistance(metersLeft);
+  const maneuver = maneuverText(text);
+  if (maneuver) return `${lead.charAt(0).toUpperCase()}${lead.slice(1)}, ${maneuver}`;
+  const body = withoutGo(text).replace(/\.\s*$/, "");
+  return body ? `${lead.charAt(0).toUpperCase()}${lead.slice(1)}, ${body}` : lead;
 }
 
 function maneuverText(text) {
@@ -4076,7 +4062,8 @@ function inDistance(meters) {
 function approachPhrase(nextText, metersLeft) {
   const maneuver = maneuverText(nextText);
   if (!maneuver || !(metersLeft > 0)) return "";
-  return `${maneuver} ${inDistance(metersLeft)}`;
+  const distance = inDistance(metersLeft);
+  return `${distance.charAt(0).toUpperCase()}${distance.slice(1)}, ${maneuver}`;
 }
 
 function shownDirection(step, nextStep, meters) {
