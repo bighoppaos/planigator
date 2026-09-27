@@ -5952,6 +5952,10 @@ function endRouteNav() {
   stopNavMotion();
   resetNavVoice();
   navFollowing = false;
+  tripFit = "off";
+  turnFrameAt = null;
+  turnFrameTarget = null;
+  turnFrameBearing = null;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   freezeTyping(false);
@@ -6142,7 +6146,11 @@ function beginRouteNav() {
   navOn = true;
   navAlongLock = null;
   navLineKey = routeProgressKey(routePoints());
-  navFollowing = true;
+  navFollowing = false;
+  tripFit = "nextTurn";
+  turnFrameAt = null;
+  turnFrameTarget = null;
+  turnFrameBearing = null;
   navZoom = 15;
   freezeTyping(true);
   syncRouteChrome();
