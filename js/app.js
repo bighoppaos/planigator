@@ -5434,8 +5434,6 @@ function paintPlaceList() {
   if (note && many) {
     note.hidden = true;
     note.textContent = "";
-  } else if (note && !note.hidden && note.textContent.startsWith("Looking")) {
-    // A search message owns the note until the results land.
   } else if (note) {
     note.hidden = !truckHit;
     note.textContent = truckHit ? truckNoteText(truckHit) : "";
