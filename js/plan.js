@@ -308,6 +308,17 @@ export function schedules({
         pausesAfter: [],
       });
     }
+    const tailDelayMs = pieceDelayMinutes(stop, Math.max(0, pieces.length - 1)) * 60 * 1000;
+    const laterStop = stops.slice(index + 1).some((item, offset) => !isOriginStop(stops, index + 1 + offset) && !item.skipRoute);
+    if (!laterStop && tailDelayMs >= 60 * 1000) {
+      const lastPiece = pieces[pieces.length - 1];
+      lastPiece.end += tailDelayMs;
+      (lastPiece.pausesAfter || []).forEach((pause) => {
+        pause.start += tailDelayMs;
+        pause.end += tailDelayMs;
+      });
+      clock.now += tailDelayMs;
+    }
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
@@ -329,10 +340,13 @@ export function schedules({
       }
     }
     if (captureClocks) captureClocks.set(index, clock.clone());
+    const arrivedBeforeDelay = arrive - (!laterStop && tailDelayMs >= 60 * 1000 ? tailDelayMs : 0);
+    let finishAt = usable != null && usable > arrivedBeforeDelay + 60 * 1000 ? usable : 0;
+    if (finishAt && tailDelayMs >= 60 * 1000) finishAt += tailDelayMs;
     result[index] = {
       start: pieces[0].start,
       end: arrive,
-      finishAt: usable != null && usable > arrive + 60 * 1000 ? usable : 0,
+      finishAt,
       tripHours: drive,
       leadingPauses: leading,
       pieces,
@@ -469,15 +483,17 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
         gapStart = block.end + delayMs;
         gapEnd = departure;
       } else {
-        gapEnd = departure - delayMs;
+        gapEnd = departure;
       }
     } else if (!stops[index].anytime) {
       const close = latestArrive(stops[index]);
       const open = notBefore(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
-      gapEnd = arrivedInside && !isAnytimeEnd(endMinutes)
+      const tailDelayMs = pieceDelayMinutes(stops[index], Math.max(0, (block.pieces?.length || 1) - 1)) * 60 * 1000;
+      const endAnchor = arrivedInside && !isAnytimeEnd(endMinutes)
         ? Math.min(close, nextDailyEnd(endMinutes, block.end, stops[index].timeZone || ""))
         : Math.max(block.end, close);
+      gapEnd = endAnchor === block.end ? block.end : endAnchor + tailDelayMs;
     } else {
       gapEnd = block.end;
     }
