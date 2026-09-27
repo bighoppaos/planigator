@@ -4538,23 +4538,15 @@ let turnFrameTarget = null;
 let turnFrameBearing = null;
 let routeCoverSize = "";
 
-function nextRealManeuver(hereAlong) {
-  for (const leg of navLegs) {
-    if (leg.stop?.done || leg.stop?.skipRoute) continue;
-    const steps = Array.isArray(leg.stop?.directions) ? leg.stop.directions : [];
-    const lengths = steps.map(stepLengthMeters);
-    const sum = lengths.reduce((total, length) => total + length, 0);
-    const total = Math.max(0, leg.end - leg.start);
-    const scale = sum > 1 ? Math.max(1, total / sum) : 1;
-    let along = leg.start;
-    for (let i = 0; i < steps.length; i += 1) {
-      const start = along;
-      along += (lengths[i] || 0) * scale;
-      if (start <= hereAlong + 8) continue;
-      if (startsWithManeuver(steps[i])) return { along: start, stop: leg.stop, index: i };
-    }
-  }
-  return null;
+function currentDirectionEnd(hereAlong) {
+  const leg = activeNavLeg({ along: hereAlong });
+  if (!leg) return null;
+  const gap = Math.max(0, leg.start - hereAlong);
+  const alongInLeg = Math.max(0, hereAlong - leg.start);
+  const found = navStep(leg, alongInLeg);
+  if (!found) return null;
+  const left = metersLeftInStep(leg, alongInLeg, found.index) + gap;
+  return hereAlong + Math.max(0, left);
 }
 
 function turnViewPadding() {
@@ -4586,12 +4578,12 @@ function frameNextTurn() {
     if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
   }
   const lineEnd = polylineMeters(navLine);
-  // Keep the truck and a half mile past the next exit or turn on screen.
-  // The span shrinks as he gets closer, so the map zooms in.
+  // The highlighted direction is the one he is on. Keep him and a half mile
+  // past the end of that direction on screen, and zoom in as he gets closer.
   const halfMile = 804.672;
-  const turn = nextRealManeuver(along);
-  const turnAlong = turn ? turn.along : lineEnd;
-  const farAlong = Math.min(lineEnd, Math.max(along + 40, turnAlong + halfMile));
+  const turnAlong = currentDirectionEnd(along);
+  const target = turnAlong == null ? along + halfMile : turnAlong;
+  const farAlong = Math.min(lineEnd, Math.max(along + 40, target + halfMile));
   const far = pointAlong(navLine, farAlong);
   if (!far) return;
   const bearing = navCompass != null
@@ -4621,8 +4613,8 @@ function frameNextTurn() {
   turnFrameBearing = bearing;
   if (turnMarker) turnMarker.remove();
   turnMarker = null;
-  if (turn) {
-    const at = pointAlong(navLine, turn.along);
+  if (turnAlong != null) {
+    const at = pointAlong(navLine, turnAlong);
     if (at) {
       const pin = document.createElement("span");
       pin.className = "turn-pin";
