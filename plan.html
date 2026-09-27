@@ -4,9 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Planigator</title>
-  <link rel="canonical" href="./">
+  <link rel="canonical" href="https://planigator.help/">
   <script>
-    location.replace("./" + location.search + location.hash);
+    if (location.hostname === "www.planigator.help") {
+      location.replace("https://planigator.help" + location.pathname + location.search + location.hash);
+    } else {
+      location.replace("./" + location.search + location.hash);
+    }
   </script>
   <meta http-equiv="refresh" content="0; url=./">
 </head>

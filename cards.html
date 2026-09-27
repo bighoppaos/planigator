@@ -3,7 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
   <title>Planigator cards</title>
+  <script>
+    if (location.hostname === "www.planigator.help") {
+      location.replace("https://planigator.help" + location.pathname + location.search + location.hash);
+    }
+  </script>
   <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
   <style>
     :root { --muted: #4b5a54; --line: #c9c2b6; }

@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="robots" content="noindex, nofollow">
   <title>Planigator</title>
-  <script>location.replace("./");</script>
+  <script>
+    if (location.hostname === "www.planigator.help") {
+      location.replace("https://planigator.help" + location.pathname + location.search + location.hash);
+    } else {
+      location.replace("./");
+    }
+  </script>
 </head>
 <body>
   <p><a href="./">Planigator</a></p>
