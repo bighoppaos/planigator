@@ -4743,12 +4743,22 @@ function frameNextTurn() {
   }
   navZoomHold = Date.now() + 800;
   routeMap.stop();
-  routeMap.fitBounds(bounds, {
-    padding,
-    bearing,
-    maxZoom: 16,
-    duration: 650,
-  });
+  const fitted = routeMap.cameraForBounds(bounds, { padding, bearing });
+  if (fitted && Number.isFinite(fitted.zoom)) {
+    routeMap.easeTo({
+      center: fitted.center,
+      zoom: Math.min(17, fitted.zoom + 0.45),
+      bearing,
+      duration: 650,
+    });
+  } else {
+    routeMap.fitBounds(bounds, {
+      padding,
+      bearing,
+      maxZoom: 17,
+      duration: 650,
+    });
+  }
 }
 
 function frameNextStop() {
