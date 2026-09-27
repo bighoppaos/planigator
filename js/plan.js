@@ -243,7 +243,7 @@ export function schedules({
       .filter((event) => event.kind === "drive")
       .map((event) => event.routeHours);
     const reported = clock.driveReporting(drive, cap, [0], [0]);
-    const laid = shiftEarlierDriveDelays(stop, reported);
+    const laid = applyDrivePieceDelays(stop, reported, clock);
     if (laid.shift) clock.now += laid.shift;
     const events = laid.events;
     const leading = [];
@@ -385,20 +385,28 @@ function pieceDelayMinutes(stop, pieceIndex) {
   return 0;
 }
 
-function shiftEarlierDriveDelays(stop, events) {
+function applyDrivePieceDelays(stop, events, clock) {
   const driveCount = events.filter((event) => event.kind === "drive").length;
-  let shift = 0;
+  let carry = 0;
   let drivePiece = 0;
   const shifted = events.map((event) => {
-    const next = { ...event, start: event.start + shift, end: event.end + shift };
+    if (event.kind === "rest") {
+      const start = event.start + carry;
+      const tenEnd = start + 10 * 3600 * 1000;
+      const resume = resumeAfterRest(clock.startMinutes, clock.endMinutes, tenEnd, clock.timeZone || "");
+      const end = Math.max(tenEnd, resume);
+      carry = end - event.end;
+      return { ...event, start, end };
+    }
+    const next = { ...event, start: event.start + carry, end: event.end + carry };
     if (event.kind === "drive") {
       const isLast = drivePiece >= driveCount - 1;
-      if (!isLast) shift += pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
+      if (!isLast) carry += pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
       drivePiece += 1;
     }
     return next;
   });
-  return { events: shifted, shift };
+  return { events: shifted, shift: carry };
 }
 
 function delaySatBefore(stops, index, blocks) {
