@@ -223,7 +223,7 @@ export function schedules({
     clock.timeZone = stop.timeZone || "";
     const prev = stops[index - 1];
     if (!stop.skipRoute && prev && !prev.skipRoute) {
-      const delayMinutes = Math.max(0, Number(prev.delayMinutes) || 0);
+      const delayMinutes = stopDelayMinutes(prev);
       if (delayMinutes >= 1) clock.sit(delayMinutes / 60);
     }
     const drive = inboundDrive(index, driveHours);
@@ -373,12 +373,20 @@ function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
   return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
 }
 
+function stopDelayMinutes(stop) {
+  if (!stop) return 0;
+  if (Array.isArray(stop.driveDelays)) {
+    return stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+  }
+  return Math.max(0, Number(stop.delayMinutes) || 0);
+}
+
 function delaySatBefore(stops, index) {
   if (index <= 0) return 0;
   const stop = stops[index];
   const prev = stops[index - 1];
   if (!stop || stop.skipRoute || !prev || prev.skipRoute) return 0;
-  const minutes = Math.max(0, Number(prev.delayMinutes) || 0);
+  const minutes = stopDelayMinutes(prev);
   if (minutes < 1) return 0;
   return minutes * 60 * 1000;
 }
@@ -552,6 +560,7 @@ export function timeline({
           late,
           stopID: stops[index].id,
           index,
+          pieceIndex,
         });
       } else {
         events.push({
@@ -566,6 +575,7 @@ export function timeline({
           rgb,
           stopID: stops[index].id,
           index,
+          pieceIndex,
         });
       }
       piece.pausesAfter.forEach((rest) => events.push(restEvent(rest, stops[index].id)));

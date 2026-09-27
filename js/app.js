@@ -22,7 +22,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=138";
+} from "./plan.js?v=139";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -5974,16 +5974,35 @@ function chip(event) {
       ${section(arrive, event.late ? "late" : "")}
     </div>
   `;
-  const ownerId = driveDelayOwnerId(event);
-  if (!ownerId) return body;
-  return `<div class="chip-row">${body}${delayBox(ownerId)}</div>`;
+  const delay = driveDelayTarget(event);
+  if (!delay) return body;
+  return `<div class="chip-row">${body}${delayBox(delay.stop, delay.pieceIndex)}</div>`;
 }
 
-function driveDelayOwnerId(event) {
-  if (event.kind !== "lead" && event.kind !== "stop") return "";
+function drivePieceIndex(event) {
+  if (Number.isInteger(event.pieceIndex)) return event.pieceIndex;
+  if (event.kind === "lead") {
+    const match = /-(\d+)$/.exec(String(event.id || ""));
+    if (match) return Number(match[1]);
+  }
+  if (event.kind === "stop") {
+    const leads = (state.plan?.events || []).filter((item) => item.kind === "lead" && item.stopID === event.stopID);
+    return leads.length;
+  }
+  return 0;
+}
+
+function driveDelayTarget(event) {
+  if (event.kind !== "lead" && event.kind !== "stop") return null;
   const stop = state.stops.find((item) => item.id === event.stopID);
-  if (!stop || stop.skipRoute) return "";
-  return stop.id;
+  if (!stop || stop.skipRoute) return null;
+  return { stop, pieceIndex: drivePieceIndex(event) };
+}
+
+function driveDelayAt(stop, pieceIndex) {
+  if (Array.isArray(stop.driveDelays)) return Math.max(0, Math.round(Number(stop.driveDelays[pieceIndex]) || 0));
+  if (pieceIndex === 0) return Math.max(0, Math.round(Number(stop.delayMinutes) || 0));
+  return 0;
 }
 
 function eventsAround(stopId) {
@@ -6019,32 +6038,37 @@ function delayLabel(minutes) {
   return `${hours} hr ${remain} min`;
 }
 
-function delayBox(ownerId) {
-  const stop = state.stops.find((item) => item.id === ownerId);
-  if (!stop) return "";
-  const minutes = Math.max(0, Number(stop.delayMinutes) || 0);
+function delayBox(stop, pieceIndex) {
+  const minutes = driveDelayAt(stop, pieceIndex);
   return `
     <div class="delay-slot">
       <div class="delay-box">
         <span class="delay-name">Possible delay time</span>
         <span class="delay-controls">
-          <button type="button" data-delay="${stop.id}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
+          <button type="button" data-delay="${stop.id}" data-delay-piece="${pieceIndex}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
           <span class="delay-read">${delayLabel(minutes)}</span>
-          <button type="button" data-delay="${stop.id}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
+          <button type="button" data-delay="${stop.id}" data-delay-piece="${pieceIndex}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
         </span>
       </div>
     </div>
   `;
 }
 
-function changeDelay(id, delta) {
+function changeDelay(id, pieceIndex, delta) {
   if (state.estimating) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
-  const current = Math.max(0, Number(stop.delayMinutes) || 0);
+  const piece = Math.max(0, Number(pieceIndex) || 0);
+  if (!Array.isArray(stop.driveDelays)) {
+    stop.driveDelays = [];
+    const legacy = Math.max(0, Math.round(Number(stop.delayMinutes) || 0));
+    if (legacy) stop.driveDelays[0] = legacy;
+  }
+  const current = Math.max(0, Math.round(Number(stop.driveDelays[piece]) || 0));
   const next = Math.max(0, Math.min(24 * 60, current + delta));
   if (next === current) return;
-  stop.delayMinutes = next;
+  stop.driveDelays[piece] = next;
+  stop.delayMinutes = stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
   persist();
   if (state.plan) calculate({ silent: true });
   else render();
@@ -7188,7 +7212,11 @@ function bind() {
   });
   document.querySelectorAll("[data-delay]").forEach((button) => {
     button.addEventListener("click", () => {
-      changeDelay(button.getAttribute("data-delay"), Number(button.getAttribute("data-delay-by")) || 0);
+      changeDelay(
+        button.getAttribute("data-delay"),
+        Number(button.getAttribute("data-delay-piece")) || 0,
+        Number(button.getAttribute("data-delay-by")) || 0,
+      );
     });
   });
   document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
