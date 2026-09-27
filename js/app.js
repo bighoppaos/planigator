@@ -6142,8 +6142,20 @@ function routeProgressKey(line) {
   return `${line.length}:${Math.round(polylineMeters(line))}:${line[0]?.join(",")}:${mid.join(",")}:${line[line.length - 1]?.join(",")}`;
 }
 
+let navPulseAt = 0;
+
+function keepNavSignedIn() {
+  if (!navOn || !state.signedIn) return Promise.resolve();
+  const now = Date.now();
+  if (now - navPulseAt < 5 * 60 * 1000) return Promise.resolve();
+  navPulseAt = now;
+  return pulseActivity();
+}
+
 function beginRouteNav() {
   navOn = true;
+  navPulseAt = 0;
+  void keepNavSignedIn();
   navAlongLock = null;
   navLineKey = routeProgressKey(routePoints());
   navFollowing = false;
@@ -6854,10 +6866,12 @@ export function initPlanner(el) {
 }
 
 async function watchSignIn() {
+  if (navOn) await keepNavSignedIn();
   const was = state.signedIn;
   await refreshCredits();
   if (maybeCelebratePack() || maybeCelebrateCard()) return;
   if (was && !state.signedIn) {
+    if (navOn) return;
     state.calls = [];
     state.notice = state.idleSignOut ? "" : "Signed out.";
     resetLocalBoxFont();
