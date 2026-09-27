@@ -3850,31 +3850,24 @@ function rebuildNavLegs() {
   navLegs = next;
 }
 
-function startsWithManeuver(step) {
-  const text = String(step?.text || "");
-  if (/\b(continue|head|depart|arrive)\b/i.test(text)) return false;
-  return /\b(turn|u-turn|roundabout|keep|exit|ramp)\b/i.test(text);
+function scaledStepLengths(steps, path) {
+  const lengths = (steps || []).map(stepLengthMeters);
+  const sum = lengths.reduce((total, length) => total + length, 0);
+  const total = polylineMeters(path || []);
+  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
+  return lengths.map((length) => (length || 0) * scale);
 }
 
 function navStep(leg, alongInLeg) {
   const steps = Array.isArray(leg.stop.directions) ? leg.stop.directions : [];
   if (!steps.length) return null;
-  const lengths = steps.map(stepLengthMeters);
-  const sum = lengths.reduce((total, length) => total + length, 0);
-  const total = polylineMeters(leg.path);
-  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
+  const lengths = scaledStepLengths(steps, leg.path);
   let cursor = 0;
   for (let i = 0; i < steps.length; i += 1) {
-    const len = lengths[i] * scale;
-    if (alongInLeg <= cursor + Math.max(len, 1) || i === steps.length - 1) {
-      const into = alongInLeg - cursor;
-      // Each row names the maneuver that starts the next span. Stay on the
-      // previous row until about 150 feet past that maneuver.
-      if (i > 0 && into <= 45 && startsWithManeuver(steps[i])) {
-        return { step: steps[i - 1], index: i - 1 };
-      }
-      return { step: steps[i], index: i };
-    }
+    const len = Math.max(lengths[i] || 0, 1);
+    // The row names the maneuver at the end of this span. Leave it when
+    // that maneuver is reached, so the next turn is the one counting down.
+    if (alongInLeg < cursor + len || i === steps.length - 1) return { step: steps[i], index: i };
     cursor += len;
   }
   return { step: steps[0], index: 0 };
@@ -4862,14 +4855,25 @@ function liveDirection() {
 
 function metersLeftInStep(leg, alongInLeg, index) {
   const steps = Array.isArray(leg?.stop?.directions) ? leg.stop.directions : [];
-  const lengths = steps.map(stepLengthMeters);
-  const sum = lengths.reduce((total, length) => total + length, 0);
-  const total = polylineMeters(leg.path);
-  const scale = sum > 1 ? Math.max(1, total / sum) : 1;
+  const lengths = scaledStepLengths(steps, leg?.path);
+  if (!lengths.length) return 0;
+  const into = Math.max(0, alongInLeg);
+  if (index >= lengths.length - 1) return Math.max(0, polylineMeters(leg?.path || []) - into);
   let cursor = 0;
-  for (let i = 0; i < index; i += 1) cursor += (lengths[i] || 0) * scale;
-  const length = (lengths[index] || 0) * scale;
-  return Math.max(0, length - Math.max(0, alongInLeg - cursor));
+  for (let i = 0; i < index; i += 1) cursor += lengths[i] || 0;
+  return Math.max(0, (lengths[index] || 0) - Math.max(0, into - cursor));
+}
+
+function maneuverEndAlong(stopId, index) {
+  const leg = navLegs.find((item) => item.stop?.id === stopId);
+  if (!leg || index < 0) return null;
+  const steps = Array.isArray(leg.stop.directions) ? leg.stop.directions : [];
+  const lengths = scaledStepLengths(steps, leg.path);
+  if (!lengths.length) return null;
+  if (index >= lengths.length - 1) return leg.end;
+  let end = leg.start;
+  for (let i = 0; i <= index; i += 1) end += lengths[i] || 0;
+  return end;
 }
 
 function directionStep(stopId, index) {
@@ -4890,23 +4894,24 @@ function nextManeuverText(stopId, index) {
   return String(follow?.directions?.[0]?.text || "");
 }
 
-function paintDirectionMiles(stopId, index, meters) {
+function paintDirectionMiles(truckAlong) {
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
-    const current = button.getAttribute("data-dir-stop") === stopId && button.getAttribute("data-dir-index") === String(index);
+    const stopId = button.getAttribute("data-dir-stop");
+    const index = Number(button.getAttribute("data-dir-index"));
     const link = button.querySelector(".dir-link");
     const slot = button.querySelector(".dir-miles");
-    const original = link?.getAttribute("data-original") || "";
-    if (!current) {
-      const idx = Number(button.getAttribute("data-dir-index"));
-      const rowStop = button.getAttribute("data-dir-stop");
-      const step = directionStep(rowStop, idx);
-      if (link) link.textContent = shownDirection(step, { text: nextManeuverText(rowStop, idx) });
-      if (slot?.getAttribute("data-full")) slot.textContent = slot.getAttribute("data-full");
-      return;
-    }
+    if (!link) return;
+    const end = maneuverEndAlong(stopId, index);
     const nextText = nextManeuverText(stopId, index);
-    const approach = approachPhrase(nextText, meters);
-    if (link) link.textContent = approach || directionWithMilesLeft(original, meters);
+    const step = directionStep(stopId, index);
+    const ahead = end == null || !Number.isFinite(truckAlong) ? NaN : end - truckAlong;
+    if (ahead > 1) {
+      const approach = approachPhrase(nextText, ahead);
+      link.textContent = approach || directionWithMilesLeft(link.getAttribute("data-original") || step?.text || "", ahead);
+    } else {
+      const name = maneuverText(nextText) || maneuverText(String(step?.text || ""));
+      link.textContent = name || withoutGo(String(step?.text || ""));
+    }
     if (slot) slot.textContent = "";
   });
 }
@@ -5055,7 +5060,7 @@ function guideFromChosenStop(chosen, lat, lon, hit) {
   const leftInStep = metersLeftInStep(leg, alongInLeg, found.index);
   const marked = markDirection(leg.stop.id, found.index);
   if (!marked) showStopNote(`Head to ${targetName}`, 4000);
-  paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+  paintDirectionMiles(hit.along);
   openDirectionsNear(leg.stop.id, found.index, leftInStep);
   paintNavLine(Math.min(hit.along, leg.end), leg.end);
   setStopChip(leftToEnd, targetName);
@@ -5775,7 +5780,7 @@ function onNavFix(lat, lon, alt) {
       paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
-        paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+        paintDirectionMiles(hit.along);
         openDirectionsNear(leg.stop.id, found.index, leftInStep);
       }
       clearStopNote(true);
@@ -6294,7 +6299,7 @@ function paintLiveDirections() {
   if (!found?.step) return;
   const leftInStep = metersLeftInStep(leg, alongInLeg, found.index) + gap;
   markDirection(leg.stop.id, found.index);
-  paintDirectionMiles(leg.stop.id, found.index, leftInStep);
+  paintDirectionMiles(hit.along);
   const leftOnLeg = Math.max(0, leg.end - hit.along);
   setStopChip(leftOnLeg, navStopTitle(leg.stop));
 }
