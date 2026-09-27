@@ -1521,16 +1521,19 @@ function arrivedAtRemovedStop(stop, here) {
   return true;
 }
 
+function doneStamp() {
+  return `<div class="done-mark" aria-hidden="true"><svg viewBox="0 0 200 180" focusable="false"><path d="M20 102 L70 152 L168 40" fill="none" stroke="#083526" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 102 L70 152 L168 40" fill="none" stroke="#3dcaa0" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112" cy="104" r="34" fill="#3dcaa0" stroke="#083526" stroke-width="5"/><circle cx="100" cy="96" r="4.4" fill="#083526"/><circle cx="126" cy="96" r="4.4" fill="#083526"/><path d="M96 112 Q113 130 130 112" fill="none" stroke="#083526" stroke-width="4.4" stroke-linecap="round"/></svg></div>`;
+}
+
 function paintDoneStop(id) {
   const card = document.querySelector(`[data-stop="${id}"]`);
-  if (!card || card.querySelector(".stop-done")) return;
-  card.querySelectorAll(".here-leg").forEach((node) => node.remove());
-  const line = document.createElement("p");
-  line.className = "flag-box stop-done";
-  line.textContent = "Done";
-  const head = card.querySelector(".stop-head");
-  if (head) head.after(line);
-  else card.prepend(line);
+  if (!card || card.classList.contains("is-done")) return;
+  card.classList.add("is-done");
+  card.inert = true;
+  const title = (card.querySelector("textarea[data-field=name]")?.value || "").trim() || "Stop";
+  card.setAttribute("aria-label", `${title} done`);
+  card.querySelectorAll(".here-leg, .stop-done").forEach((node) => node.remove());
+  card.insertAdjacentHTML("beforeend", doneStamp());
 }
 
 function closerLegEnd(leg, hit) {
@@ -6411,7 +6414,7 @@ function stopCard(stop, index) {
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = stopCanRemove(index);
   return `
-    <article class="stop-card" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}">
+    <article class="stop-card${stop.done && !originStop ? " is-done" : ""}" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}"${stop.done && !originStop ? ` inert aria-label="${escapeAttr(title)} done"` : ""}>
       <div class="stop-head">
         <label>
           <span class="sr">Stop name</span>
@@ -6439,7 +6442,6 @@ function stopCard(stop, index) {
       ${pointReady(stop) && !usingDismissed.has(stop.id) && !(state.lookupStopId === stop.id && state.lookupOk)
         ? `<p class="flag-box">Using this address.</p>`
         : ""}
-      ${!originStop && stop.done ? `<p class="flag-box stop-done">Done</p>` : ""}
       ${originStop || stop.done ? "" : hereLeg(stop)}
       ${originStop && (stop.name || "").trim().toLowerCase() === "start" ? "" : `
       <div class="stop-flags">
@@ -6450,6 +6452,7 @@ function stopCard(stop, index) {
         ${stop.window ? whenRow("Opens", stop, "start", stop.start) : ""}
         ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
+      ${stop.done && !originStop ? doneStamp() : ""}
     </article>
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}

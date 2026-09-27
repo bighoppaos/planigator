@@ -536,6 +536,27 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   overflow: hidden;
   overflow-wrap: break-word;
 }
+.stop-card.is-done {
+  position: relative;
+}
+.stop-card.is-done > :not(.done-mark) {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.done-mark {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.done-mark svg {
+  width: min(82%, 280px);
+  height: auto;
+  max-height: 88%;
+  filter: drop-shadow(0 2px 0 rgb(0 0 0 / 0.28));
+}
 
 .stops {
   margin: 8px -12px 16px;
