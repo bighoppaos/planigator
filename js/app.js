@@ -3124,12 +3124,13 @@ function planBox() {
         <p class="route-place" id="routePlace" hidden></p>
       </div>
       </div>
+      <button type="button" id="routePlaceClear" class="route-place-clear" hidden>Clear</button>
       <div id="routePlaceList" class="route-place-list" hidden></div>
     </div>
     <div id="routeDirectionsHome"></div>
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
       <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
@@ -5818,38 +5819,56 @@ function clearTruckPins() {
   truckMarker = null;
 }
 
+function pinDetailLines(hit, index, many) {
+  const place = [hit.city, hit.state].filter(Boolean).join(", ");
+  const ahead = Number.isFinite(Number(hit.milesAhead)) ? `${formatMiles(hit.milesAhead)} ahead` : "";
+  const off = Number.isFinite(Number(hit.milesOff)) ? `${formatMiles(hit.milesOff)} off the route` : "";
+  const title = `${many ? `${index + 1}. ` : ""}${hit.name || "Place"}`;
+  return [title, place, ahead, off].filter(Boolean);
+}
+
 function paintTruckPins() {
   const maplibre = window.maplibregl;
   clearTruckPins();
   if (!routeMap || !maplibre) return;
+  const many = truckHits.length > 1;
   truckHits.forEach((hit, index) => {
     const lat = Number(hit.lat);
     const lon = Number(hit.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const chosen = hit === truckHit;
     const wrap = document.createElement("span");
-    const many = truckHits.length > 1;
-    wrap.className = `truck-pin-wrap${many ? " is-pick" : ""}${hit === truckHit ? " is-chosen" : ""}`;
+    wrap.className = `truck-pin-wrap is-pick${chosen ? " is-chosen" : ""}`;
+    wrap.style.zIndex = chosen ? "4" : "1";
     const label = document.createElement("span");
     label.className = "truck-pin-label";
-    const name = document.createElement("span");
-    name.textContent = many ? String(index + 1) : (hit.name || "Truck stop");
-    const miles = document.createElement("span");
-    const ahead = Number(hit.milesAhead);
-    const meters = Number.isFinite(ahead)
-      ? ahead * 1609.344
-      : (navFix ? metersBetween(navFix, [lat, lon]) : NaN);
-    miles.textContent = Number.isFinite(meters) ? navMiles(meters) : "";
-    label.append(name, miles);
+    for (const text of pinDetailLines(hit, index, many)) {
+      const line = document.createElement("span");
+      line.textContent = text;
+      label.append(line);
+    }
+    if (chosen) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "truck-pin-add";
+      add.textContent = "Add and recalculate";
+      add.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        truckHit = hit;
+        addTruckAndRecalculate();
+      });
+      label.append(add);
+    }
     const pin = document.createElement("span");
     pin.className = "truck-pin";
     wrap.append(label, pin);
-    if (many) {
-      wrap.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        selectTruckHit(index);
-      });
-    }
+    wrap.addEventListener("click", (event) => {
+      if (event.target.closest(".truck-pin-add")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectTruckHit(index);
+    });
     const marker = new maplibre.Marker({ element: wrap, anchor: "bottom" }).setLngLat([lon, lat]).addTo(routeMap);
     truckMarkers.push(marker);
   });
@@ -5884,8 +5903,21 @@ function paintPlaceList() {
     note.textContent = truckHit ? truckNoteText(truckHit) : "";
   }
   fillPlaceChoices(document.getElementById("nextPlaceList"), false);
-  fillPlaceChoices(document.getElementById("routePlaceList"), true);
+  const routeList = document.getElementById("routePlaceList");
+  if (routeList) {
+    routeList.replaceChildren();
+    routeList.hidden = true;
+  }
+  const clear = document.getElementById("routePlaceClear");
+  if (clear) clear.hidden = truckHits.length === 0;
+  const pageClear = document.getElementById("clearPlaces");
+  if (pageClear) pageClear.hidden = truckHits.length === 0;
   if (add) add.hidden = !truckHit;
+}
+
+function clearPlacePins() {
+  forgetTruckChoice();
+  syncTruckAdd();
 }
 
 function selectTruckHit(index) {
@@ -5941,11 +5973,9 @@ function frameTruckStop() {
 }
 
 function syncTruckAdd() {
-  const show = routeFull && navOn && truckHit;
-  const place = truckHit?.place === "loves" || truckHit?.place === "walmart" || truckHit?.place === "cat" ? truckHit.place : "truck";
-  for (const [id, kind] of [["routeTruckAdd", "truck"], ["routeLovesAdd", "loves"], ["routeWalmartAdd", "walmart"], ["routeCatAdd", "cat"]]) {
+  for (const id of ["routeTruckAdd", "routeLovesAdd", "routeWalmartAdd", "routeCatAdd"]) {
     const add = document.getElementById(id);
-    if (add) add.hidden = !(show && place === kind);
+    if (add) add.hidden = true;
   }
 }
 
@@ -8331,6 +8361,8 @@ function bind() {
   $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));
   $("#routeCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat", frame: true }));
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
+  $("#clearPlaces")?.addEventListener("click", () => clearPlacePins());
+  $("#routePlaceClear")?.addEventListener("click", () => clearPlacePins());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeLovesAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());
