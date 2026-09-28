@@ -1123,7 +1123,7 @@ input.compact {
   overflow-wrap: break-word;
 }
 .chip.finish {
-  min-height: 4.2em;
+  min-height: 7.5em;
 }
 .chip-row {
   display: flex;
