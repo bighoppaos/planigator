@@ -4113,8 +4113,8 @@ function inDistance(meters) {
     const feet = Math.max(1, Math.round(meters * 3.28084));
     return `in ${feet} ${feet === 1 ? "foot" : "feet"}`;
   }
-  const rounded = miles >= 100 ? Math.round(miles) : Math.round(miles * 10) / 10;
-  const unit = rounded === 1 ? "mile" : "miles";
+  const rounded = miles.toFixed(1);
+  const unit = Number(rounded) === 1 ? "mile" : "miles";
   return `in ${rounded} ${unit}`;
 }
 
