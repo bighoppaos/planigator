@@ -517,7 +517,8 @@ function applyDrivePieceDelays(stop, events, before, cap) {
   let carry = 0;
   let drivePiece = 0;
   const shifted = [];
-  for (let i = 0; i < events.length; i += 1) {
+  let i = 0;
+  while (i < events.length) {
     const event = events[i];
     if (event.kind === "rest") {
       const start = event.start + carry;
@@ -526,6 +527,7 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       const end = Math.max(tenEnd, resume);
       if (end + 1000 < sim.now) {
         carry = sim.now - event.end;
+        i += 1;
         continue;
       }
       carry = end - event.end;
@@ -535,6 +537,7 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       sim.drivenToday = 0;
       sim.onDutyToday = 0;
       sim.restCount += 1;
+      i += 1;
       continue;
     }
     const next = { ...event, start: event.start + carry, end: event.end + carry };
@@ -547,8 +550,46 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       sim.onDutyToday += hours;
       const isLast = drivePiece >= driveCount - 1;
       const askedMs = isLast ? 0 : pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
-      const delayMs = delayThatFitsBeforeDayEnd(sim, events, i + 1, carry, askedMs);
       drivePiece += 1;
+      const delayMs = delayThatFitsBeforeDayEnd(sim, askedMs);
+      const dayEnd = dayEndAt(sim);
+      if (delayMs >= 60 * 1000 && laterWouldPassDayEnd(events, i + 1, carry + delayMs, dayEnd)) {
+        // Keep the 30-minute break in the day. The delay then moves the
+        // drives under that break. Drives that would pass the day end are
+        // laid out again after the reset.
+        let nextIndex = i + 1;
+        if (events[nextIndex]?.kind === "thirty") {
+          const brk = events[nextIndex];
+          const placed = { ...brk, start: brk.start + carry, end: brk.end + carry };
+          shifted.push(placed);
+          sim.now = Math.max(sim.now, placed.end);
+          sim.onDutyToday += 0.5;
+          sim.breakCount += 1;
+          sim.drivenSinceBreak = 0;
+          nextIndex += 1;
+        }
+        const fitted = delayThatFitsBeforeDayEnd(sim, askedMs);
+        if (fitted >= 60 * 1000) {
+          const spent = sim.spendDriveTime(fitted, cap);
+          carry += fitted;
+          spent.rests.forEach((rest, restIndex) => {
+            carry += rest.end - rest.start;
+            shifted.push({
+              kind: "rest",
+              start: rest.start,
+              end: rest.end,
+              id: `rest-delay-${stop.id}-${drivePiece}-${restIndex}`,
+            });
+          });
+        }
+        if (laterWouldPassDayEnd(events, nextIndex, carry, dayEndAt(sim))) {
+          const leftover = routeHoursAfter(events, nextIndex);
+          if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
+          break;
+        }
+        i = nextIndex;
+        continue;
+      }
       if (delayMs >= 60 * 1000) {
         const spent = sim.spendDriveTime(delayMs, cap);
         carry += delayMs;
@@ -575,27 +616,39 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       sim.breakCount += 1;
       sim.drivenSinceBreak = 0;
     }
+    i += 1;
   }
   return { events: shifted, sim, tailIndex: driveCount - 1 };
 }
 
-/** A delay can fill spare time before the day ends. It cannot push a later
- *  drive or 30-minute break past that end. Delay that does not fit is not
- *  carried into the next day. A delay that starts after the day has already
- *  ended can still move the reset, which keeps the morning end put. */
-function delayThatFitsBeforeDayEnd(sim, events, fromIndex, carry, delayMs) {
-  if (delayMs < 60 * 1000) return 0;
-  if (isAnytimeEnd(sim.endMinutes)) return delayMs;
-  if (!isInsideDriveWindow(sim.now, sim.startMinutes, sim.endMinutes, sim.timeZone)) return delayMs;
-  const dayEnd = nextDailyEnd(sim.endMinutes, sim.now, sim.timeZone);
-  let occupiedUntil = sim.now;
+function dayEndAt(sim) {
+  if (isAnytimeEnd(sim.endMinutes)) return Infinity;
+  if (!isInsideDriveWindow(sim.now, sim.startMinutes, sim.endMinutes, sim.timeZone)) return sim.now;
+  return nextDailyEnd(sim.endMinutes, sim.now, sim.timeZone);
+}
+
+function laterWouldPassDayEnd(events, fromIndex, carry, dayEnd) {
+  if (!Number.isFinite(dayEnd)) return false;
   for (let j = fromIndex; j < events.length; j += 1) {
     const event = events[j];
     if (event.kind === "rest") break;
     if (event.kind !== "drive" && event.kind !== "thirty") continue;
-    occupiedUntil = Math.max(occupiedUntil, event.end + carry);
+    if (event.end + carry > dayEnd + 1000) return true;
   }
-  return Math.min(delayMs, Math.max(0, dayEnd - occupiedUntil));
+  return false;
+}
+
+/** A delay can fill the time left in the driving day. It does not push a
+ *  drive or a 30-minute break past that end. Drives after a 30-minute break
+ *  move instead, including onto the next morning when they no longer fit.
+ *  Delay that does not fit is not carried into the next day. A delay that
+ *  starts after the day has already ended can still move the reset, which
+ *  keeps the morning end put. */
+function delayThatFitsBeforeDayEnd(sim, delayMs) {
+  if (delayMs < 60 * 1000) return 0;
+  if (isAnytimeEnd(sim.endMinutes)) return delayMs;
+  if (!isInsideDriveWindow(sim.now, sim.startMinutes, sim.endMinutes, sim.timeZone)) return delayMs;
+  return Math.min(delayMs, Math.max(0, dayEndAt(sim) - sim.now));
 }
 
 function delayRestMs(block) {
