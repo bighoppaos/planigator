@@ -6754,9 +6754,6 @@ function chip(event) {
   const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
-  const arrive = event.arrivalPhrase && event.earliestArrive
-    ? `${event.arrivalPhrase}: ${formatPlanShort(event.earliestArrive, eventZone(event))}`
-    : "";
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
@@ -6765,7 +6762,6 @@ function chip(event) {
       ${section(label)}
       ${section(middle)}
       ${section(span)}
-      ${section(arrive, event.late ? "late" : "")}
     </div>
   `;
   const delay = driveDelayTarget(event);
