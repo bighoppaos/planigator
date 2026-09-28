@@ -308,8 +308,9 @@ export class TruckerHOSClock {
   }
 
   /** Possible delay counts as driving. `ms` is taken out of the daily drive
-   *  limit and the 14-hour day. A full day inserts a 10-hour reset, then the
-   *  leftover delay counts on the fresh clock. */
+   *  limit and the 14-hour day. A full day inserts a 10-hour reset. Delay
+   *  left after that still counts on the new day, but it does not push the
+   *  first drive past the morning start. */
   spendDriveTime(ms, cap) {
     const rests = [];
     let left = Math.max(0, ms);
@@ -321,9 +322,19 @@ export class TruckerHOSClock {
       const dutyLeft = (dutyCap - this.onDutyToday) * 3600 * 1000;
       if (driveLeft < 1000 || dutyLeft < 1000) {
         const start = this.now;
+        const rawEnd = start + 10 * 3600 * 1000;
         this.takeRest();
         if (this.now <= start) break;
         rests.push({ start, end: this.now });
+        if (this.now > rawEnd + 1000) {
+          const charge = Math.min(left, Math.max(0, cap) * 3600 * 1000, dutyCap * 3600 * 1000);
+          if (charge > 1000) {
+            this.drivenToday += charge / 3600 / 1000;
+            this.onDutyToday += charge / 3600 / 1000;
+            left -= charge;
+          }
+          if (left <= 1000) break;
+        }
         continue;
       }
       const take = Math.min(left, driveLeft, dutyLeft);
