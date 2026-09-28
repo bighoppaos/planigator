@@ -4787,7 +4787,7 @@ function paddingForTurnZoom(basePad, deeper) {
   return { padding: { ...padding, left, right }, zoomIn: deeper };
 }
 
-const TURN_ZOOM_OUT_MS = 20000;
+const TURN_ZOOM_OUT_MS = 40000;
 
 function clearTurnFrame() {
   turnFrameAt = null;
@@ -4819,15 +4819,16 @@ function turnGuideAlong() {
 function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
   const halfMile = 804.672;
-  const twoMiles = 3218.688;
+  const oneMile = 1609.344;
+  const quarterMile = 402.336;
   const turnAlong = currentDirectionEnd(along);
   const ahead = turnAlong == null ? halfMile : Math.max(0, turnAlong - along);
-  // A long leg stays about two miles deep instead of opening all the way to
-  // the turn. Half a mile past it is only added once the turn is close, and
-  // that close view zooms in further. Extra zoom on a long leg would push
-  // the turn off the top.
-  const look = Math.min(ahead, twoMiles);
-  const past = ahead <= halfMile ? halfMile : 0;
+  // A long leg stays about one mile deep instead of opening all the way to
+  // the turn. A quarter mile past it is only added once the turn is close,
+  // and that close view zooms in further. Extra zoom on a long leg would
+  // push the turn off the top.
+  const look = Math.min(ahead, oneMile);
+  const past = ahead <= halfMile ? quarterMile : 0;
   const farAlong = Math.min(lineEnd, Math.max(along + 40, along + look + past));
   const far = pointAlong(navLine, farAlong);
   let bearing = 0;
@@ -4836,7 +4837,7 @@ function turnSpan(along) {
       ? navCompass
       : (far ? navBearing(navFix, [far.lat, far.lon]) : 0);
   }
-  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 1.2 : 0 };
+  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 1.5 : 0 };
 }
 
 function turnStepKey(along) {
@@ -4964,7 +4965,9 @@ function paintTurnZoomOut() {
     return;
   }
   turnZoomOut.elapsed = Date.now() - turnZoomOut.started;
-  const t = Math.min(1, turnZoomOut.elapsed / TURN_ZOOM_OUT_MS);
+  // Ease in, so the first part stays near the turn you just made.
+  const u = Math.min(1, turnZoomOut.elapsed / TURN_ZOOM_OUT_MS);
+  const t = u * u;
   const moved = moveTurnZoomOut(t);
   if (t < 1) {
     scheduleTurnZoomOut();
@@ -5026,7 +5029,7 @@ function frameNextTurn() {
     && metersBetween(turnFrameAt, navFix) < 80
     && bearingDelta < 12;
   if (sameView) return;
-  // Passed a turn and the next one is farther: zoom out over 20 seconds.
+  // Passed a turn and the next one is farther: zoom out over 40 seconds.
   // You and the turn you just made stay on screen the whole way.
   const passed = turnShownKey && turnShownKey !== stepKey
     && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
