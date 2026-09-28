@@ -1666,7 +1666,13 @@ async function removeStop(id) {
   }
   const here = state.plan && next && stopHasSavedLeg(next) ? await positionForArrival() : null;
   const arrived = Boolean(here && arrivedAtRemovedStop(removed, here));
+  if (Array.isArray(removed?.directions)) {
+    for (const stop of state.stops) {
+      if (stop.id !== removed.id && stop.directions === removed.directions) stop.directions = [];
+    }
+  }
   state.stops = state.stops.filter((stop) => stop.id !== id);
+  refreshAfterStopRemoved();
   if (arrived) {
     state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
     state.error = "";
@@ -5340,8 +5346,16 @@ function nextManeuverText(stopId, index) {
 }
 
 function paintDirectionMiles(truckAlong) {
+  const ids = new Set(state.stops.map((stop) => stop.id));
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     const stopId = button.getAttribute("data-dir-stop");
+    if (!ids.has(stopId)) {
+      const li = button.closest("li");
+      const prev = li?.previousElementSibling;
+      li?.remove();
+      if (prev?.classList.contains("dir-leg")) prev.remove();
+      return;
+    }
     const index = Number(button.getAttribute("data-dir-index"));
     const link = button.querySelector(".dir-link");
     const slot = button.querySelector(".dir-miles");
@@ -6881,20 +6895,37 @@ function bindDirectionSteps(root) {
 
 function refillDirections() {
   const html = directionsBlock();
-  const current = document.getElementById("routeDirections");
-  if (!html) {
-    current?.remove();
-    return;
-  }
+  document.querySelectorAll("#routeDirections").forEach((node) => node.remove());
+  if (!html) return;
   const host = document.createElement("template");
-  host.innerHTML = html;
+  host.innerHTML = html.trim();
   const next = host.content.firstElementChild;
   if (!next) return;
-  if (current) current.replaceWith(next);
-  else document.getElementById("routeStopMiles")?.after(next);
+  const miles = document.getElementById("routeStopMiles");
+  const home = document.getElementById("routeDirectionsHome");
+  if (routeFull && miles) miles.after(next);
+  else if (home) home.after(next);
+  else miles?.after(next);
   bindDirectionSteps(next);
   bindDirectionBrowse();
-  placeDirections(routeFull);
+}
+
+function refreshAfterStopRemoved() {
+  rebuildNavLegs();
+  navLineKey = routeProgressKey(routePoints());
+  const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
+  const source = routeMap?.getSource("route");
+  if (source && coordinates.length >= 2) {
+    source.setData({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates },
+    });
+  }
+  if (routeMapReady) addRoutePins();
+  clearTurnFrame();
+  refillDirections();
+  if (navOn && navFix && routeMap) onNavFix(navFix[0], navFix[1]);
+  syncRouteChrome();
 }
 
 function paintLiveRoute() {
