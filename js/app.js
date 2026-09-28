@@ -4738,6 +4738,50 @@ function turnViewPadding() {
   return pad;
 }
 
+// The side buttons sit on top of the map. This is how far the route has to
+// stay from each edge so it does not run under them.
+function railClearance() {
+  const map = document.getElementById("routeMap");
+  const clear = { left: 78, right: 78 };
+  if (!map) return clear;
+  const mapBox = map.getBoundingClientRect();
+  if (mapBox.width < 2) return clear;
+  document.querySelectorAll(".route-stage .route-rail").forEach((rail) => {
+    const box = rail.getBoundingClientRect();
+    if (box.width < 2 || box.height < 2) return;
+    const onLeft = box.left + box.width / 2 < mapBox.left + mapBox.width / 2;
+    const cover = onLeft
+      ? box.right - mapBox.left + 16
+      : mapBox.right - box.left + 16;
+    if (cover > 0) {
+      if (onLeft) clear.left = Math.max(clear.left, Math.round(cover));
+      else clear.right = Math.max(clear.right, Math.round(cover));
+    }
+  });
+  return clear;
+}
+
+// Extra zoom keeps the same center, so it crops the padded edges. Widen the
+// side padding first so the route still clears the buttons after that zoom.
+function paddingForTurnZoom(basePad, deeper) {
+  const clear = railClearance();
+  const padding = {
+    top: basePad.top,
+    bottom: basePad.bottom,
+    left: Math.max(basePad.left, clear.left),
+    right: Math.max(basePad.right, clear.right),
+  };
+  if (!(deeper > 0)) return { padding, zoomIn: 0 };
+  const width = document.getElementById("routeMap")?.getBoundingClientRect().width || 0;
+  if (width < 160) return { padding, zoomIn: 0 };
+  const scale = 2 ** deeper;
+  const widen = (side) => Math.ceil(side / scale + (width / 2) * (1 - 1 / scale));
+  const left = widen(padding.left);
+  const right = widen(padding.right);
+  if (left + right > width - 72) return { padding, zoomIn: 0 };
+  return { padding: { ...padding, left, right }, zoomIn: deeper };
+}
+
 function frameNextTurn() {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre) return;
@@ -4779,9 +4823,6 @@ function frameNextTurn() {
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
-  const padding = turnViewPadding();
-  padding.left = Math.max(padding.left, 78);
-  padding.right = Math.max(padding.right, 78);
   turnFrameAt = [navFix[0], navFix[1]];
   turnFrameTarget = farAlong;
   turnFrameBearing = bearing;
@@ -4797,20 +4838,34 @@ function frameNextTurn() {
   }
   navZoomHold = Date.now() + 800;
   routeMap.stop();
-  const fitted = routeMap.cameraForBounds(bounds, { padding, bearing });
   // A little closer only when the turn is near. Extra zoom on a long leg
   // pushes that turn off the top of the screen.
   const deeper = ahead <= halfMile ? 0.45 : 0;
+  let framed = paddingForTurnZoom(turnViewPadding(), 0);
+  let fitted = routeMap.cameraForBounds(bounds, { padding: framed.padding, bearing });
+  if (deeper > 0 && fitted && Number.isFinite(fitted.zoom)) {
+    const room = Math.min(deeper, Math.max(0, 17 - fitted.zoom));
+    if (room > 0.01) {
+      const closer = paddingForTurnZoom(turnViewPadding(), room);
+      const again = closer.zoomIn > 0
+        ? routeMap.cameraForBounds(bounds, { padding: closer.padding, bearing })
+        : null;
+      if (again && Number.isFinite(again.zoom)) {
+        framed = closer;
+        fitted = again;
+      }
+    }
+  }
   if (fitted && Number.isFinite(fitted.zoom)) {
     routeMap.easeTo({
       center: fitted.center,
-      zoom: Math.min(17, fitted.zoom + deeper),
+      zoom: Math.min(17, fitted.zoom + framed.zoomIn),
       bearing,
       duration: 650,
     });
   } else {
     routeMap.fitBounds(bounds, {
-      padding,
+      padding: framed.padding,
       bearing,
       maxZoom: 17,
       duration: 650,
@@ -4840,9 +4895,7 @@ function frameNextStop() {
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
-  const padding = turnViewPadding();
-  padding.left = Math.max(padding.left, 78);
-  padding.right = Math.max(padding.right, 78);
+  const padding = paddingForTurnZoom(turnViewPadding(), 0).padding;
   stopFrameAt = [here[0], here[1]];
   stopFrameId = stop.id;
   if (turnMarker) {
@@ -6489,7 +6542,7 @@ function applyTurnZoom(map, focus) {
     });
   } else {
     map.fitBounds(bounds, {
-      padding: 64,
+      padding: paddingForTurnZoom({ top: 64, right: 64, bottom: 64, left: 64 }, 0).padding,
       maxZoom: 16,
       bearing: turnBearing,
       animate: !reduce,
