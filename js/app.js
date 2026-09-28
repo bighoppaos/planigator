@@ -6747,8 +6747,8 @@ function chip(event) {
   const restMinutes = Math.round(Number(event.tripHours) * 60);
   const hideHours = event.kind === "thirty" || (event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60);
   const hours = event.tripHours != null && !hideHours ? hoursLabel(event.tripHours) : "";
-  const middle = event.kind === "leeway" && hours
-    ? `${hours} / ${leewayDays(event.tripHours)}`
+  const middle = event.kind === "leeway" && event.tripHours != null
+    ? leewayDays(event.tripHours)
     : [hours, miles].filter(Boolean).join(" · ");
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
