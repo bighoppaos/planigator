@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=129";
+} from "./hos.js?v=130";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -258,14 +258,15 @@ export function schedules({
       if (arriveLatest) clock.holdToArriveBy(open, drive, cap);
       else clock.holdForArrival(open, drive, cap);
     }
+    const beforeDrive = clock.clone();
     const chipClock = clock.clone();
     const chipEvents = chipClock.driveReporting(drive, cap, [0], [0]);
     const chipRouteHours = chipEvents
       .filter((event) => event.kind === "drive")
       .map((event) => event.routeHours);
     const reported = clock.driveReporting(drive, cap, [0], [0]);
-    const laid = applyDrivePieceDelays(stop, reported, clock);
-    if (laid.shift) clock.now += laid.shift;
+    const laid = applyDrivePieceDelays(stop, reported, beforeDrive, cap);
+    copyClock(clock, laid.sim);
     const events = laid.events;
     const leading = [];
     const pieces = [];
@@ -332,16 +333,28 @@ export function schedules({
     // A delay on this drive sits before the window wait, so spare time until
     // the window absorbs it. The next drive still leaves when the window
     // opens. On the last drive there is no next leave, so the arrival itself
-    // moves and the leeway below opens then.
-    const tailDelayMinutes = stop.skipRoute ? 0 : pieceDelayMinutes(stop, Math.max(0, pieces.length - 1));
+    // moves and the leeway below opens then. The minutes also come out of the
+    // daily drive limit. A full day puts a 10-hour reset in that delay.
+    const tailDelayMinutes = stop.skipRoute || laid.tailIndex < 0
+      ? 0
+      : pieceDelayMinutes(stop, laid.tailIndex);
     const nextStop = stops[index + 1];
     const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute;
     const laterVisible = stops.slice(index + 1).some((item, offset) => !isOriginStop(stops, index + 1 + offset) && !item.skipRoute);
-    if (tailDelayMinutes >= 1 && nextVisible) {
-      clock.sit(tailDelayMinutes / 60);
-    } else if (tailDelayMinutes >= 1 && !laterVisible) {
-      pieces[pieces.length - 1].end += tailDelayMinutes * 60 * 1000;
-      clock.sit(tailDelayMinutes / 60);
+    if (tailDelayMinutes >= 1 && (nextVisible || !laterVisible)) {
+      const started = clock.now;
+      const spent = clock.spendDriveTime(tailDelayMinutes * 60 * 1000, cap);
+      const moved = clock.now - started;
+      const last = pieces[pieces.length - 1];
+      spent.rests.forEach((rest, restIndex) => {
+        last.pausesAfter.push({
+          id: `rest-delay-${stop.id}-${pieces.length - 1}-${restIndex}`,
+          start: rest.start,
+          end: rest.end,
+          kind: "rest",
+        });
+      });
+      if (!nextVisible && !laterVisible) last.end += moved;
     }
     const arrive = pieces[pieces.length - 1].end;
     const close = stop.anytime ? null : latestArrive(stop);
@@ -421,28 +434,108 @@ function pieceDelayMinutes(stop, pieceIndex) {
   return 0;
 }
 
-function applyDrivePieceDelays(stop, events, clock) {
+function copyClock(target, source) {
+  target.now = source.now;
+  target.drivenSinceBreak = source.drivenSinceBreak;
+  target.drivenToday = source.drivenToday;
+  target.onDutyToday = source.onDutyToday;
+  target.breakCount = source.breakCount;
+  target.restCount = source.restCount;
+  target.notBeforeArrival = source.notBeforeArrival || 0;
+}
+
+function routeHoursUntilRest(events, fromIndex) {
+  let hours = 0;
+  for (let i = fromIndex; i < events.length; i += 1) {
+    if (events[i].kind === "rest") break;
+    if (events[i].kind === "drive") hours += Math.max(0, Number(events[i].hours) || 0);
+  }
+  return hours;
+}
+
+function routeHoursAfter(events, fromIndex) {
+  let hours = 0;
+  for (let i = fromIndex; i < events.length; i += 1) {
+    if (events[i].kind === "drive") hours += Math.max(0, Number(events[i].hours) || 0);
+  }
+  return hours;
+}
+
+function applyDrivePieceDelays(stop, events, before, cap) {
+  const sim = before.clone();
   const driveCount = events.filter((event) => event.kind === "drive").length;
   let carry = 0;
   let drivePiece = 0;
-  const shifted = events.map((event) => {
+  const shifted = [];
+  for (let i = 0; i < events.length; i += 1) {
+    const event = events[i];
     if (event.kind === "rest") {
       const start = event.start + carry;
       const tenEnd = start + 10 * 3600 * 1000;
-      const resume = resumeAfterRest(clock.startMinutes, clock.endMinutes, tenEnd, clock.timeZone || "");
+      const resume = resumeAfterRest(sim.startMinutes, sim.endMinutes, tenEnd, sim.timeZone || "");
       const end = Math.max(tenEnd, resume);
+      if (end + 1000 < sim.now) {
+        carry = sim.now - event.end;
+        continue;
+      }
       carry = end - event.end;
-      return { ...event, start, end };
+      shifted.push({ ...event, start, end });
+      sim.now = end;
+      sim.drivenSinceBreak = 0;
+      sim.drivenToday = 0;
+      sim.onDutyToday = 0;
+      sim.restCount += 1;
+      continue;
     }
     const next = { ...event, start: event.start + carry, end: event.end + carry };
+    shifted.push(next);
     if (event.kind === "drive") {
+      sim.now = Math.max(sim.now, next.end);
+      const hours = Math.max(0, Number(event.hours) || 0);
+      sim.drivenToday += hours;
+      sim.drivenSinceBreak += hours;
+      sim.onDutyToday += hours;
       const isLast = drivePiece >= driveCount - 1;
-      if (!isLast) carry += pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
+      const delayMs = isLast ? 0 : pieceDelayMinutes(stop, drivePiece) * 60 * 1000;
       drivePiece += 1;
+      if (delayMs >= 60 * 1000) {
+        const spent = sim.spendDriveTime(delayMs, cap);
+        carry += delayMs;
+        spent.rests.forEach((rest, restIndex) => {
+          carry += rest.end - rest.start;
+          shifted.push({
+            kind: "rest",
+            start: rest.start,
+            end: rest.end,
+            id: `rest-delay-${stop.id}-${drivePiece}-${restIndex}`,
+          });
+        });
+        const untilRest = routeHoursUntilRest(events, i + 1);
+        const room = cap - sim.drivenToday;
+        if (spent.rests.length || untilRest > room + 0.02) {
+          const leftover = routeHoursAfter(events, i + 1);
+          if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
+          break;
+        }
+      }
+    } else if (event.kind === "thirty") {
+      sim.now = Math.max(sim.now, next.end);
+      sim.onDutyToday += 0.5;
+      sim.breakCount += 1;
+      sim.drivenSinceBreak = 0;
     }
-    return next;
-  });
-  return { events: shifted, shift: carry };
+  }
+  return { events: shifted, sim, tailIndex: driveCount - 1 };
+}
+
+function delayRestMs(block) {
+  if (!block?.pieces?.length) return 0;
+  return block.pieces.reduce((sum, piece) => (
+    sum + (piece.pausesAfter || []).reduce((inner, pause) => {
+      if (pause.kind !== "rest" || pause.start + 1000 < block.end) return inner;
+      return inner + Math.max(0, pause.end - pause.start);
+    }, 0)
+  ), 0);
 }
 
 function delaySatBefore(stops, index, blocks) {
@@ -488,6 +581,7 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const close = stops[index].anytime ? null : latestArrive(stops[index]);
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
       const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex, blocks) : 0;
+      const restMs = delayRestMs(block);
       const departure = lead?.start ?? next.start;
       // An anytime stop is left as soon as this one is done. Stretching the
       // gap to the end of the driving day overlaps that drive. A delay that
@@ -496,13 +590,13 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
         const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
         if (latest > block.end + 60 * 1000) {
-          gapStart = block.end + delayMs;
+          gapStart = block.end + delayMs + restMs;
           gapEnd = latest;
         } else {
-          gapEnd = departure - delayMs;
+          gapEnd = departure - delayMs - restMs;
         }
       } else {
-        gapStart = block.end + delayMs;
+        gapStart = block.end + delayMs + restMs;
         gapEnd = departure;
       }
     } else if (!stops[index].anytime) {
@@ -607,12 +701,15 @@ export function timeline({
         pieceMiles = share;
       }
       const chipHours = piece.routeHours;
+      const delayRest = isTail
+        ? (piece.pausesAfter || []).find((pause) => pause.kind === "rest" && pause.start > piece.start + 60 * 1000 && pause.start < block.end - 60 * 1000)
+        : null;
       if (isTail) {
         events.push({
           id: stops[index].id,
           kind: "stop",
           start: piece.start,
-          end: block.end,
+          end: delayRest ? delayRest.start : block.end,
           miles: pieceMiles,
           tripHours: chipHours,
           timePhrase: "Drive",
