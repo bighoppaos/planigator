@@ -4012,10 +4012,12 @@ function spokenAloud(text) {
   said = said.replace(/[()]/g, " ");
   // "E/US-35" and "N/Fort" were glued to the slash, so the next word was spelled letter by letter.
   said = said.replace(/([A-Za-z0-9])\/+(?=[A-Za-z])/g, "$1 and ");
-  said = said.replace(/\bI-(\d+)\b/g, "Interstate $1");
+  said = said.replace(/\bI-(\d+)([A-Z])?\b/g, (_, num, letter) => (
+    `Interstate ${num}${letter || ""}`
+  ));
   // Uppercase only, so "in 0.4 miles" stays. Route shields (IN-25) and ", IN" are states.
-  said = said.replace(/\b([A-Z]{2})-(\d+)\b/g, (match, code, num) => (
-    STATE_NAMES[code] ? `${STATE_NAMES[code]} ${num}` : match
+  said = said.replace(/\b([A-Z]{2})-(\d+)([A-Z])?\b/g, (match, code, num, letter) => (
+    STATE_NAMES[code] ? `${STATE_NAMES[code]} ${num}${letter || ""}` : match
   ));
   said = said.replace(/,\s*([A-Z]{2})\b/g, (match, code) => (
     STATE_NAMES[code] ? `, ${STATE_NAMES[code]}` : match
@@ -4063,8 +4065,13 @@ function spokenAloud(text) {
     said = said.replace(new RegExp(`\\b${abbr}\\.?(?!\\w)`, "gi"), word);
   }
   // After the compass words, so the S in U.S. is not said as South.
-  said = said.replace(/\bUS-(\d+)\b/g, "U.S. $1");
+  // The letter on US-220A has to stay in the match, or the hyphen is left
+  // and the phone says "negative".
+  said = said.replace(/\bUS-(\d+)([A-Z])?\b/g, (_, num, letter) => (
+    `U.S. ${num}${letter || ""}`
+  ));
   said = said.replace(/\bUS\b/g, "U.S.");
+  said = said.replace(/\s*[-–—−]\s*/g, " ");
   return said.replace(/\s+/g, " ").trim();
 }
 
@@ -4923,7 +4930,7 @@ function paddingForTurnZoom(basePad, deeper) {
   return { padding: { ...padding, left, right }, zoomIn: deeper };
 }
 
-const TURN_HOLD_MS = 10000;
+const TURN_HOLD_MS = 60000;
 const TURN_OPEN_MS = 6000;
 
 function clearTurnFrame() {
@@ -5169,7 +5176,7 @@ function frameNextTurn() {
     && metersBetween(turnFrameAt, navFix) < 80
     && bearingDelta < 12;
   if (sameView) return;
-  // At the turn: hold you and that turn for 10 seconds, then zoom out
+  // At the turn: hold you and that turn for 60 seconds, then zoom out
   // to you and the next turn.
   const passed = turnShownKey && turnShownKey !== stepKey
     && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
