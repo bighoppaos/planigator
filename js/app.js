@@ -34,11 +34,11 @@ import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, sp
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
 const DEFAULT_HERO = [
+  "Made and maintained by a truck driver that still drives",
   "Know how much time you have to spare",
   "Truck legal GPS navigation on this same page. No app required.",
   "It's not expensive",
   "And it's cooler",
-  "Made by a driver that still drives",
 ];
 let heroLines = DEFAULT_HERO.slice();
 
@@ -65,12 +65,22 @@ function loadHeroLines() {
     const lines = cleanHeroLines(data?.lines);
     if (!lines.length) return;
     const previous = [
-      "Know how much time you have to spare",
-      "Truck legal GPS navigation on this same page. No app required.",
-      "It's not expensive",
-      "And it's cooler",
+      [
+        "Know how much time you have to spare",
+        "Truck legal GPS navigation on this same page. No app required.",
+        "It's not expensive",
+        "And it's cooler",
+      ],
+      [
+        "Know how much time you have to spare",
+        "Truck legal GPS navigation on this same page. No app required.",
+        "It's not expensive",
+        "And it's cooler",
+        "Made by a driver that still drives",
+      ],
     ];
-    heroLines = lines.join("\n") === previous.join("\n") ? DEFAULT_HERO.slice() : lines;
+    const saved = lines.join("\n");
+    heroLines = previous.some((set) => set.join("\n") === saved) ? DEFAULT_HERO.slice() : lines;
     paintHeroLines();
   }).catch(() => {});
   const timeout = new Promise((resolve) => setTimeout(resolve, 1200));

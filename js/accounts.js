@@ -262,11 +262,11 @@ async function load() {
 
 const HERO_MAX = 6;
 const DEFAULT_HERO = [
+  "Made and maintained by a truck driver that still drives",
   "Know how much time you have to spare",
   "Truck legal GPS navigation on this same page. No app required.",
   "It's not expensive",
   "And it's cooler",
-  "Made by a driver that still drives",
 ];
 
 function heroRow(value) {
