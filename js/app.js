@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=152";
+} from "./plan.js?v=153";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -6766,7 +6766,7 @@ function chip(event) {
   `;
   const delay = driveDelayTarget(event);
   if (!delay) return body;
-  return `<div class="chip-row">${body}${delayBox(delay.stop, delay.pieceIndex)}</div>`;
+  return `<div class="chip-row">${body}${delayBox(delay.stop, delay.pieceIndex, delay.finish)}</div>`;
 }
 
 function drivePieceIndex(event) {
@@ -6783,9 +6783,10 @@ function drivePieceIndex(event) {
 }
 
 function driveDelayTarget(event) {
-  if (event.kind !== "lead" && event.kind !== "stop") return null;
+  if (event.kind !== "lead" && event.kind !== "stop" && event.kind !== "finish") return null;
   const stop = state.stops.find((item) => item.id === event.stopID);
   if (!stop || stop.skipRoute) return null;
+  if (event.kind === "finish") return { stop, finish: true };
   return { stop, pieceIndex: drivePieceIndex(event) };
 }
 
@@ -6831,26 +6832,39 @@ function delayLabel(minutes) {
   return `${hours} hr ${remain} min`;
 }
 
-function delayBox(stop, pieceIndex) {
-  const minutes = driveDelayAt(stop, pieceIndex);
+function delayBox(stop, pieceIndex, finish = false) {
+  const minutes = finish
+    ? Math.max(0, Math.round(Number(stop.finishDelayMinutes) || 0))
+    : driveDelayAt(stop, pieceIndex);
+  const finishAttr = finish ? ` data-delay-finish="1"` : "";
   return `
     <div class="delay-slot">
       <div class="delay-box">
         <span class="delay-name">Possible delay time</span>
         <span class="delay-controls">
-          <button type="button" data-delay="${stop.id}" data-delay-piece="${pieceIndex}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
+          <button type="button" data-delay="${stop.id}"${finishAttr} data-delay-piece="${pieceIndex || 0}" data-delay-by="-15" ${minutes <= 0 ? "disabled" : ""} aria-label="Less possible delay time">−</button>
           <span class="delay-read">${delayLabel(minutes)}</span>
-          <button type="button" data-delay="${stop.id}" data-delay-piece="${pieceIndex}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
+          <button type="button" data-delay="${stop.id}"${finishAttr} data-delay-piece="${pieceIndex || 0}" data-delay-by="15" ${minutes >= 24 * 60 ? "disabled" : ""} aria-label="More possible delay time">+</button>
         </span>
       </div>
     </div>
   `;
 }
 
-function changeDelay(id, pieceIndex, delta) {
+function changeDelay(id, pieceIndex, delta, finish = false) {
   if (state.estimating) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
+  if (finish) {
+    const current = Math.max(0, Math.round(Number(stop.finishDelayMinutes) || 0));
+    const next = Math.max(0, Math.min(24 * 60, current + delta));
+    if (next === current) return;
+    stop.finishDelayMinutes = next;
+    persist();
+    if (state.plan) calculate({ silent: true });
+    else render();
+    return;
+  }
   const piece = Math.max(0, Number(pieceIndex) || 0);
   if (!Array.isArray(stop.driveDelays)) {
     stop.driveDelays = [];
@@ -8030,6 +8044,7 @@ function bind() {
         button.getAttribute("data-delay"),
         Number(button.getAttribute("data-delay-piece")) || 0,
         Number(button.getAttribute("data-delay-by")) || 0,
+        button.getAttribute("data-delay-finish") === "1",
       );
     });
   });

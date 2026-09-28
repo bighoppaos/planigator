@@ -419,11 +419,24 @@ export function schedules({
       });
       if (!nextVisible && !laterVisible && spent.rests.length === 0) last.end += clock.now - started;
     }
+    const finishAt = usable != null && usable > leaveAfterDelay + 60 * 1000 ? usable : 0;
+    const liveMinutes = finishDelayMinutes(stop);
+    if (finishAt && liveMinutes >= 1 && clock.now + 60 * 1000 >= finishAt) {
+      const spent = clock.spendDriveTime(liveMinutes * 60 * 1000, cap);
+      spent.rests.forEach((rest, restIndex) => {
+        last.pausesAfter.push({
+          id: `rest-finish-${stop.id}-${restIndex}`,
+          start: rest.start,
+          end: rest.end,
+          kind: "rest",
+        });
+      });
+    }
     if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
       start: pieces[0].start,
       end: arrive,
-      finishAt: usable != null && usable > leaveAfterDelay + 60 * 1000 ? usable : 0,
+      finishAt,
       tripHours: drive,
       leadingPauses: leading,
       pieces,
@@ -464,6 +477,10 @@ function pieceDelayMinutes(stop, pieceIndex) {
   if (Array.isArray(stop.driveDelays)) return Math.max(0, Number(stop.driveDelays[pieceIndex]) || 0);
   if (pieceIndex === 0) return Math.max(0, Number(stop.delayMinutes) || 0);
   return 0;
+}
+
+function finishDelayMinutes(stop) {
+  return Math.max(0, Math.round(Number(stop?.finishDelayMinutes) || 0));
 }
 
 function copyClock(target, source) {
@@ -614,7 +631,8 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const arrivedInside = open == null || block.end + 60 * 1000 >= open;
       const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex, blocks) : 0;
       const restMs = delayRestMs(block);
-      const departure = lead?.start ?? next.start;
+      const rawLeave = lead?.start ?? next.start;
+      const departure = block.finishAt && rawLeave > block.finishAt + 60 * 1000 ? block.finishAt : rawLeave;
       const reset = (block.pieces || []).flatMap((piece) => piece.pausesAfter || []).find((pause) => (
         pause.kind === "rest" && pause.start + 1000 >= block.end
       ));
