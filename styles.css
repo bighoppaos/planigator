@@ -1210,6 +1210,7 @@ input.compact {
   border-top: 1px solid currentColor;
 }
 .chip-sec.late, .error { color: #b42318; font-weight: 700; }
+p.late-note { margin: 4px 0 8px; }
 .ok { color: var(--mint); font-weight: 600; }
 .shared-note { margin: 16px 0 0; }
 .example-note { margin: 0; }

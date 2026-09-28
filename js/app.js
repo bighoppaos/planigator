@@ -3124,7 +3124,6 @@ function planBox() {
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
     ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
-    ${plan.late && plan.lastDeadline ? `<p class="error">That is after ${escapeAttr(plan.lastTimedTitle)}’s be-there-by (${formatPlanShort(plan.lastDeadline, zoneForStop((state.stops || []).find((item) => item.id === plan.lastStopId)))}).</p>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
       <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
@@ -6771,8 +6770,18 @@ function chip(event) {
     </div>
   `;
   const delay = driveDelayTarget(event);
-  if (!delay) return body;
-  return `<div class="chip-row">${body}${delayBox(delay.stop, delay.pieceIndex, delay.finish)}</div>`;
+  const row = delay ? `<div class="chip-row">${body}${delayBox(delay.stop, delay.pieceIndex, delay.finish)}</div>` : body;
+  return `${row}${lateNote(event)}`;
+}
+
+function lateNote(event) {
+  if (!event?.late) return "";
+  const stop = state.stops.find((item) => item.id === event.stopID);
+  if (!stop || stop.anytime) return "";
+  const deadline = stop.window ? stop.end : stop.start;
+  if (!deadline) return "";
+  const title = (stop.name || "").trim() || event.title || "this stop";
+  return `<p class="error late-note">That is after ${escapeAttr(title)}’s be-there-by (${formatPlanShort(deadline, zoneForStop(stop))}).</p>`;
 }
 
 function drivePieceIndex(event) {
