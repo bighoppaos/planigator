@@ -334,18 +334,25 @@ export function schedules({
     // the window absorbs it. The next drive still leaves when the window
     // opens. On the last drive there is no next leave, so the arrival itself
     // moves and the leeway below opens then. The minutes also come out of the
-    // daily drive limit. A full day puts a 10-hour reset in that delay.
+    // daily drive limit. They stop at the end of the driving day. The 10-hour
+    // reset still starts then. Delay that does not fit waits until after it.
     const tailDelayMinutes = stop.skipRoute || laid.tailIndex < 0
       ? 0
       : pieceDelayMinutes(stop, laid.tailIndex);
     const nextStop = stops[index + 1];
     const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute;
     const laterVisible = stops.slice(index + 1).some((item, offset) => !isOriginStop(stops, index + 1 + offset) && !item.skipRoute);
-    if (tailDelayMinutes >= 1 && (nextVisible || !laterVisible)) {
+    const applyTail = tailDelayMinutes >= 1 && (nextVisible || !laterVisible);
+    const inDay = !isAnytimeEnd(clock.endMinutes)
+      && isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone);
+    const savedDayEnd = inDay ? nextDailyEnd(clock.endMinutes, clock.now, clock.timeZone) : 0;
+    const delayMs = applyTail ? tailDelayMinutes * 60 * 1000 : 0;
+    const delayBefore = savedDayEnd ? Math.min(delayMs, Math.max(0, savedDayEnd - clock.now)) : delayMs;
+    const delayAfter = delayMs - delayBefore;
+    const last = pieces[pieces.length - 1];
+    if (delayBefore >= 60 * 1000) {
       const started = clock.now;
-      const spent = clock.spendDriveTime(tailDelayMinutes * 60 * 1000, cap);
-      const moved = clock.now - started;
-      const last = pieces[pieces.length - 1];
+      const spent = clock.spendDriveTime(delayBefore, cap);
       spent.rests.forEach((rest, restIndex) => {
         last.pausesAfter.push({
           id: `rest-delay-${stop.id}-${pieces.length - 1}-${restIndex}`,
@@ -354,28 +361,63 @@ export function schedules({
           kind: "rest",
         });
       });
-      if (!nextVisible && !laterVisible) last.end += moved;
+      if (!nextVisible && !laterVisible && spent.rests.length === 0) last.end += clock.now - started;
     }
-    const arrive = pieces[pieces.length - 1].end;
+    const arrive = last.end;
     const close = stop.anytime ? null : latestArrive(stop);
     const usable = open == null ? null : clock.usableAt(open, close);
     const leaveAfterDelay = nextVisible ? arrive + tailDelayMinutes * 60 * 1000 : arrive;
     if (usable != null && clock.now + 60 * 1000 < usable) {
-      const dayEnd = isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now, clock.timeZone);
+      const dayEnd = savedDayEnd || (isAnytimeEnd(clock.endMinutes) ? usable : nextDailyEnd(clock.endMinutes, clock.now, clock.timeZone));
       const restFrom = isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone) ? dayEnd : clock.now;
       const oneNight = isAnytimeEnd(clock.endMinutes)
         ? usable
         : resumeAfterRest(clock.startMinutes, clock.endMinutes, restFrom + 10 * 3600 * 1000, clock.timeZone);
-      if (usable > oneNight + 60 * 1000) {
+      const horizon = isAnytimeEnd(clock.endMinutes)
+        ? usable
+        : nextDailyEnd(clock.endMinutes, oneNight + 60 * 1000, clock.timeZone);
+      const sameNextDay = !isAnytimeEnd(clock.endMinutes) && savedDayEnd && usable <= horizon + 60 * 1000;
+      const drove = clock.drivenToday > 0.01 || clock.drivenSinceBreak > 0.01;
+      const gap = savedDayEnd ? savedDayEnd - clock.now : 0;
+      const alreadyRested = last.pausesAfter.some((pause) => pause.kind === "rest");
+      if (usable > oneNight + 60 * 1000 && sameNextDay && !alreadyRested && drove && gap < 10 * 3600 * 1000 - 60 * 1000 && gap > -60 * 1000) {
+        if (gap > 60 * 1000) clock.now = savedDayEnd;
+        const restStart = clock.now;
+        clock.takeRest();
+        last.pausesAfter.push({
+          id: `rest-day-${stop.id}`,
+          start: restStart,
+          end: clock.now,
+          kind: "rest",
+        });
+        if (delayAfter >= 60 * 1000) clock.spendDriveTime(delayAfter, cap);
+        if (clock.now + 60 * 1000 < usable) clock.waitUntil(usable);
+      } else if (usable > oneNight + 60 * 1000) {
+        if (delayAfter >= 60 * 1000) clock.spendDriveTime(delayAfter, cap);
         clock.waitUntil(usable);
       } else if (!isPastDailyEnd(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone)) {
+        if (delayAfter >= 60 * 1000) clock.spendDriveTime(delayAfter, cap);
         if (isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone) && dayEnd + 60 * 1000 < usable) {
           clock.waitUntil(dayEnd);
         } else {
           const restCovers = clock.overnightRestStillMakes(open, close);
           if (!restCovers || usable > open + 60 * 1000) clock.waitUntil(usable);
         }
+      } else if (delayAfter >= 60 * 1000) {
+        clock.spendDriveTime(delayAfter, cap);
       }
+    } else if (delayAfter >= 60 * 1000) {
+      const started = clock.now;
+      const spent = clock.spendDriveTime(delayAfter, cap);
+      spent.rests.forEach((rest, restIndex) => {
+        last.pausesAfter.push({
+          id: `rest-delay-after-${stop.id}-${restIndex}`,
+          start: rest.start,
+          end: rest.end,
+          kind: "rest",
+        });
+      });
+      if (!nextVisible && !laterVisible && spent.rests.length === 0) last.end += clock.now - started;
     }
     if (captureClocks) captureClocks.set(index, clock.clone());
     result[index] = {
@@ -583,6 +625,35 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
       const delayMs = nextIndex === index + 1 ? delaySatBefore(stops, nextIndex, blocks) : 0;
       const restMs = delayRestMs(block);
       const departure = lead?.start ?? next.start;
+      const reset = (block.pieces || []).flatMap((piece) => piece.pausesAfter || []).find((pause) => (
+        pause.kind === "rest" && pause.start + 1000 >= block.end
+      ));
+      if (reset) {
+        const beforeRoom = Math.max(0, reset.start - block.end);
+        const delayBefore = Math.min(delayMs, beforeRoom);
+        const delayAfter = Math.max(0, delayMs - delayBefore);
+        const beforeStart = block.end + delayBefore;
+        if (reset.start - beforeStart >= 60 * 1000) {
+          gaps.push({
+            id: `leeway-after-${stops[index].id}`,
+            after: index,
+            start: beforeStart,
+            end: reset.start,
+            hours: (reset.start - beforeStart) / 3600 / 1000,
+          });
+        }
+        const afterStart = reset.end + delayAfter;
+        if (departure - afterStart >= 60 * 1000) {
+          gaps.push({
+            id: `leeway-after-${stops[index].id}-morn`,
+            after: index,
+            start: afterStart,
+            end: departure,
+            hours: (departure - afterStart) / 3600 / 1000,
+          });
+        }
+        return;
+      }
       // An anytime stop is left as soon as this one is done. Stretching the
       // gap to the end of the driving day overlaps that drive. A delay that
       // still fits before the window only moves this leeway's open.
