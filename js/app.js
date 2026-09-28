@@ -1051,6 +1051,7 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     state.error = "";
     state.notice = "";
     render();
+    document.getElementById("stepStart")?.scrollIntoView({ block: "start", behavior: "smooth" });
     return;
   }
   state.chooseStart = false;
@@ -8035,7 +8036,7 @@ function render() {
       ${authBlock()}
     </section>
 
-    <section class="hos step" style="--box-font: ${state.boxFont}px">
+    <section class="hos step" id="stepStart" style="--box-font: ${state.boxFont}px">
       <h2>Step 2. Choose where the trip starts</h2>
         <div class="settings-grid action-grid">
           <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
