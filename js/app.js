@@ -6194,6 +6194,14 @@ async function addPlaceAsNextStop(hit) {
   clearDriveProgress();
   state.estimating = false;
   state.notice = `Added ${navStopTitle(next)} as the next stop.`;
+  if (navOn) {
+    window.clearTimeout(navReturnTimer);
+    navReturnTimer = 0;
+    navFollowing = false;
+    navZoomHold = 0;
+    tripFit = "nextTurn";
+    clearTurnFrame();
+  }
   await calculate({ silent: true });
 }
 
