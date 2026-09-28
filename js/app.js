@@ -3141,13 +3141,17 @@ function planBox() {
         <p class="route-place" id="routePlace" hidden></p>
       </div>
       </div>
-      <button type="button" id="routePlaceClear" class="route-place-clear" hidden>Clear</button>
+      <div class="route-place-tools" id="routePlaceTools">
+        <p class="route-place-clear" id="routePlaceStatus" hidden></p>
+        <button type="button" id="routePlaceSearch" class="route-place-clear" hidden>Search here</button>
+        <button type="button" id="routePlaceClear" class="route-place-clear" hidden>Clear</button>
+      </div>
       <div id="routePlaceList" class="route-place-list" hidden></div>
     </div>
     <div id="routeDirectionsHome"></div>
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     <div class="result-lines">
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
       <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
@@ -3748,6 +3752,9 @@ let navStopNoteUntil = 0;
 let truckHit = null;
 let truckHits = [];
 let placeListMode = false;
+let placeSeek = "";
+let placeMapMoved = false;
+let placeHereNote = "";
 let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
@@ -5959,10 +5966,26 @@ function paintPlaceList() {
   if (clear) clear.hidden = truckHits.length === 0;
   const pageClear = document.getElementById("clearPlaces");
   if (pageClear) pageClear.hidden = truckHits.length === 0;
+  const searchLabel = placeSeek === "truck" ? "Search here · 1 credit" : "Search here";
+  const showSearch = Boolean(placeSeek) && placeMapMoved;
+  for (const id of ["routePlaceSearch", "searchPlaces"]) {
+    const search = document.getElementById(id);
+    if (!search) continue;
+    search.hidden = !showSearch;
+    search.textContent = searchLabel;
+  }
+  const status = document.getElementById("routePlaceStatus");
+  if (status) {
+    status.hidden = !placeHereNote;
+    status.textContent = placeHereNote;
+  }
   if (add) add.hidden = !truckHit;
 }
 
 function clearPlacePins() {
+  placeSeek = "";
+  placeMapMoved = false;
+  placeHereNote = "";
   forgetTruckChoice();
   syncTruckAdd();
 }
@@ -6330,9 +6353,156 @@ function nextLocalPlace(points, place) {
   });
 }
 
+function placeWord(place) {
+  if (place === "loves") return "Love's";
+  if (place === "walmart") return "Walmart";
+  if (place === "cat") return "Cat Scale";
+  return "truck stop";
+}
+
+function placeHitFromRow(row, points) {
+  const lat = Number(row[0]);
+  const lon = Number(row[1]);
+  const name = String(row[2] || "").trim();
+  if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const city = String(row[3] || "").trim();
+  const stateName = String(row[4] || "").trim();
+  const where = [city, stateName].filter(Boolean).join(", ");
+  const stored = String(row[5] || "").trim();
+  const hit = {
+    name,
+    city,
+    state: stateName,
+    label: stored || [name, where].filter(Boolean).join(", "),
+    lat,
+    lon,
+    milesAhead: null,
+    milesOff: null,
+  };
+  if (points.length >= 2) {
+    const spot = nearestOnPath(lat, lon, points);
+    hit.milesAhead = Math.round((spot.along / 1609.344) * 10) / 10;
+    hit.milesOff = Math.round((spot.dist / 1609.344) * 10) / 10;
+  }
+  return hit;
+}
+
+function localPlacesInView(place) {
+  return loadPlaceLists().then((grids) => {
+    const grid = grids[place];
+    const bounds = routeMap?.getBounds();
+    const center = routeMap?.getCenter();
+    if (!grid || !bounds || !center) throw new Error("Move the map, then search here.");
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const points = routeAheadPoints();
+    const found = [];
+    for (let latCell = Math.floor(south); latCell <= Math.floor(north); latCell += 1) {
+      for (let lonCell = Math.floor(west); lonCell <= Math.floor(east); lonCell += 1) {
+        const bucket = grid.get(`${latCell}:${lonCell}`);
+        if (!bucket) continue;
+        for (const row of bucket) {
+          const lat = Number(row?.[0]);
+          const lon = Number(row?.[1]);
+          if (lat < south || lat > north || lon < west || lon > east) continue;
+          const hit = placeHitFromRow(row, points);
+          if (!hit) continue;
+          hit.milesFromCenter = metersBetween([lat, lon], [center.lat, center.lng]);
+          found.push(hit);
+        }
+      }
+    }
+    found.sort((a, b) => a.milesFromCenter - b.milesFromCenter);
+    return found.slice(0, 5);
+  });
+}
+
+async function searchPlacesHere() {
+  if (!navOn || state.estimating || !placeSeek || !routeMap) return;
+  const place = placeSeek;
+  const word = placeWord(place);
+  const note = document.getElementById("nextTruckNote");
+  placeHereNote = "";
+  paintPlaceList();
+  if (place === "truck") {
+    if (!state.unlimited && state.credits === 0) {
+      placeHereNote = creditEmptyMessage();
+      paintPlaceList();
+      return;
+    }
+    const center = routeMap.getCenter();
+    const shift = 1 / 69;
+    const points = [[center.lat - shift, center.lng], [center.lat + shift, center.lng]];
+    const buttons = placeSearchButtons();
+    for (const button of buttons) button.disabled = true;
+    try {
+      const data = await nextTruckStop(points, place);
+      if (data.credits != null) state.credits = data.credits;
+      const lat = Number(data.lat);
+      const lon = Number(data.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`No ${word} in this part of the map.`);
+      const along = routeAheadPoints();
+      const spot = along.length >= 2 ? nearestOnPath(lat, lon, along) : null;
+      showTruckHits([{
+        name: data.name,
+        city: data.city,
+        state: data.state,
+        label: data.label,
+        lat,
+        lon,
+        milesAhead: spot ? Math.round((spot.along / 1609.344) * 10) / 10 : data.milesAhead,
+        milesOff: spot ? Math.round((spot.dist / 1609.344) * 10) / 10 : data.milesOff,
+        place,
+      }], false);
+      placeMapMoved = false;
+      placeHereNote = "";
+    } catch (error) {
+      if (error.credits != null) state.credits = error.credits;
+      const said = String(error.message || "");
+      placeHereNote = /route line/i.test(said) ? `No ${word} in this part of the map.` : (said || `No ${word} in this part of the map.`);
+      if (note) {
+        note.hidden = false;
+        note.textContent = placeHereNote;
+      }
+    } finally {
+      syncRouteChrome();
+      paintPlaceList();
+    }
+    return;
+  }
+  try {
+    const hits = (await localPlacesInView(place)).map((hit) => ({ ...hit, place }));
+    if (!hits.length) {
+      placeHereNote = `No ${word} in this part of the map.`;
+      if (note) {
+        note.hidden = false;
+        note.textContent = placeHereNote;
+      }
+      paintPlaceList();
+      return;
+    }
+    showTruckHits(hits, true);
+    placeMapMoved = false;
+    placeHereNote = "";
+    paintPlaceList();
+  } catch (error) {
+    placeHereNote = error.message || `No ${word} in this part of the map.`;
+    if (note) {
+      note.hidden = false;
+      note.textContent = placeHereNote;
+    }
+    paintPlaceList();
+  }
+}
+
 async function findNextTruckStop(options = {}) {
   if (!navOn || state.estimating) return;
   const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
+  placeSeek = place;
+  placeMapMoved = false;
+  placeHereNote = "";
   const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : place === "cat" ? "Cat Scale" : "truck stop";
   const buttons = placeSearchButtons();
   const note = document.getElementById("nextTruckNote");
@@ -7194,6 +7364,11 @@ function mountMap() {
         turnZoomOut.started = Date.now() - (turnZoomOut.elapsed || 0);
       }
       releaseCamera();
+      if (placeSeek && !placeMapMoved) {
+        placeMapMoved = true;
+        placeHereNote = "";
+        paintPlaceList();
+      }
     });
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
@@ -8418,6 +8593,8 @@ function bind() {
   $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
   $("#clearPlaces")?.addEventListener("click", () => clearPlacePins());
   $("#routePlaceClear")?.addEventListener("click", () => clearPlacePins());
+  $("#searchPlaces")?.addEventListener("click", () => searchPlacesHere());
+  $("#routePlaceSearch")?.addEventListener("click", () => searchPlacesHere());
   $("#routeTruckAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeLovesAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());

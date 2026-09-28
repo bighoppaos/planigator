@@ -2116,12 +2116,21 @@ button.lookup.lookup-flash {
   white-space: nowrap;
   pointer-events: auto;
 }
-.route-place-clear {
+.route-place-tools {
   position: absolute;
   top: 8px;
   left: 50%;
   z-index: 6;
   transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+.route-place-clear {
   margin: 0;
   padding: 6px 14px;
   border: 2px solid transparent;
@@ -2134,7 +2143,7 @@ button.lookup.lookup-flash {
   pointer-events: auto;
 }
 .route-place-clear[hidden] { display: none; }
-.route-stage.is-full .route-place-clear {
+.route-stage.is-full .route-place-tools {
   top: max(8px, env(safe-area-inset-top));
 }
 .truck-pin {
