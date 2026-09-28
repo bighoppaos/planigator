@@ -583,6 +583,10 @@ function applyDrivePieceDelays(stop, events, before, cap) {
           });
         }
         if (laterWouldPassDayEnd(events, nextIndex, carry, dayEndAt(sim))) {
+          // Delay past the end of the day comes out of the 10-hour rest.
+          // The morning start stays put until that rest would be under 10 hours.
+          const overflow = Math.max(0, askedMs - fitted);
+          if (overflow >= 60 * 1000) sim.now += overflow;
           const leftover = routeHoursAfter(events, nextIndex);
           if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
           break;
@@ -646,9 +650,9 @@ function laterWouldPassDayEnd(events, fromIndex, carry, dayEnd) {
 /** A delay can fill the time left in the driving day. It does not push a
  *  drive or a 30-minute break past that end. Drives after a 30-minute break
  *  move instead, including onto the next morning when they no longer fit.
- *  Delay that does not fit is not carried into the next day. A delay that
- *  starts after the day has already ended can still move the reset, which
- *  keeps the morning end put. */
+ *  Delay past the end of the day comes out of the 10-hour rest. The morning
+ *  drive still starts on time until that rest would be shorter than 10 hours.
+ *  Then the morning drive starts later. */
 function delayThatFitsBeforeDayEnd(sim, delayMs) {
   if (delayMs < 60 * 1000) return 0;
   if (isAnytimeEnd(sim.endMinutes)) return delayMs;
