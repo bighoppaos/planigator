@@ -618,7 +618,12 @@ function applyDrivePieceDelays(stop, events, before, cap) {
     }
     i += 1;
   }
-  return { events: shifted, sim, tailIndex: driveCount - 1 };
+  // The last chip on the plan is the last drive still showing. A delay on
+  // an earlier drive can remove a later piece, so that chip is not the
+  // original last drive.
+  let kept = 0;
+  for (const event of shifted) if (event.kind === "drive") kept += 1;
+  return { events: shifted, sim, tailIndex: kept - 1 };
 }
 
 function dayEndAt(sim) {
@@ -806,7 +811,7 @@ export function timeline({
     const rgb = stopColor(index, stops);
     const title = cardTitle(index, stops);
     const deadline = stops[index].anytime ? null : latestArrive(stops[index]);
-    const late = deadline != null && block.end > deadline + 60 * 1000;
+    const late = deadline != null && block.end >= deadline + 60 * 1000;
     const prevIndex = order > 0 ? destinations[order - 1] : null;
     block.leadingPauses.forEach((rest) => {
       const owner = rest.kind === "rest" && prevIndex != null ? stops[prevIndex].id : stops[index].id;
@@ -976,7 +981,7 @@ export function buildPlan({
     if (stop.anytime) continue;
     const arrive = blocks[index]?.end;
     const deadline = latestArrive(stop);
-    if (arrive != null && deadline != null && arrive > deadline + 60 * 1000) {
+    if (arrive != null && deadline != null && arrive >= deadline + 60 * 1000) {
       lateStop = stop;
       break;
     }
