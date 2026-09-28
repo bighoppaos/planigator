@@ -515,13 +515,15 @@ function applyDrivePieceDelays(stop, events, before, cap) {
   const sim = before.clone();
   const driveCount = events.filter((event) => event.kind === "drive").length;
   let carry = 0;
+  let restCut = 0;
   let drivePiece = 0;
   const shifted = [];
   let i = 0;
   while (i < events.length) {
     const event = events[i];
     if (event.kind === "rest") {
-      const start = event.start + carry;
+      const start = event.start + carry + restCut;
+      restCut = 0;
       const tenEnd = start + 10 * 3600 * 1000;
       const resume = resumeAfterRest(sim.startMinutes, sim.endMinutes, tenEnd, sim.timeZone || "");
       const end = Math.max(tenEnd, resume);
@@ -591,6 +593,8 @@ function applyDrivePieceDelays(stop, events, before, cap) {
           if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
           break;
         }
+        const overflow = Math.max(0, askedMs - fitted);
+        if (overflow >= 60 * 1000) restCut += overflow;
         i = nextIndex;
         continue;
       }
@@ -606,9 +610,13 @@ function applyDrivePieceDelays(stop, events, before, cap) {
             id: `rest-delay-${stop.id}-${drivePiece}-${restIndex}`,
           });
         });
+        const overflow = Math.max(0, askedMs - delayMs);
+        if (overflow >= 60 * 1000 && spent.rests.length === 0) restCut += overflow;
         const untilRest = routeHoursUntilRest(events, i + 1);
         const room = cap - sim.drivenToday;
         if (spent.rests.length || untilRest > room + 0.02) {
+          if (restCut >= 60 * 1000) sim.now += restCut;
+          restCut = 0;
           const leftover = routeHoursAfter(events, i + 1);
           if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
           break;
