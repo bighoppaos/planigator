@@ -4790,6 +4790,7 @@ function setRouteFull(on) {
   }
   placeRouteStage();
   syncRouteChrome();
+  paintPlaceList();
   requestAnimationFrame(() => {
     if (routeFull) fitRouteCover();
     routeMap?.resize();
@@ -5126,10 +5127,29 @@ function boundsForTurn(fromAlong, toAlong) {
   if (near) coords.push([near.lon, near.lat]);
   if (far) coords.push([far.lon, far.lat]);
   if (!maplibre || coords.length < 2) return null;
-  return coords.reduce(
-    (box, coord) => box.extend(coord),
+  const box = coords.reduce(
+    (bounds, coord) => bounds.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
+  // A straight road is only a few meters wide. Fitting that width zooms
+  // into the pavement and leaves the turn off the screen.
+  const span = Math.max(80, Math.abs(to - from));
+  const side = Math.max(90, span * 0.45);
+  const mid = pointAlong(navLine, (from + to) / 2) || (navFix ? { lat: navFix[0], lon: navFix[1] } : null);
+  if (mid) {
+    const dLat = side / 111320;
+    const dLon = side / (111320 * Math.max(0.2, Math.cos(mid.lat * Math.PI / 180)));
+    box.extend([mid.lon - dLon, mid.lat - dLat]);
+    box.extend([mid.lon + dLon, mid.lat + dLat]);
+  }
+  return box;
+}
+
+function turnZoomCap(metersAhead) {
+  if (metersAhead >= 1600) return 14;
+  if (metersAhead >= 800) return 15;
+  if (metersAhead >= 300) return 16;
+  return 17;
 }
 
 function fitTurnCamera(bounds, bearing, deeper) {
@@ -5263,7 +5283,8 @@ function moveTurnZoomOut(t) {
   const bearing = heldBearing(span.bearing);
   const fit = fitTurnCamera(bounds, bearing, 0);
   if (!fit.camera) return null;
-  if (!opening && fit.camera.zoom > 17) fit.camera.zoom = 17;
+  const cap = turnZoomCap(Math.abs(farAlong - along));
+  if (fit.camera.zoom > cap) fit.camera.zoom = cap;
   routeMap.easeTo({
     center: fit.camera.center,
     zoom: fit.camera.zoom,
@@ -5310,6 +5331,10 @@ function frameNextTurn() {
   const bounds = boundsForTurn(along, span.farAlong);
   if (!bounds) return;
   const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
+  if (fit.camera) {
+    const cap = turnZoomCap(Math.abs(span.farAlong - along));
+    if (fit.camera.zoom > cap) fit.camera.zoom = cap;
+  }
   turnFrameAt = [navFix[0], navFix[1]];
   turnFrameTarget = span.farAlong;
   turnFrameBearing = span.bearing;
@@ -6065,7 +6090,7 @@ function paintPlaceList() {
   const pageClear = document.getElementById("clearPlaces");
   if (pageClear) pageClear.hidden = truckHits.length === 0;
   const searchLabel = placeSeek === "truck" ? "Search here · 1 credit" : "Search here";
-  const showSearch = Boolean(placeSeek) && placeMapMoved;
+  const showSearch = Boolean(placeSeek) && !routeFull;
   for (const id of ["routePlaceSearch", "searchPlaces"]) {
     const search = document.getElementById(id);
     if (!search) continue;
