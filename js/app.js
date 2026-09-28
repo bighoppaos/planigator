@@ -6104,7 +6104,7 @@ function paintPlaceList() {
   }
   const status = document.getElementById("routePlaceStatus");
   if (status) {
-    status.hidden = !placeHereNote;
+    status.hidden = !placeHereNote || !soughtHere;
     status.textContent = placeHereNote;
   }
   if (add) add.hidden = !truckHit;
