@@ -307,10 +307,10 @@ export class TruckerHOSClock {
     this.onDutyToday += hours;
   }
 
-  /** Possible delay counts as driving. `ms` is taken out of the daily drive
-   *  limit and the 14-hour day. A full day inserts a 10-hour reset. The reset
-   *  clears the clock, so delay that did not fit does not follow into the
-   *  next day, and the next drive starts when the reset ends. */
+  /** Possible delay on a drive counts as driving. `ms` is taken out of the
+   *  daily drive limit and the 14-hour day. A full day inserts a 10-hour
+   *  reset. The reset clears the clock, so delay that did not fit does not
+   *  follow into the next day, and the next drive starts when the reset ends. */
   spendDriveTime(ms, cap) {
     const rests = [];
     let left = Math.max(0, ms);
@@ -332,6 +332,36 @@ export class TruckerHOSClock {
       const take = Math.min(left, driveLeft, dutyLeft);
       this.now += take;
       this.drivenToday += take / 3600 / 1000;
+      this.onDutyToday += take / 3600 / 1000;
+      left -= take;
+    }
+    return { rests };
+  }
+
+  /** Live-load time is on duty, not driving. `ms` comes out of the 14-hour
+   *  day only. Drive time and the 30-minute break clock stay as they are.
+   *  A full 14 inserts a 10-hour reset. The reset clears the clock, so load
+   *  time that did not fit does not follow, and the next drive starts when
+   *  the reset ends. */
+  spendOnDutyTime(ms) {
+    const rests = [];
+    let left = Math.max(0, ms);
+    const dutyCap = 14;
+    let guard = 0;
+    while (left > 1000 && guard < 30) {
+      guard += 1;
+      const dutyLeft = (dutyCap - this.onDutyToday) * 3600 * 1000;
+      if (dutyLeft < 1000) {
+        const start = this.now;
+        const rawEnd = start + 10 * 3600 * 1000;
+        this.takeRest();
+        if (this.now <= start) break;
+        rests.push({ start, end: this.now });
+        if (this.now > rawEnd + 1000) break;
+        continue;
+      }
+      const take = Math.min(left, dutyLeft);
+      this.now += take;
       this.onDutyToday += take / 3600 / 1000;
       left -= take;
     }

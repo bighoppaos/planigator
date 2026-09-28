@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=132";
+} from "./hos.js?v=133";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -421,8 +421,9 @@ export function schedules({
     }
     const finishAt = usable != null && usable > leaveAfterDelay + 60 * 1000 ? usable : 0;
     const liveMinutes = finishDelayMinutes(stop);
+    // Loading is not driving. These minutes come out of the 14-hour day only.
     if (finishAt && liveMinutes >= 1 && clock.now + 60 * 1000 >= finishAt) {
-      const spent = clock.spendDriveTime(liveMinutes * 60 * 1000, cap);
+      const spent = clock.spendOnDutyTime(liveMinutes * 60 * 1000);
       spent.rests.forEach((rest, restIndex) => {
         last.pausesAfter.push({
           id: `rest-finish-${stop.id}-${restIndex}`,
