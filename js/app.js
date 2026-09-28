@@ -4306,13 +4306,85 @@ function syncRouteChrome() {
 let railSeatObserver = null;
 let railSeatBox = null;
 
+function railButtonShown(el) {
+  if (!el || el.hidden) return false;
+  if (el.classList.contains("truck-slot")) {
+    const main = [...el.querySelectorAll("button")].find((button) => !button.classList.contains("route-add"));
+    return Boolean(main && !main.hidden);
+  }
+  return true;
+}
+
+function railSignature(rail, wide) {
+  const names = railItemsInOrder(rail).map((el) => `${el.id || el.className}:${railButtonShown(el) ? 1 : 0}`);
+  return `${wide ? "wide" : "tall"}|${names.join(",")}`;
+}
+
+function unwrapRail(rail) {
+  rail.querySelectorAll(":scope > .rail-col").forEach((col) => {
+    while (col.firstChild) rail.insertBefore(col.firstChild, col);
+    col.remove();
+  });
+}
+
+function railItemsInOrder(rail) {
+  const items = [];
+  const walk = (node) => {
+    [...node.children].forEach((el) => {
+      if (el.classList.contains("rail-col")) walk(el);
+      else items.push(el);
+    });
+  };
+  walk(rail);
+  items.forEach((el, index) => {
+    if (!el.dataset.railOrder) el.dataset.railOrder = String(index);
+  });
+  return items.sort((a, b) => Number(a.dataset.railOrder) - Number(b.dataset.railOrder));
+}
+
+function layoutWideRails() {
+  const stage = document.getElementById("routeStage");
+  const wide = Boolean(routeFull && window.matchMedia("(orientation: landscape)").matches);
+  stage?.classList.toggle("is-wide", wide);
+  document.querySelectorAll(".route-stage .route-rail").forEach((rail) => {
+    const signature = railSignature(rail, wide);
+    if (rail.dataset.railSig === signature) return;
+    rail.dataset.railSig = signature;
+    const ordered = railItemsInOrder(rail);
+    unwrapRail(rail);
+    ordered.forEach((el) => rail.appendChild(el));
+    if (!wide) return;
+    const visible = ordered.filter((el) => railButtonShown(el) && el.id !== "routeExit");
+    const hidden = ordered.filter((el) => !visible.includes(el));
+    const cols = [];
+    const queue = visible.slice();
+    while (queue.length) cols.unshift(queue.splice(-3));
+    while (cols.length > 2) {
+      const extra = cols.shift();
+      cols[0].unshift(...extra);
+    }
+    hidden.forEach((el) => rail.appendChild(el));
+    cols.forEach((group) => {
+      const col = document.createElement("div");
+      col.className = "rail-col";
+      group.forEach((el) => col.appendChild(el));
+      rail.appendChild(col);
+    });
+  });
+}
+
 function seatRails() {
+  layoutWideRails();
+  const stage = document.getElementById("routeStage");
   const rails = document.querySelectorAll(".route-stage .route-rail");
+  const wide = Boolean(stage?.classList.contains("is-wide"));
   if (!routeFull) {
     rails.forEach((rail) => {
       rail.style.bottom = "";
       rail.style.top = "";
     });
+    stage?.style.removeProperty("--rail-left");
+    stage?.style.removeProperty("--rail-right");
     railSeatObserver?.disconnect();
     railSeatObserver = null;
     railSeatBox = null;
@@ -4322,14 +4394,34 @@ function seatRails() {
   const box = document.getElementById("routeDirections");
   if (!map || !box) return;
   const mapBox = map.getBoundingClientRect();
-  const lift = mapBox.bottom - box.getBoundingClientRect().top + 8;
-  const tallest = Math.max(0, ...[...rails].map((rail) => rail.getBoundingClientRect().height));
-  const maxLift = Math.max(8, mapBox.height - tallest - 8);
-  const bottom = `${Math.max(8, Math.min(Math.round(lift), Math.round(maxLift)))}px`;
-  rails.forEach((rail) => {
-    rail.style.top = "auto";
-    rail.style.bottom = bottom;
-  });
+  if (wide) {
+    let left = 8;
+    let right = 8;
+    rails.forEach((rail) => {
+      rail.style.top = "auto";
+      rail.style.bottom = "";
+      const railBox = rail.getBoundingClientRect();
+      if (railBox.width < 2) return;
+      if (railBox.left + railBox.width / 2 < mapBox.left + mapBox.width / 2) {
+        left = Math.max(left, Math.round(railBox.right - mapBox.left + 8));
+      } else {
+        right = Math.max(right, Math.round(mapBox.right - railBox.left + 8));
+      }
+    });
+    stage.style.setProperty("--rail-left", `${left}px`);
+    stage.style.setProperty("--rail-right", `${right}px`);
+  } else {
+    stage?.style.removeProperty("--rail-left");
+    stage?.style.removeProperty("--rail-right");
+    const lift = mapBox.bottom - box.getBoundingClientRect().top + 8;
+    const tallest = Math.max(0, ...[...rails].map((rail) => rail.getBoundingClientRect().height));
+    const maxLift = Math.max(8, mapBox.height - tallest - 8);
+    const bottom = `${Math.max(8, Math.min(Math.round(lift), Math.round(maxLift)))}px`;
+    rails.forEach((rail) => {
+      rail.style.top = "auto";
+      rail.style.bottom = bottom;
+    });
+  }
   if (typeof ResizeObserver === "undefined" || railSeatBox === box) return;
   railSeatObserver?.disconnect();
   railSeatBox = box;
@@ -4338,12 +4430,30 @@ function seatRails() {
 }
 
 function safeTopPad() {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:absolute;visibility:hidden;padding-top:env(safe-area-inset-top);";
-  document.documentElement.appendChild(probe);
-  const pad = parseFloat(getComputedStyle(probe).paddingTop) || 0;
-  probe.remove();
-  return pad;
+  let probe = document.getElementById("safeTopProbe");
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.id = "safeTopProbe";
+    probe.style.cssText = "position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;padding-top:constant(safe-area-inset-top);padding-top:env(safe-area-inset-top);";
+    document.documentElement.appendChild(probe);
+  }
+  return parseFloat(getComputedStyle(probe).paddingTop) || 0;
+}
+
+function viewportBox() {
+  const view = window.visualViewport;
+  let probe = document.getElementById("dvhProbe");
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.id = "dvhProbe";
+    probe.style.cssText = "position:fixed;left:0;top:0;width:100vw;height:100dvh;visibility:hidden;pointer-events:none;";
+    document.documentElement.appendChild(probe);
+  }
+  const box = probe.getBoundingClientRect();
+  return {
+    width: Math.round(Math.max(window.innerWidth, document.documentElement.clientWidth || 0, view?.width || 0, box.width || 0)),
+    height: Math.round(Math.max(window.innerHeight, document.documentElement.clientHeight || 0, (view?.height || 0) + (view?.offsetTop || 0), box.height || 0)),
+  };
 }
 
 function pinRouteFull() {
@@ -4375,20 +4485,32 @@ function fitRouteCover() {
   const stage = document.getElementById("routeStage");
   if (!stage || !routeFull) return;
   const view = window.visualViewport;
-  const lift = Math.max(safeTopPad(), view?.offsetTop || 0);
-  const top = (window.scrollY || 0) + (view?.offsetTop || 0) - lift;
-  const height = (view?.height || window.innerHeight) + lift;
-  stage.style.position = "absolute";
-  stage.style.top = `${Math.round(top)}px`;
-  stage.style.left = "0px";
-  stage.style.right = "auto";
-  stage.style.bottom = "auto";
-  stage.style.width = `${Math.round(view?.width || window.innerWidth)}px`;
-  stage.style.height = `${Math.round(height)}px`;
+  const safeTop = safeTopPad();
+  const full = viewportBox();
+  stage.style.position = "fixed";
   stage.style.margin = "0";
+  stage.style.right = "0";
+  stage.style.bottom = "auto";
   stage.style.zIndex = "80";
+  stage.style.left = "0px";
+  stage.style.width = `${full.width}px`;
+  stage.style.top = `${Math.round(-safeTop)}px`;
+  stage.style.height = `${Math.round(full.height + safeTop)}px`;
+  const box = stage.getBoundingClientRect();
+  const topGap = Math.max(0, box.top);
+  const leftGap = Math.max(0, box.left);
+  const bottomLimit = Math.max(window.innerHeight, (view?.height || 0) + (view?.offsetTop || 0), full.height);
+  const rightLimit = Math.max(window.innerWidth, (view?.width || 0) + (view?.offsetLeft || 0), full.width);
+  const bottomGap = Math.max(0, bottomLimit - box.bottom);
+  const rightGap = Math.max(0, rightLimit - box.right);
+  if (topGap > 1 || leftGap > 1 || bottomGap > 1 || rightGap > 1) {
+    stage.style.top = `${Math.round(-safeTop - topGap)}px`;
+    stage.style.left = `${Math.round(-leftGap)}px`;
+    stage.style.width = `${Math.round(full.width + leftGap + rightGap)}px`;
+    stage.style.height = `${Math.round(full.height + safeTop + topGap + bottomGap)}px`;
+  }
   seatRails();
-  const cover = `${stage.style.width}x${stage.style.height}`;
+  const cover = `${stage.style.width}x${stage.style.height}x${stage.style.top}`;
   if (cover !== routeCoverSize) {
     routeCoverSize = cover;
     routeMap?.resize();
@@ -4397,13 +4519,15 @@ function fitRouteCover() {
 
 function watchRouteCover(on) {
   const view = window.visualViewport;
-  if (!view) return;
-  view.removeEventListener("resize", fitRouteCover);
-  view.removeEventListener("scroll", fitRouteCover);
-  if (on) {
-    view.addEventListener("resize", fitRouteCover);
-    view.addEventListener("scroll", fitRouteCover);
-  }
+  view?.removeEventListener("resize", fitRouteCover);
+  view?.removeEventListener("scroll", fitRouteCover);
+  window.removeEventListener("resize", fitRouteCover);
+  window.removeEventListener("orientationchange", fitRouteCover);
+  if (!on) return;
+  view?.addEventListener("resize", fitRouteCover);
+  view?.addEventListener("scroll", fitRouteCover);
+  window.addEventListener("resize", fitRouteCover);
+  window.addEventListener("orientationchange", fitRouteCover);
 }
 
 function placeRouteStage() {
@@ -4420,6 +4544,8 @@ function placeRouteStage() {
     }
     pinRouteFull();
     document.getElementById("routeHold")?.remove();
+    document.getElementById("dvhProbe")?.remove();
+    document.getElementById("safeTopProbe")?.remove();
     return;
   }
   holdRouteSpace();
@@ -4733,13 +4859,16 @@ function turnViewPadding() {
   const pad = { top: 72, right: 64, bottom: 110, left: 64 };
   if (!map) return pad;
   const mapBox = map.getBoundingClientRect();
-  if (sheet && !sheet.hidden) {
-    const box = sheet.getBoundingClientRect();
+  const stack = document.querySelector("#routeStage .route-bottom");
+  const block = stack && stack.getBoundingClientRect().height > 2 ? stack : sheet;
+  if (block && !block.hidden) {
+    const box = block.getBoundingClientRect();
     if (box.height > 2 && box.top < mapBox.bottom) {
       pad.bottom = Math.round(mapBox.bottom - box.top + 36);
     }
   }
-  pad.bottom = Math.max(90, Math.min(pad.bottom, Math.round(mapBox.height * 0.58)));
+  const room = Math.max(120, Math.round(mapBox.height * 0.34));
+  pad.bottom = Math.max(90, Math.min(pad.bottom, Math.max(90, mapBox.height - room)));
   return pad;
 }
 
@@ -4787,7 +4916,8 @@ function paddingForTurnZoom(basePad, deeper) {
   return { padding: { ...padding, left, right }, zoomIn: deeper };
 }
 
-const TURN_ZOOM_OUT_MS = 40000;
+const TURN_HOLD_MS = 10000;
+const TURN_OPEN_MS = 6000;
 
 function clearTurnFrame() {
   turnFrameAt = null;
@@ -4818,18 +4948,9 @@ function turnGuideAlong() {
 
 function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
-  const halfMile = 804.672;
-  const oneMile = 1609.344;
-  const quarterMile = 402.336;
   const turnAlong = currentDirectionEnd(along);
-  const ahead = turnAlong == null ? halfMile : Math.max(0, turnAlong - along);
-  // A long leg stays about one mile deep instead of opening all the way to
-  // the turn. A quarter mile past it is only added once the turn is close,
-  // and that close view zooms in further. Extra zoom on a long leg would
-  // push the turn off the top.
-  const look = Math.min(ahead, oneMile);
-  const past = ahead <= halfMile ? quarterMile : 0;
-  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + look + past));
+  const ahead = turnAlong == null ? 80 : Math.max(0, turnAlong - along);
+  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead));
   const far = pointAlong(navLine, farAlong);
   let bearing = 0;
   if (!northLock) {
@@ -4837,7 +4958,7 @@ function turnSpan(along) {
       ? navCompass
       : (far ? navBearing(navFix, [far.lat, far.lon]) : 0);
   }
-  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 1.5 : 0 };
+  return { turnAlong, ahead, farAlong, far, bearing, deeper: 0 };
 }
 
 function turnStepKey(along) {
@@ -4935,18 +5056,18 @@ function scheduleTurnZoomOut() {
   turnZoomOutTimer = window.setTimeout(paintTurnZoomOut, 250);
 }
 
-function beginTurnZoomOut(lastAlong, startFar, stepKey, nextTurnAlong) {
+function beginTurnHold(lastAlong, stepKey, nextTurnAlong) {
   window.clearTimeout(turnZoomOutTimer);
   turnZoomOutTimer = 0;
-  turnKeepAlong = lastAlong;
+  turnKeepAlong = null;
   turnShownKey = stepKey;
   turnShownAlong = nextTurnAlong;
   turnZoomOut = {
+    phase: "hold",
     started: Date.now(),
     elapsed: 0,
     paused: false,
     lastAlong,
-    startFar: Number.isFinite(startFar) ? startFar : lastAlong,
     stepKey,
   };
   routeMap.stop();
@@ -4965,9 +5086,17 @@ function paintTurnZoomOut() {
     return;
   }
   turnZoomOut.elapsed = Date.now() - turnZoomOut.started;
-  // Ease in, so the first part stays near the turn you just made.
-  const u = Math.min(1, turnZoomOut.elapsed / TURN_ZOOM_OUT_MS);
-  const t = u * u;
+  if (turnZoomOut.phase !== "open") {
+    moveTurnZoomOut(0);
+    if (turnZoomOut.elapsed < TURN_HOLD_MS) {
+      scheduleTurnZoomOut();
+      return;
+    }
+    turnZoomOut.phase = "open";
+    turnZoomOut.started = Date.now();
+    turnZoomOut.elapsed = 0;
+  }
+  const t = Math.min(1, turnZoomOut.elapsed / TURN_OPEN_MS);
   const moved = moveTurnZoomOut(t);
   if (t < 1) {
     scheduleTurnZoomOut();
@@ -4987,22 +5116,26 @@ function moveTurnZoomOut(t) {
   const along = turnGuideAlong();
   const span = turnSpan(along);
   if (!span.far) return null;
-  const startFar = Number.isFinite(turnZoomOut.startFar) ? turnZoomOut.startFar : along + 40;
-  const farAlong = Math.max(along + 40, startFar + (span.farAlong - startFar) * t);
-  const from = Number.isFinite(turnZoomOut.lastAlong) ? Math.min(along, turnZoomOut.lastAlong) : along;
+  const lastAlong = Number.isFinite(turnZoomOut.lastAlong) ? turnZoomOut.lastAlong : along;
+  const opening = turnZoomOut.phase === "open";
+  const farAlong = opening
+    ? Math.max(along + 40, lastAlong + (span.farAlong - lastAlong) * t)
+    : Math.max(along + 40, lastAlong, along);
+  const from = !opening || t < 1 ? Math.min(along, lastAlong) : along;
   const bounds = boundsForTurn(from, farAlong);
   if (!bounds) return null;
   const bearing = heldBearing(span.bearing);
-  const fit = fitTurnCamera(bounds, bearing, t >= 1 ? span.deeper : 0);
+  const fit = fitTurnCamera(bounds, bearing, 0);
   if (!fit.camera) return null;
+  if (!opening && fit.camera.zoom > 17) fit.camera.zoom = 17;
   routeMap.easeTo({
     center: fit.camera.center,
     zoom: fit.camera.zoom,
     bearing: fit.camera.bearing,
-    duration: 280,
+    duration: opening ? 280 : 400,
     easing: (x) => x,
   });
-  placeTurnPin(span.turnAlong);
+  placeTurnPin(opening ? span.turnAlong : lastAlong);
   return { farAlong: span.farAlong, bearing };
 }
 
@@ -5029,18 +5162,16 @@ function frameNextTurn() {
     && metersBetween(turnFrameAt, navFix) < 80
     && bearingDelta < 12;
   if (sameView) return;
-  // Passed a turn and the next one is farther: zoom out over 40 seconds.
-  // You and the turn you just made stay on screen the whole way.
+  // At the turn: hold you and that turn for 10 seconds, then zoom out
+  // to you and the next turn.
   const passed = turnShownKey && turnShownKey !== stepKey
     && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
-  const destBounds = boundsForTurn(along, span.farAlong);
-  const destFit = destBounds ? fitTurnCamera(destBounds, span.bearing, span.deeper) : null;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (passed && destFit?.camera && destFit.camera.zoom < routeMap.getZoom() - 0.35 && !reduce) {
-    beginTurnZoomOut(turnShownAlong, turnFrameTarget, stepKey, span.turnAlong);
+  if (passed && !reduce) {
+    beginTurnHold(turnShownAlong, stepKey, span.turnAlong);
     return;
   }
-  const bounds = boundsForTurn(turnNearAlong(along, span.ahead), span.farAlong);
+  const bounds = boundsForTurn(along, span.farAlong);
   if (!bounds) return;
   const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
   turnFrameAt = [navFix[0], navFix[1]];
