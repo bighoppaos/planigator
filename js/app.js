@@ -23,9 +23,9 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=150";
+} from "./plan.js?v=151";
 import { TRUCK_PROFILE } from "./here.js";
-import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
+import { EXAMPLE_TRIP } from "./example-trip.js?v=5";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
@@ -6803,14 +6803,17 @@ function eventsAround(stopId) {
   const events = state.plan?.events || [];
   const self = events.find((event) => event.id === stopId);
   const mine = events.filter((event) => event.stopID === stopId && event.id !== stopId && event.kind !== "leeway");
+  const leeway = events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1);
   return {
     before: [
       ...mine.filter((event) => !self || event.start < self.start),
-      ...events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1 && self && event.start < self.start),
+      ...leeway.filter((event) => self && event.start < self.start),
     ].sort((a, b) => a.start - b.start),
     self,
-    following: mine.filter((event) => self && event.start >= self.start).sort((a, b) => a.start - b.start),
-    after: events.filter((event) => event.kind === "leeway" && event.stopID === stopId && event.after !== -1 && (!self || event.start >= self.start)),
+    following: [
+      ...mine.filter((event) => self && event.start >= self.start),
+      ...leeway.filter((event) => !self || event.start >= self.start),
+    ].sort((a, b) => a.start - b.start),
     now: events.filter((event) => event.kind === "leeway" && event.after === -1),
   };
 }
@@ -6923,7 +6926,6 @@ function stopCard(stop, index) {
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
     ${around.self ? chip(around.self) : ""}
-    ${around.after.map(chip).join("")}
     ${around.following.map(chip).join("")}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;

@@ -455,18 +455,8 @@ export function milesForStops(stops, mph) {
   });
 }
 
-function leewayPhrase(arriveLatest, start, end, stop, endMinutes) {
-  if (stop && !stop.anytime) {
-    const latest = latestArrive(stop);
-    const open = notBefore(stop);
-    const arrivedInside = open == null || start + 60 * 1000 >= open;
-    if (arrivedInside && Math.abs(end - latest) < 60 * 1000) return "Leeway for latest arrival";
-    if (arrivedInside && !isAnytimeEnd(endMinutes)) {
-      const dayEnd = nextDailyEnd(endMinutes, start, stop.timeZone || "");
-      if (Math.abs(end - dayEnd) < 60 * 1000 && end <= latest + 60 * 1000) return "Leeway for latest arrival";
-    }
-  }
-  return arriveLatest ? "Leeway for latest arrival" : "Leeway for earliest arrival";
+function leewayPhrase() {
+  return "Leeway";
 }
 
 function pieceDelayMinutes(stop, pieceIndex) {
