@@ -4707,6 +4707,11 @@ function fitCoords(coordinates, maxZoom) {
 let turnFrameAt = null;
 let turnFrameTarget = null;
 let turnFrameBearing = null;
+let turnShownKey = "";
+let turnShownAlong = null;
+let turnKeepAlong = null;
+let turnZoomOut = null;
+let turnZoomOutTimer = 0;
 let stopFrameAt = null;
 let stopFrameId = "";
 let routeCoverSize = "";
@@ -4782,11 +4787,25 @@ function paddingForTurnZoom(basePad, deeper) {
   return { padding: { ...padding, left, right }, zoomIn: deeper };
 }
 
-function frameNextTurn() {
-  const maplibre = window.maplibregl;
-  if (!routeMap || !maplibre) return;
-  rebuildNavLegs();
-  if (!navFix || navLine.length < 2) return;
+const TURN_ZOOM_OUT_MS = 10000;
+
+function clearTurnFrame() {
+  turnFrameAt = null;
+  turnFrameTarget = null;
+  turnFrameBearing = null;
+  turnShownKey = "";
+  turnShownAlong = null;
+  turnKeepAlong = null;
+  stopTurnZoomOut();
+}
+
+function stopTurnZoomOut() {
+  window.clearTimeout(turnZoomOutTimer);
+  turnZoomOutTimer = 0;
+  turnZoomOut = null;
+}
+
+function turnGuideAlong() {
   const hit = navNearest(navFix[0], navFix[1], navLine);
   let along = hit.along;
   if (navStopPicked) {
@@ -4794,53 +4813,65 @@ function frameNextTurn() {
     const guide = chosen && nearChosenStop(chosen, navFix[0], navFix[1], hit) ? guideLegFor(chosen) : null;
     if (guide && along < guide.start) along = Math.max(0, guide.start - 10);
   }
+  return along;
+}
+
+function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
-  // The turn stays on screen. Half a mile past it is only added once the
-  // turn is close, so a far exit is in view without an extra stretch beyond it.
   const halfMile = 804.672;
   const turnAlong = currentDirectionEnd(along);
   const ahead = turnAlong == null ? halfMile : Math.max(0, turnAlong - along);
+  // Half a mile past the turn is only added once the turn is close, so a far
+  // exit stays in view without an extra stretch beyond it. The extra zoom
+  // is only for that close turn. On a long leg it would push the turn off.
   const past = ahead <= halfMile ? halfMile : 0;
   const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead + past));
   const far = pointAlong(navLine, farAlong);
-  if (!far) return;
-  const bearing = northLock
-    ? 0
-    : (navCompass != null ? navCompass : navBearing(navFix, [far.lat, far.lon]));
-  let bearingDelta = 0;
-  if (turnFrameBearing != null) {
-    bearingDelta = Math.abs(bearing - turnFrameBearing) % 360;
-    if (bearingDelta > 180) bearingDelta = 360 - bearingDelta;
+  let bearing = 0;
+  if (!northLock) {
+    bearing = navCompass != null
+      ? navCompass
+      : (far ? navBearing(navFix, [far.lat, far.lon]) : 0);
   }
-  if (turnFrameAt && turnFrameTarget != null
-    && Math.abs(turnFrameTarget - farAlong) < 40
-    && metersBetween(turnFrameAt, navFix) < 80
-    && bearingDelta < 12) return;
-  const coords = navRemaining(Math.min(along, farAlong), farAlong);
-  coords.push([navFix[1], navFix[0]], [far.lon, far.lat]);
-  if (coords.length < 2) return;
-  const bounds = coords.reduce(
+  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 0.45 : 0 };
+}
+
+function turnStepKey(along) {
+  const leg = activeNavLeg({ along });
+  if (!leg?.stop?.id) return "";
+  const found = navStep(leg, Math.max(0, along - leg.start));
+  if (!found) return "";
+  return `${leg.stop.id}:${found.index}`;
+}
+
+function turnNearAlong(along, ahead) {
+  const halfMile = 804.672;
+  if (!Number.isFinite(turnKeepAlong)) return along;
+  if (ahead <= halfMile || along - turnKeepAlong > halfMile) {
+    turnKeepAlong = null;
+    return along;
+  }
+  return Math.min(along, turnKeepAlong);
+}
+
+function boundsForTurn(fromAlong, toAlong) {
+  const maplibre = window.maplibregl;
+  const from = Math.min(fromAlong, toAlong);
+  const to = Math.max(fromAlong, toAlong);
+  const coords = navRemaining(from, to);
+  const near = pointAlong(navLine, from);
+  const far = pointAlong(navLine, to);
+  if (navFix) coords.push([navFix[1], navFix[0]]);
+  if (near) coords.push([near.lon, near.lat]);
+  if (far) coords.push([far.lon, far.lat]);
+  if (!maplibre || coords.length < 2) return null;
+  return coords.reduce(
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
-  turnFrameAt = [navFix[0], navFix[1]];
-  turnFrameTarget = farAlong;
-  turnFrameBearing = bearing;
-  if (turnMarker) turnMarker.remove();
-  turnMarker = null;
-  if (turnAlong != null) {
-    const at = pointAlong(navLine, turnAlong);
-    if (at) {
-      const pin = document.createElement("span");
-      pin.className = "turn-pin";
-      turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
-    }
-  }
-  navZoomHold = Date.now() + 800;
-  routeMap.stop();
-  // A little closer only when the turn is near. Extra zoom on a long leg
-  // pushes that turn off the top of the screen.
-  const deeper = ahead <= halfMile ? 0.45 : 0;
+}
+
+function fitTurnCamera(bounds, bearing, deeper) {
   let framed = paddingForTurnZoom(turnViewPadding(), 0);
   let fitted = routeMap.cameraForBounds(bounds, { padding: framed.padding, bearing });
   if (deeper > 0 && fitted && Number.isFinite(fitted.zoom)) {
@@ -4856,17 +4887,175 @@ function frameNextTurn() {
       }
     }
   }
-  if (fitted && Number.isFinite(fitted.zoom)) {
-    routeMap.easeTo({
+  if (!fitted || !Number.isFinite(fitted.zoom)) return { padding: framed.padding, camera: null };
+  return {
+    padding: framed.padding,
+    camera: {
       center: fitted.center,
       zoom: Math.min(17, fitted.zoom + framed.zoomIn),
       bearing,
+    },
+  };
+}
+
+function heldBearing(desired) {
+  if (!routeMap || !Number.isFinite(desired)) return Number.isFinite(desired) ? desired : 0;
+  let delta = Math.abs(desired - routeMap.getBearing()) % 360;
+  if (delta > 180) delta = 360 - delta;
+  if (delta < 12) return routeMap.getBearing();
+  return desired;
+}
+
+function placeTurnPin(turnAlong) {
+  const maplibre = window.maplibregl;
+  if (!routeMap || !maplibre || turnAlong == null) {
+    if (turnMarker) {
+      turnMarker.remove();
+      turnMarker = null;
+    }
+    return;
+  }
+  const at = pointAlong(navLine, turnAlong);
+  if (!at) return;
+  if (!turnMarker) {
+    const pin = document.createElement("span");
+    pin.className = "turn-pin";
+    turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
+    return;
+  }
+  turnMarker.setLngLat([at.lon, at.lat]);
+}
+
+function scheduleTurnZoomOut() {
+  if (!turnZoomOut || turnZoomOutTimer) return;
+  turnZoomOutTimer = window.setTimeout(paintTurnZoomOut, 250);
+}
+
+function beginTurnZoomOut(lastAlong, startFar, stepKey, nextTurnAlong) {
+  window.clearTimeout(turnZoomOutTimer);
+  turnZoomOutTimer = 0;
+  turnKeepAlong = lastAlong;
+  turnShownKey = stepKey;
+  turnShownAlong = nextTurnAlong;
+  turnZoomOut = {
+    started: Date.now(),
+    elapsed: 0,
+    paused: false,
+    lastAlong,
+    startFar: Number.isFinite(startFar) ? startFar : lastAlong,
+    stepKey,
+  };
+  routeMap.stop();
+  scheduleTurnZoomOut();
+}
+
+function paintTurnZoomOut() {
+  turnZoomOutTimer = 0;
+  if (!turnZoomOut || !routeMap || !navOn || !navFix || tripFit !== "nextTurn" || navLine.length < 2) {
+    turnZoomOut = null;
+    return;
+  }
+  if (turnZoomOut.paused || navMapTouch) {
+    turnZoomOut.started = Date.now() - turnZoomOut.elapsed;
+    scheduleTurnZoomOut();
+    return;
+  }
+  turnZoomOut.elapsed = Date.now() - turnZoomOut.started;
+  const t = Math.min(1, turnZoomOut.elapsed / TURN_ZOOM_OUT_MS);
+  const moved = moveTurnZoomOut(t);
+  if (t < 1) {
+    scheduleTurnZoomOut();
+    return;
+  }
+  if (moved && navFix) {
+    turnFrameAt = [navFix[0], navFix[1]];
+    turnFrameTarget = moved.farAlong;
+    turnFrameBearing = moved.bearing;
+  }
+  turnZoomOut = null;
+}
+
+function moveTurnZoomOut(t) {
+  rebuildNavLegs();
+  if (!navFix || navLine.length < 2 || !turnZoomOut) return null;
+  const along = turnGuideAlong();
+  const span = turnSpan(along);
+  if (!span.far) return null;
+  const startFar = Number.isFinite(turnZoomOut.startFar) ? turnZoomOut.startFar : along + 40;
+  const farAlong = Math.max(along + 40, startFar + (span.farAlong - startFar) * t);
+  const from = Number.isFinite(turnZoomOut.lastAlong) ? Math.min(along, turnZoomOut.lastAlong) : along;
+  const bounds = boundsForTurn(from, farAlong);
+  if (!bounds) return null;
+  const bearing = heldBearing(span.bearing);
+  const fit = fitTurnCamera(bounds, bearing, t >= 1 ? span.deeper : 0);
+  if (!fit.camera) return null;
+  routeMap.easeTo({
+    center: fit.camera.center,
+    zoom: fit.camera.zoom,
+    bearing: fit.camera.bearing,
+    duration: 280,
+    easing: (x) => x,
+  });
+  placeTurnPin(span.turnAlong);
+  return { farAlong: span.farAlong, bearing };
+}
+
+function frameNextTurn() {
+  const maplibre = window.maplibregl;
+  if (!routeMap || !maplibre) return;
+  rebuildNavLegs();
+  if (!navFix || navLine.length < 2) return;
+  const along = turnGuideAlong();
+  const span = turnSpan(along);
+  if (!span.far) return;
+  const stepKey = turnStepKey(along);
+  if (turnZoomOut) {
+    if (turnZoomOut.stepKey === stepKey) return;
+    stopTurnZoomOut();
+  }
+  let bearingDelta = 0;
+  if (turnFrameBearing != null) {
+    bearingDelta = Math.abs(span.bearing - turnFrameBearing) % 360;
+    if (bearingDelta > 180) bearingDelta = 360 - bearingDelta;
+  }
+  const sameView = turnFrameAt && turnFrameTarget != null
+    && Math.abs(turnFrameTarget - span.farAlong) < 40
+    && metersBetween(turnFrameAt, navFix) < 80
+    && bearingDelta < 12;
+  if (sameView) return;
+  // Passed a turn and the next one is farther: zoom out over 10 seconds.
+  // You and the turn you just made stay on screen the whole way.
+  const passed = turnShownKey && turnShownKey !== stepKey
+    && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
+  const destBounds = boundsForTurn(along, span.farAlong);
+  const destFit = destBounds ? fitTurnCamera(destBounds, span.bearing, span.deeper) : null;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (passed && destFit?.camera && destFit.camera.zoom < routeMap.getZoom() - 0.35 && !reduce) {
+    beginTurnZoomOut(turnShownAlong, turnFrameTarget, stepKey, span.turnAlong);
+    return;
+  }
+  const bounds = boundsForTurn(turnNearAlong(along, span.ahead), span.farAlong);
+  if (!bounds) return;
+  const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
+  turnFrameAt = [navFix[0], navFix[1]];
+  turnFrameTarget = span.farAlong;
+  turnFrameBearing = span.bearing;
+  turnShownKey = stepKey;
+  turnShownAlong = span.turnAlong;
+  placeTurnPin(span.turnAlong);
+  navZoomHold = Date.now() + 800;
+  routeMap.stop();
+  if (fit.camera) {
+    routeMap.easeTo({
+      center: fit.camera.center,
+      zoom: fit.camera.zoom,
+      bearing: fit.camera.bearing,
       duration: 650,
     });
   } else {
     routeMap.fitBounds(bounds, {
-      padding: framed.padding,
-      bearing,
+      padding: fit.padding,
+      bearing: span.bearing,
       maxZoom: 17,
       duration: 650,
     });
@@ -4914,6 +5103,7 @@ function frameNextStop() {
 
 function changeMapZoom(delta) {
   if (!routeMap) return;
+  stopTurnZoomOut();
   navZoomHold = Date.now() + 1200;
   routeMap.stop();
   navZoom = Math.min(18, Math.max(3, routeMap.getZoom() + delta * 2));
@@ -4924,6 +5114,7 @@ function changeMapZoom(delta) {
 
 function holdUserZoom(event) {
   if (!event.originalEvent || !routeMap) return;
+  stopTurnZoomOut();
   navZoom = routeMap.getZoom();
   navZoomHold = Date.now() + 1200;
 }
@@ -4954,9 +5145,7 @@ function cycleTripFit() {
     frameNextStop();
     return;
   }
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  turnFrameBearing = null;
+  clearTurnFrame();
   frameNextTurn();
 }
 
@@ -5036,9 +5225,7 @@ function paintDirectionMiles(truckAlong) {
 }
 
 function armStopSwitch() {
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  turnFrameBearing = null;
+  clearTurnFrame();
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   if (tripFit !== "nextTurn") navFollowing = true;
@@ -6205,9 +6392,7 @@ function applyNorthLockCamera() {
   if (!routeMap) return;
   if (tripFit === "full" || tripFit === "remaining" || tripFit === "nextStop") return;
   if (tripFit === "nextTurn" && navOn && navFix) {
-    turnFrameAt = null;
-    turnFrameTarget = null;
-    turnFrameBearing = null;
+    clearTurnFrame();
     frameNextTurn();
     return;
   }
@@ -6255,9 +6440,7 @@ function pauseFollowForDirection() {
     navReturnTimer = 0;
     if (!navOn) return;
     if (tripFit === "nextTurn") {
-      turnFrameAt = null;
-      turnFrameTarget = null;
-      turnFrameBearing = null;
+      clearTurnFrame();
       frameNextTurn();
       return;
     }
@@ -6285,9 +6468,7 @@ function endRouteNav() {
   resetNavVoice();
   navFollowing = false;
   tripFit = "off";
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  turnFrameBearing = null;
+  clearTurnFrame();
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   freezeTyping(false);
@@ -6492,9 +6673,7 @@ function beginRouteNav() {
   navLineKey = routeProgressKey(routePoints());
   navFollowing = false;
   tripFit = "nextTurn";
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  turnFrameBearing = null;
+  clearTurnFrame();
   navZoom = 15;
   freezeTyping(true);
   syncRouteChrome();
@@ -6597,9 +6776,7 @@ function paintLiveRoute() {
     });
   }
   if (routeMapReady) addRoutePins();
-  turnFrameAt = null;
-  turnFrameTarget = null;
-  turnFrameBearing = null;
+  clearTurnFrame();
   rebuildNavLegs();
   refillDirections();
   spokenStepKey = "";
@@ -6743,15 +6920,28 @@ function mountMap() {
       if (event.target.closest("button, a, summary, .truck-pin-wrap")) return;
       holdCamera();
     }, { capture: true, passive: true });
-    el.addEventListener("touchend", () => { navMapTouch = false; }, { capture: true });
-    el.addEventListener("touchcancel", () => { navMapTouch = false; }, { capture: true });
-    el.addEventListener("pointerup", () => { navMapTouch = false; }, { capture: true });
-    el.addEventListener("pointercancel", () => { navMapTouch = false; }, { capture: true });
+    const liftMapTouch = () => {
+      navMapTouch = false;
+      if (turnZoomOut?.paused) {
+        turnZoomOut.paused = false;
+        turnZoomOut.started = Date.now() - (turnZoomOut.elapsed || 0);
+      }
+    };
+    el.addEventListener("touchend", liftMapTouch, { capture: true });
+    el.addEventListener("touchcancel", liftMapTouch, { capture: true });
+    el.addEventListener("pointerup", liftMapTouch, { capture: true });
+    el.addEventListener("pointercancel", liftMapTouch, { capture: true });
     map.on("pointerdown", (event) => {
       if (event.originalEvent?.target?.closest?.("button, a, summary, .truck-pin-wrap")) return;
       holdCamera();
     });
-    map.on("dragstart", releaseCamera);
+    map.on("dragstart", () => {
+      if (turnZoomOut) {
+        turnZoomOut.paused = true;
+        turnZoomOut.started = Date.now() - (turnZoomOut.elapsed || 0);
+      }
+      releaseCamera();
+    });
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
