@@ -3849,6 +3849,7 @@ let truckHit = null;
 let truckHits = [];
 let placeListMode = false;
 let placeSeek = "";
+let placeSeekFull = false;
 let placeMapMoved = false;
 let placeHereNote = "";
 let navLine = [];
@@ -6090,12 +6091,16 @@ function paintPlaceList() {
   const pageClear = document.getElementById("clearPlaces");
   if (pageClear) pageClear.hidden = truckHits.length === 0;
   const searchLabel = placeSeek === "truck" ? "Search here · 1 credit" : "Search here";
-  const showSearch = Boolean(placeSeek) && !routeFull;
-  for (const id of ["routePlaceSearch", "searchPlaces"]) {
-    const search = document.getElementById(id);
-    if (!search) continue;
-    search.hidden = !showSearch;
-    search.textContent = searchLabel;
+  const soughtHere = Boolean(placeSeek) && routeFull === placeSeekFull;
+  const mapSearch = document.getElementById("routePlaceSearch");
+  if (mapSearch) {
+    mapSearch.hidden = !soughtHere;
+    mapSearch.textContent = searchLabel;
+  }
+  const pageSearch = document.getElementById("searchPlaces");
+  if (pageSearch) {
+    pageSearch.hidden = !(placeSeek && !routeFull);
+    pageSearch.textContent = searchLabel;
   }
   const status = document.getElementById("routePlaceStatus");
   if (status) {
@@ -6119,6 +6124,7 @@ function resumeTurnZoom() {
 
 function clearPlacePins() {
   placeSeek = "";
+  placeSeekFull = false;
   placeMapMoved = false;
   placeHereNote = "";
   forgetTruckChoice();
@@ -6637,6 +6643,7 @@ async function findNextTruckStop(options = {}) {
   if (!navOn || state.estimating) return;
   const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
   placeSeek = place;
+  placeSeekFull = routeFull;
   placeMapMoved = false;
   placeHereNote = "";
   const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : place === "cat" ? "Cat Scale" : "truck stop";
