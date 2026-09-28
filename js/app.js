@@ -1238,6 +1238,7 @@ function saveTrip() {
 }
 
 function loadTrip(id) {
+  if (navOn) return;
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
   state.settings = { ...state.settings, ...(trip.settings || {}) };
@@ -1347,6 +1348,7 @@ function loadExample() {
 }
 
 async function deleteTrip(id) {
+  if (navOn) return;
   state.trips = state.trips.filter((trip) => trip.id !== id);
   if (state.activeTripId === id) state.activeTripId = null;
   persist();
@@ -1868,6 +1870,7 @@ function resetEditor() {
 }
 
 function newTrip() {
+  if (navOn) return;
   const keep = {
     trips: state.trips,
     settings: { ...state.settings },
@@ -2989,16 +2992,16 @@ function savedTripsBlock() {
   const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
   const list = state.trips.length ? `<ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
-        <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}">
+        <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
           <span>${formatShort(trip.savedAt)}</span>
         </button>
-        <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}">${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
+        <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>` : "";
   return `<section class="trips">
+    <p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>
     <h2>Saved trips</h2>
-    <p class="trips-clear"><button type="button" class="flag-box" id="newTrip">Clear trip</button></p>
     ${loading}
     ${list}
   </section>`;
@@ -5087,7 +5090,9 @@ function turnGuideAlong() {
 function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
   const turnAlong = currentDirectionEnd(along);
-  const ahead = turnAlong == null ? 80 : Math.max(0, turnAlong - along);
+  const rawAhead = turnAlong == null ? 80 : Math.max(0, turnAlong - along);
+  // A long continue is not a turn. Stay within half a mile until the maneuver is closer.
+  const ahead = Math.min(rawAhead, 0.5 * 1609.344);
   const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead));
   const far = pointAlong(navLine, farAlong);
   let bearing = 0;
