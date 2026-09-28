@@ -4787,7 +4787,7 @@ function paddingForTurnZoom(basePad, deeper) {
   return { padding: { ...padding, left, right }, zoomIn: deeper };
 }
 
-const TURN_ZOOM_OUT_MS = 10000;
+const TURN_ZOOM_OUT_MS = 20000;
 
 function clearTurnFrame() {
   turnFrameAt = null;
@@ -4819,13 +4819,16 @@ function turnGuideAlong() {
 function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
   const halfMile = 804.672;
+  const twoMiles = 3218.688;
   const turnAlong = currentDirectionEnd(along);
   const ahead = turnAlong == null ? halfMile : Math.max(0, turnAlong - along);
-  // Half a mile past the turn is only added once the turn is close, so a far
-  // exit stays in view without an extra stretch beyond it. The extra zoom
-  // is only for that close turn. On a long leg it would push the turn off.
+  // A long leg stays about two miles deep instead of opening all the way to
+  // the turn. Half a mile past it is only added once the turn is close, and
+  // that close view zooms in further. Extra zoom on a long leg would push
+  // the turn off the top.
+  const look = Math.min(ahead, twoMiles);
   const past = ahead <= halfMile ? halfMile : 0;
-  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead + past));
+  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + look + past));
   const far = pointAlong(navLine, farAlong);
   let bearing = 0;
   if (!northLock) {
@@ -4833,7 +4836,7 @@ function turnSpan(along) {
       ? navCompass
       : (far ? navBearing(navFix, [far.lat, far.lon]) : 0);
   }
-  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 0.45 : 0 };
+  return { turnAlong, ahead, farAlong, far, bearing, deeper: ahead <= halfMile ? 1.2 : 0 };
 }
 
 function turnStepKey(along) {
@@ -4875,7 +4878,7 @@ function fitTurnCamera(bounds, bearing, deeper) {
   let framed = paddingForTurnZoom(turnViewPadding(), 0);
   let fitted = routeMap.cameraForBounds(bounds, { padding: framed.padding, bearing });
   if (deeper > 0 && fitted && Number.isFinite(fitted.zoom)) {
-    const room = Math.min(deeper, Math.max(0, 17 - fitted.zoom));
+    const room = Math.min(deeper, Math.max(0, 18 - fitted.zoom));
     if (room > 0.01) {
       const closer = paddingForTurnZoom(turnViewPadding(), room);
       const again = closer.zoomIn > 0
@@ -4892,7 +4895,7 @@ function fitTurnCamera(bounds, bearing, deeper) {
     padding: framed.padding,
     camera: {
       center: fitted.center,
-      zoom: Math.min(17, fitted.zoom + framed.zoomIn),
+      zoom: Math.min(18, fitted.zoom + framed.zoomIn),
       bearing,
     },
   };
@@ -5023,7 +5026,7 @@ function frameNextTurn() {
     && metersBetween(turnFrameAt, navFix) < 80
     && bearingDelta < 12;
   if (sameView) return;
-  // Passed a turn and the next one is farther: zoom out over 10 seconds.
+  // Passed a turn and the next one is farther: zoom out over 20 seconds.
   // You and the turn you just made stay on screen the whole way.
   const passed = turnShownKey && turnShownKey !== stepKey
     && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
@@ -5056,7 +5059,7 @@ function frameNextTurn() {
     routeMap.fitBounds(bounds, {
       padding: fit.padding,
       bearing: span.bearing,
-      maxZoom: 17,
+      maxZoom: 18,
       duration: 650,
     });
   }
