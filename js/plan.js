@@ -1043,7 +1043,7 @@ export function planPlainText({
     lines.push(`Leave by: ${longOf(plan.rollAt, "leave")}`);
     lines.push(`Arrive: ${longOf(plan.arriveAt, "arrive")}`);
     lines.push(`Driving: ${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}`);
-    lines.push(`HOS on this path: ${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour`);
+    lines.push(`HOS on this path: ${plan.breakCount} × 30-min · ${plan.restCount} × Off-duty/Sleeper Berth`);
     lines.push(`Clock including rests: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}`);
     lines.push("");
     lines.push("Timeline");

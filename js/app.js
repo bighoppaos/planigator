@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=154";
+} from "./plan.js?v=155";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -3123,7 +3123,7 @@ function planBox() {
       <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
       <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
       <p class="flag-box">Driving ${escapeAttr(hoursLabel(plan.driveHours))} · ${escapeAttr(formatMiles(plan.miles))}</p>
-      <p class="flag-box">HOS on this path ${plan.breakCount} × 30-min · ${plan.restCount} × 10-hour</p>
+      <p class="flag-box">HOS on this path ${plan.breakCount} × 30-min · ${plan.restCount} × Off-duty/Sleeper Berth</p>
       <p class="flag-box">Total trip-time including 10's and 30's: ${escapeAttr(durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000))}.</p>
     </div>
   </section>`;
