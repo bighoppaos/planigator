@@ -1368,6 +1368,58 @@ function editorBusy() {
   return navOn || routeFull || Boolean(el && el.matches && el.matches("input, textarea, select"));
 }
 
+function editorMatchesTrip(trip) {
+  const editorIds = (state.stops || []).map((stop) => stop.id);
+  const tripIds = (trip?.stops || []).map((stop) => stop.id);
+  if (!editorIds.length || editorIds.length !== tripIds.length) return false;
+  return editorIds.every((id, index) => id === tripIds[index]);
+}
+
+function savedTripForEditor() {
+  return state.trips.find((trip) => editorMatchesTrip(trip)) || null;
+}
+
+/** The empty Stop 1 left after sign-out. A stolen road line does not count. */
+function editorIsUnused() {
+  if ((state.tripName || "").trim()) return false;
+  if (state.plan && Array.isArray(state.plan.events) && state.plan.events.length) return false;
+  const stops = state.stops || [];
+  if (!stops.length) return true;
+  if (stops.length !== 1) return false;
+  const stop = stops[0];
+  if (stop.useCurrentLocation) return false;
+  const name = (stop.name || "").trim();
+  if (name && name !== "Stop 1") return false;
+  if ((stop.address || "").trim()) return false;
+  if ((Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001) return false;
+  if (Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon))) return false;
+  return true;
+}
+
+function restoreOpenTrip() {
+  if (!state.activeTripId) {
+    const matched = savedTripForEditor();
+    if (matched) state.activeTripId = matched.id;
+  }
+  const open = state.trips.find((trip) => trip.id === state.activeTripId);
+  if (open && !editorMatchesTrip(open)) {
+    if (editorIsUnused() && (open.stops || []).length) {
+      loadTrip(open.id);
+      return;
+    }
+    state.activeTripId = savedTripForEditor()?.id || null;
+  }
+  const current = state.trips.find((trip) => trip.id === state.activeTripId);
+  if (current && editorMatchesTrip(current) && !hasRouteLine(state.stops)) {
+    state.stops = copyRouteLine(state.stops, current.stops);
+    return;
+  }
+  if (!state.activeTripId && editorIsUnused()) {
+    const latest = state.trips.find((trip) => (trip.stops || []).length);
+    if (latest) loadTrip(latest.id);
+  }
+}
+
 function mergeRemoteTrips(remote, { touchEditor = true } = {}) {
   const byId = new Map();
   for (const trip of remote) {
@@ -1383,11 +1435,7 @@ function mergeRemoteTrips(remote, { touchEditor = true } = {}) {
   state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
   if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
   if (!touchEditor) return;
-  const donor = state.trips.find((trip) => trip.id === state.activeTripId) || state.trips.find((trip) => hasRouteLine(trip.stops));
-  if (donor && !hasRouteLine(state.stops)) {
-    state.stops = copyRouteLine(state.stops, donor.stops);
-    if (!state.activeTripId) state.activeTripId = donor.id;
-  }
+  restoreOpenTrip();
 }
 
 function uploadPendingTrips() {
