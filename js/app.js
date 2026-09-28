@@ -10,7 +10,7 @@ import {
   shortStamp,
   resolvedLeaveAt,
   msInZone,
-} from "./hos.js?v=131";
+} from "./hos.js?v=132";
 import {
   newId,
   cardTitle,
@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=149";
+} from "./plan.js?v=150";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=4";
 import { tzlookup } from "./tz-lookup.js?v=1";
