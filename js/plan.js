@@ -835,7 +835,7 @@ function restEvent(rest, stopID) {
     start: rest.start,
     end: rest.end,
     tripHours: Math.max(0, (rest.end - rest.start) / 3600 / 1000),
-    timePhrase: thirty ? "30-minute break" : "10-hour reset/Off-duty",
+    timePhrase: thirty ? "30-minute break" : "Off-duty/Sleeper Berth",
     rgb: thirty ? THIRTY_RGB : REST_RGB,
     stopID,
   };
@@ -1039,7 +1039,7 @@ export function planPlainText({
       lines.push(`${event.timePhrase}${extra.length ? ` · ${extra.join(" · ")}` : ""}`);
       lines.push(`  ${when}`);
       if (event.arrivalPhrase && event.earliestArrive) {
-        lines.push(`  ${event.arrivalPhrase} ${shortOf(event.earliestArrive, event)}`);
+        lines.push(`  ${event.arrivalPhrase}: ${shortOf(event.earliestArrive, event)}`);
       }
     });
   }

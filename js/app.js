@@ -23,9 +23,9 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=151";
+} from "./plan.js?v=152";
 import { TRUCK_PROFILE } from "./here.js";
-import { EXAMPLE_TRIP } from "./example-trip.js?v=5";
+import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
@@ -6752,10 +6752,10 @@ function chip(event) {
     : [hours, miles].filter(Boolean).join(" · ");
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
-  const phrase = event.kind === "rest" ? "10-hour reset/Off-duty" : (event.timePhrase || "");
+  const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
   const arrive = event.arrivalPhrase && event.earliestArrive
-    ? `${event.arrivalPhrase} ${formatPlanShort(event.earliestArrive, eventZone(event))}`
+    ? `${event.arrivalPhrase}: ${formatPlanShort(event.earliestArrive, eventZone(event))}`
     : "";
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
