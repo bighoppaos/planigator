@@ -4227,13 +4227,15 @@ function paintPlace(text) {
 function driveLeftText(alongMeters) {
   const totalMiles = Number(state.plan?.miles);
   const totalHours = Number(state.plan?.driveHours);
-  if (!(totalMiles > 0) || !(totalHours > 0)) return "";
-  let hours = totalHours;
+  const pace = totalMiles > 0 && totalHours > 0 ? totalMiles / totalHours : mph();
+  let leftMiles = null;
   if (navOn && navLine.length >= 2 && Number.isFinite(alongMeters)) {
-    const leftMiles = Math.max(0, (polylineMeters(navLine) - alongMeters) / 1609.344);
-    hours = totalHours * Math.min(1, leftMiles / totalMiles);
-  }
-  return `${hoursLabel(Math.max(0, hours))} left`;
+    leftMiles = Math.max(0, (polylineMeters(navLine) - alongMeters) / 1609.344);
+  } else if (totalMiles > 0) leftMiles = totalMiles;
+  if (leftMiles == null || !(pace > 0)) return "";
+  if (leftMiles < 0.05) return "0 min left";
+  const minutes = Math.max(1, Math.round((leftMiles / pace) * 60));
+  return `${hoursLabel(minutes / 60)} left`;
 }
 
 function paintDrive(alongMeters) {
@@ -5982,12 +5984,25 @@ function paintPlaceList() {
   if (add) add.hidden = !truckHit;
 }
 
+function resumeTurnZoom() {
+  if (!navOn) return;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  navFollowing = false;
+  navZoomHold = 0;
+  tripFit = "nextTurn";
+  clearTurnFrame();
+  syncTripFitButton();
+  if (routeMap && navFix) frameNextTurn();
+}
+
 function clearPlacePins() {
   placeSeek = "";
   placeMapMoved = false;
   placeHereNote = "";
   forgetTruckChoice();
   syncTruckAdd();
+  resumeTurnZoom();
 }
 
 function selectTruckHit(index) {
@@ -6654,6 +6669,11 @@ function onNavFix(lat, lon, alt) {
   if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
   if (travel != null) navTravel = travel;
   navFix = [lat, lon];
+  // Place search turns Turn zoom off. If the pins are gone and the map is
+  // not following, Turn zoom had been left off.
+  if (tripFit === "off" && !navFollowing && !navMapTouch && !placeSeek && !truckHits.length && Date.now() >= navZoomHold) {
+    resumeTurnZoom();
+  }
   paintCompassRose();
   refreshPlace(lat, lon);
   rebuildNavLegs();
