@@ -539,9 +539,22 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .stop-card.is-done {
   position: relative;
 }
-.stop-card.is-done > :not(.done-mark) {
+.stop-card.is-done > :not(.done-mark):not(.stop-head) {
   opacity: 0.45;
   pointer-events: none;
+}
+.stop-card.is-done .stop-head > label {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.stop-card.is-done .icon-row [data-act="up"],
+.stop-card.is-done .icon-row [data-act="down"] {
+  pointer-events: none;
+}
+.stop-card.is-done [data-act="remove"]:not(:disabled) {
+  position: relative;
+  z-index: 6;
+  pointer-events: auto;
 }
 .done-mark {
   position: absolute;

@@ -1577,9 +1577,15 @@ function paintDoneStop(id) {
   const card = document.querySelector(`[data-stop="${id}"]`);
   if (!card || card.classList.contains("is-done")) return;
   card.classList.add("is-done");
-  card.inert = true;
+  card.inert = false;
   const title = (card.querySelector("textarea[data-field=name]")?.value || "").trim() || "Stop";
   card.setAttribute("aria-label", `${title} done`);
+  card.querySelectorAll("label").forEach((node) => { node.inert = true; });
+  card.querySelectorAll("textarea, button, select, input").forEach((node) => {
+    if (node.getAttribute("data-act") === "remove") return;
+    node.disabled = true;
+    node.inert = true;
+  });
   card.querySelectorAll(".here-leg, .stop-done").forEach((node) => node.remove());
   card.insertAdjacentHTML("beforeend", doneStamp());
 }
@@ -6892,19 +6898,21 @@ function stopCard(stop, index) {
   const typedAddress = (stop.address || "").trim();
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = stopCanRemove(index);
+  const locked = stop.done && !originStop;
   return `
-    <article class="stop-card${stop.done && !originStop ? " is-done" : ""}" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}"${stop.done && !originStop ? ` inert aria-label="${escapeAttr(title)} done"` : ""}>
+    <article class="stop-card${locked ? " is-done" : ""}" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}"${locked ? ` aria-label="${escapeAttr(title)} done"` : ""}>
       <div class="stop-head">
-        <label>
+        <label${locked ? " inert" : ""}>
           <span class="sr">Stop name</span>
           <textarea class="plain" data-field="name" rows="1" maxlength="8" placeholder="${escapeAttr(title)}" aria-label="Stop name">${escapeAttr(stop.name)}</textarea>
         </label>
         <div class="icon-row">
-          <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 ? "disabled" : ""} aria-label="Move stop up">↑</button>
-          <button type="button" class="ghost" data-act="down" ${originStop || destIndex >= dests.length - 1 ? "disabled" : ""} aria-label="Move stop down">↓</button>
+          <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 || locked ? "disabled" : ""} aria-label="Move stop up">↑</button>
+          <button type="button" class="ghost" data-act="down" ${originStop || destIndex >= dests.length - 1 || locked ? "disabled" : ""} aria-label="Move stop down">↓</button>
           <button type="button" class="ghost${state.confirmRemoveId === stop.id ? " armed" : ""}" data-act="remove" ${canRemove ? "" : "disabled"} aria-label="Remove ${escapeAttr(title)}">${state.confirmRemoveId === stop.id ? "Remove" : "−"}</button>
         </div>
       </div>
+      <div class="stop-body"${locked ? " inert" : ""}>
       <div class="address-row">
         <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
         <button type="button" class="flag-box" data-act="paste" aria-label="Paste an address and times">Paste</button>
@@ -6931,7 +6939,8 @@ function stopCard(stop, index) {
         ${stop.window ? whenRow("Opens", stop, "start", stop.start) : ""}
         ${whenRow(stop.window ? "Closes" : "Be there by", stop, stop.window ? "end" : "start", stop.window ? stop.end : stop.start)}
       `}`}
-      ${stop.done && !originStop ? doneStamp() : ""}
+      </div>
+      ${locked ? doneStamp() : ""}
     </article>
     ${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
