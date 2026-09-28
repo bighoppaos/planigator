@@ -38,6 +38,7 @@ const DEFAULT_HERO = [
   "Truck legal GPS navigation on this same page. No app required.",
   "It's not expensive",
   "And it's cooler",
+  "Made by a driver that still drives",
 ];
 let heroLines = DEFAULT_HERO.slice();
 
@@ -63,7 +64,13 @@ function loadHeroLines() {
   const apply = api("/v1/hero").then((data) => {
     const lines = cleanHeroLines(data?.lines);
     if (!lines.length) return;
-    heroLines = lines;
+    const previous = [
+      "Know how much time you have to spare",
+      "Truck legal GPS navigation on this same page. No app required.",
+      "It's not expensive",
+      "And it's cooler",
+    ];
+    heroLines = lines.join("\n") === previous.join("\n") ? DEFAULT_HERO.slice() : lines;
     paintHeroLines();
   }).catch(() => {});
   const timeout = new Promise((resolve) => setTimeout(resolve, 1200));

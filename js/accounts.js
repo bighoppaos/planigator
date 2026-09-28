@@ -266,6 +266,7 @@ const DEFAULT_HERO = [
   "Truck legal GPS navigation on this same page. No app required.",
   "It's not expensive",
   "And it's cooler",
+  "Made by a driver that still drives",
 ];
 
 function heroRow(value) {
