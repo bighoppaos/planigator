@@ -859,11 +859,14 @@ function applySharedTrip(data, { notice } = {}) {
   }
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
   state.notice = notice || "This trip was shared with you.";
+  wantAccountTrip = true;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   persist();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
-  else render();
+  else {
+    void keepSharedOnAccount({ quiet: true }).then(() => render());
+  }
 }
 
 async function loadSharedCode(code) {
@@ -1124,6 +1127,7 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
   state.plan = result;
   state.error = "";
   state.arrivalBusy = false;
+  if (wantAccountTrip) await keepSharedOnAccount({ quiet: true });
   const routeNote = hereLegs?.from
     ? `HERE© truck route from ${hereLegs.from} (${TRUCK_PROFILE.summary}). Earlier stops were not recalculated.`
     : `HERE© truck route (${TRUCK_PROFILE.summary}).`;
@@ -1161,6 +1165,42 @@ function presentAfterPlan(keepScreen) {
     return;
   }
   render();
+}
+
+let wantAccountTrip = false;
+
+function tripOnAccount() {
+  if (!state.plan) return false;
+  if (state.activeTripId && state.trips.some((trip) => trip.id === state.activeTripId)) return true;
+  let token = "";
+  try { token = shareToken(); } catch { return false; }
+  return state.trips.some((trip) => {
+    try { return shareTokenFor(trip) === token; } catch { return false; }
+  });
+}
+
+async function keepSharedOnAccount({ quiet = false } = {}) {
+  if (!state.plan) return;
+  if (tripOnAccount()) {
+    if (!quiet) state.notice = "This trip is already on your account.";
+    wantAccountTrip = false;
+    return;
+  }
+  if (!state.signedIn) {
+    state.notice = "Sign in to add this trip to your account.";
+    return;
+  }
+  state.activeTripId = null;
+  saveTrip();
+  try {
+    await putTrips(state.trips);
+    markTripsUploaded();
+    state.notice = "Added to your account. It is in Saved trips.";
+    wantAccountTrip = false;
+  } catch {
+    state.notice = "Saved on this device. The account copy did not update.";
+  }
+  persist();
 }
 
 function saveTrip() {
@@ -3191,7 +3231,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, and Cat scale use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -3526,6 +3566,61 @@ async function searchMapPlaces(raw) {
     button.disabled = !state.unlimited && state.credits === 0;
     button.textContent = state.signedIn ? "Search · 1 credit" : "Search";
   }
+}
+
+function placeAsMapHit(hit) {
+  const name = String(hit?.name || "").trim();
+  const label = String(hit?.label || name).trim();
+  return {
+    title: name || label,
+    label,
+    lat: hit?.lat,
+    lon: hit?.lon,
+  };
+}
+
+async function searchPickPlace(place) {
+  const note = document.getElementById("mapSearchNote");
+  const word = placeWord(place);
+  if (!mapPickMap) {
+    mapSearchNote = "The map is not ready.";
+    if (note) note.textContent = mapSearchNote;
+    return;
+  }
+  mapSearchNote = `Looking for ${word}…`;
+  if (note) note.textContent = mapSearchNote;
+  try {
+    let hits = [];
+    if (place === "truck") {
+      if (!state.signedIn) throw new Error("Sign in to search for a truck stop.");
+      if (!state.unlimited && state.credits === 0) throw new Error("You need a credit to search.");
+      const center = mapPickMap.getCenter();
+      const shift = 1 / 69;
+      const data = await nextTruckStop(
+        [[center.lat - shift, center.lng], [center.lat + shift, center.lng]],
+        "truck",
+      );
+      if (data.credits != null) state.credits = data.credits;
+      const calc = document.getElementById("calculate");
+      if (calc) calc.innerHTML = calculateButtonLabel();
+      hits = [placeAsMapHit(data)];
+    } else {
+      hits = (await localPlacesInView(place, mapPickMap)).map(placeAsMapHit);
+    }
+    hits = hits.filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && item.label);
+    mapSearchHits = hits;
+    paintMapSearchPins();
+    mapSearchNote = hits.length
+      ? (hits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.")
+      : `No ${word} in this part of the map.`;
+  } catch (error) {
+    if (error.credits != null) state.credits = error.credits;
+    const said = String(error.message || "");
+    mapSearchHits = [];
+    clearMapSearchMarkers();
+    mapSearchNote = /route line/i.test(said) ? `No ${word} in this part of the map.` : (said || `No ${word} in this part of the map.`);
+  }
+  if (note) note.textContent = mapSearchNote;
 }
 
 function mountLookupMaps() {
@@ -6402,12 +6497,12 @@ function placeHitFromRow(row, points) {
   return hit;
 }
 
-function localPlacesInView(place) {
+function localPlacesInView(place, map = routeMap) {
   return loadPlaceLists().then((grids) => {
     const grid = grids[place];
-    const bounds = routeMap?.getBounds();
-    const center = routeMap?.getCenter();
-    if (!grid || !bounds || !center) throw new Error("Move the map, then search here.");
+    const bounds = map?.getBounds();
+    const center = map?.getCenter();
+    if (!grid || !bounds || !center) throw new Error("The map is not ready.");
     const south = bounds.getSouth();
     const north = bounds.getNorth();
     const west = bounds.getWest();
@@ -7843,6 +7938,7 @@ export function initPlanner(el) {
     }
     if (!state.locating) render();
     await tripsPromise;
+    if (wantAccountTrip && state.signedIn && state.plan) await keepSharedOnAccount({ quiet: true });
     rollOpenExample();
     if (!state.locating) render();
     if (paid === "1") watchPackGrant();
@@ -8000,6 +8096,7 @@ function render() {
       <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
+        ${plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
         ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
         ${plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
         ${plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
@@ -8594,11 +8691,18 @@ function bind() {
     event.preventDefault();
     searchMapPlaces(document.getElementById("mapSearchQuery")?.value || "");
   });
+  document.getElementById("mapLoves")?.addEventListener("click", () => searchPickPlace("loves"));
+  document.getElementById("mapWalmart")?.addEventListener("click", () => searchPickPlace("walmart"));
+  document.getElementById("mapCat")?.addEventListener("click", () => searchPickPlace("cat"));
+  document.getElementById("mapTruck")?.addEventListener("click", () => searchPickPlace("truck"));
   document.getElementById("mapSearchQuery")?.addEventListener("input", (event) => {
     mapQuery = event.target.value;
   });
   mountLookupMaps();
   $("#shareTrip")?.addEventListener("click", () => shareTrip());
+  $("#addTripAccount")?.addEventListener("click", () => {
+    void keepSharedOnAccount().then(() => render());
+  });
   syncRouteChrome();
   paintPlaceList();
   $("#nextTruck")?.addEventListener("click", () => findNextTruckStop());

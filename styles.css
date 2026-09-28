@@ -1558,6 +1558,17 @@ body.app main { padding-top: 2px; }
   margin: 0;
   white-space: nowrap;
 }
+.map-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 16px 8px;
+}
+.map-place-row .flag-box {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 14px;
+}
 .map-search-note {
   margin: 0 16px 8px;
   text-align: center;
@@ -2222,7 +2233,13 @@ button.lookup.lookup-flash {
   justify-content: center;
   margin: 0 0 8px;
 }
-.trips-clear .flag-box { margin: 0; }
+.trips-clear .flag-box {
+  width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 20px;
+  line-height: 1.2;
+}
 .trips .fine { text-align: center; margin: 4px 0 0; }
 .trips ul { list-style: none; padding: 0; margin: 4px 0 0; }
 .trips li {
