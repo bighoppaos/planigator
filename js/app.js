@@ -3035,6 +3035,8 @@ function routePoints() {
 }
 
 function savedTripsBlock({ clear = true } = {}) {
+  const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
+  if (!state.signedIn) return clear ? clearButton : "";
   const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
   const list = state.trips.length ? `<ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
@@ -3045,7 +3047,6 @@ function savedTripsBlock({ clear = true } = {}) {
         <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>` : "";
-  const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
   return `<section class="trips">
     ${clear ? clearButton : ""}
     <h2>Saved trips</h2>
