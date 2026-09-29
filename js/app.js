@@ -547,7 +547,9 @@ function stopsAndLeaveForPlan() {
       : Math.max(0, (Number(stop.hours) || 0) * fraction);
     return { ...stop, miles, hours };
   });
-  return { stops: scaled, leaveAt: progress.leftAt };
+  const leaveAt = state.settings.leaveNow ? leaveAtNow() : progress.leftAt;
+  if (state.settings.leaveNow && state.driveProgress) state.driveProgress.leftAt = leaveAt;
+  return { stops: scaled, leaveAt };
 }
 
 function slimPlan(plan) {
