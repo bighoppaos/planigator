@@ -1167,7 +1167,7 @@ async function updateTimesFromHere() {
   let remaining = Math.max(0, legMeters - into);
   let fraction = remaining / legMeters;
   let stop = leg.stop;
-  if (remaining < 161 || !legStillCounts(stop, fraction)) {
+  if (remaining < STOP_ARRIVE_M || !legStillCounts(stop, fraction)) {
     const index = state.stops.findIndex((item) => item.id === stop.id);
     const next = nextTimedStop(index);
     state.updatingTimes = false;
@@ -1887,12 +1887,13 @@ function nearStopEnd(stop, lat, lon, hit) {
   const leg = navLegs.find((item) => item.stop.id === stop.id);
   if (!leg || !hit) return false;
   const remaining = leg.end - hit.along;
-  const onLine = hit.dist <= STOP_LINE_M && remaining <= STOP_NEAR_M && remaining >= -STOP_NEAR_M;
+  // A mile before the pin is still the drive to this stop. Arrive at the end.
+  const onLine = hit.dist <= STOP_LINE_M && remaining <= STOP_ARRIVE_M && remaining >= -STOP_NEAR_M;
   const passed = onLine && remaining <= STOP_PAST_M;
   if (!passed && closerLegEnd(leg, hit)) return false;
   if (onLine) return true;
   const pinDist = metersBetween([lat, lon], [Number(stop.lat), Number(stop.lon)]);
-  if (pinDist > STOP_NEAR_M || hit.along < leg.end - STOP_NEAR_M) return false;
+  if (pinDist > STOP_ARRIVE_M || hit.along < leg.end - STOP_ARRIVE_M) return false;
   return !state.stops.some((other) => {
     if (!other || other.id === stop.id || other.useCurrentLocation || other.done || other.skipRoute || !pointReady(other)) return false;
     return metersBetween([lat, lon], [Number(other.lat), Number(other.lon)]) < pinDist;
@@ -1918,6 +1919,13 @@ function noteArrivedStops(lat, lon) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || navLine.length < 2) return;
   const hit = navNearest(lat, lon, navLine);
   let changed = false;
+  state.stops.forEach((stop, index) => {
+    if (!stop?.done || stop.skipRoute || isOriginStop(state.stops, index)) return;
+    const leg = navLegs.find((item) => item.stop.id === stop.id);
+    if (!leg || hit.along > leg.end - STOP_ARRIVE_M) return;
+    stop.done = false;
+    changed = true;
+  });
   state.stops.forEach((stop, index) => {
     if (!stop || stop.done || stop.skipRoute || isOriginStop(state.stops, index) || !pointReady(stop)) return;
     if (!nearStopEnd(stop, lat, lon, hit)) return;
@@ -5097,6 +5105,7 @@ function alongForChosen(chosen) {
 const STOP_NEAR_M = 1609;
 const STOP_LINE_M = 402;
 const STOP_PAST_M = 80;
+const STOP_ARRIVE_M = 161;
 
 function legForStopId(stopId) {
   return navLegs.find((item) => item.stop.id === stopId) || null;
@@ -6011,9 +6020,11 @@ function activeNavLeg(hit) {
   let index = navLegs.findIndex((item) => hit.along >= item.start && hit.along <= item.end);
   if (index < 0) index = navLegs.length - 1;
   for (let i = index; i < navLegs.length; i += 1) {
-    const stop = navLegs[i].stop;
-    if (!stop || stop.done || stop.skipRoute) continue;
-    return navLegs[i];
+    const leg = navLegs[i];
+    const stop = leg.stop;
+    if (!stop || stop.skipRoute) continue;
+    if (stop.done && hit.along > leg.end) continue;
+    return leg;
   }
   return null;
 }
@@ -6029,10 +6040,12 @@ function legUnderFix(lat, lon) {
 function upcomingRoutedStop(lat, lon) {
   const leg = legUnderFix(lat, lon);
   if (!leg?.stop) return null;
+  const hit = navNearest(lat, lon, navLine);
   const start = Math.max(0, navLegs.indexOf(leg));
   for (let i = start; i < navLegs.length; i += 1) {
     const stop = navLegs[i].stop;
-    if (!stop || stop.useCurrentLocation || stop.skipRoute || stop.done || !pointReady(stop)) continue;
+    if (!stop || stop.useCurrentLocation || stop.skipRoute || !pointReady(stop)) continue;
+    if (stop.done && hit.along > navLegs[i].end) continue;
     return stop;
   }
   return null;
