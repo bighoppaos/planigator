@@ -2352,6 +2352,11 @@ button[data-after],
   border: 0;
 }
 
+.actions.step,
+.result.step {
+  border-top: 1px solid var(--line);
+}
+
 .trip-name-row {
   display: flex;
   align-items: center;
