@@ -4426,9 +4426,18 @@ let spokenStepKey = "";
 let spokenTurnKey = "";
 const spokenMiles = new Set();
 
+function mixNavVoice() {
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = "ambient";
+  } catch {
+    // This phone does not let a page mix with other audio.
+  }
+}
+
 function unlockNavVoice() {
   const synth = window.speechSynthesis;
   if (!synth) return;
+  mixNavVoice();
   synth.resume();
   const utter = new SpeechSynthesisUtterance("Navigation on.");
   utter.lang = "en-US";
@@ -4520,6 +4529,7 @@ function spokenAloud(text) {
 function speakNav(text) {
   const synth = window.speechSynthesis;
   if (!synth || !navOn || !text) return;
+  mixNavVoice();
   synth.resume();
   const utter = new SpeechSynthesisUtterance(spokenAloud(text));
   utter.lang = "en-US";
