@@ -2247,13 +2247,18 @@ button.lookup.lookup-flash {
 .result-lines {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 4px;
+  width: 100%;
   margin-top: 4px;
   margin-bottom: 8px;
 }
 
-.result-lines .flag-box { max-width: 100%; }
+.result-lines .flag-box {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 
 .set-pair > #updateTimes {
   grid-column: 1 / -1;
