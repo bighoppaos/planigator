@@ -8172,7 +8172,7 @@ function exampleBlock() {
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
   const google = state.signedIn
-    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button></div>`
+    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}.</p><button type="button" class="flag-box" id="logout">Log out</button></div>`
     : state.googleClientId
       ? `<div class="auth-row"><div id="googleBtn"></div></div>`
       : `<div class="auth-row"><p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p></div>`;
