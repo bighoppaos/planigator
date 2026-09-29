@@ -7878,15 +7878,17 @@ function hereCallsBlock() {
   return `<section class="calls"><details class="call-log-box"><summary>HERE calls</summary>${rows}</details></section>`;
 }
 
+function exampleBlock() {
+  return `<p class="fine example-slot"><button type="button" class="text-button example-load" id="loadExample">Load an example trip<canvas class="example-sparkles" aria-hidden="true"></canvas></button></p>${exampleOpenNote()}`;
+}
+
 function authBlock() {
   const shownEmail = state.emailRevealed ? state.email : maskEmail(state.email);
-  const boxSize = `<div class="box-stepper"><label class="box-stepper"><span class="sr">Box size</span><input type="range" id="boxFont" min="13" max="28" value="${state.boxFont}"><span class="flag-box" id="boxFontReadout">${state.boxFont}</span></label></div>`;
-  const example = `<p class="fine"><button type="button" class="text-button example-load" id="loadExample">Load an example trip<canvas class="example-sparkles" aria-hidden="true"></canvas></button></p>${boxSize}${exampleOpenNote()}`;
   const google = state.signedIn
-    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button>${example}</div>`
+    ? `<div class="auth-row"><p class="flag-box signed-note">Signed in${state.email ? ` as <button type="button" class="text-button" id="revealEmail" aria-pressed="${state.emailRevealed ? "true" : "false"}">${escapeAttr(shownEmail)}</button>` : ""}. Trips save to this account.</p><button type="button" class="flag-box" id="logout">Log out</button></div>`
     : state.googleClientId
-      ? `<div class="auth-row"><div id="googleBtn"></div><p class="fine">Sign in with Google for 40 free credits, enough to try a trip.</p>${example}</div>`
-      : `<div class="auth-row"><p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p>${example}</div>`;
+      ? `<div class="auth-row"><div id="googleBtn"></div></div>`
+      : `<div class="auth-row"><p class="fine">Google sign-in keeps trips on your account once that client ID is connected.</p></div>`;
   const card = !state.signedIn
     ? ""
     : state.cardOnFile
@@ -8068,8 +8070,10 @@ function render() {
       </div>
     </section></div>
 
+    ${exampleBlock()}
+
     <section class="step">
-      <h2>Step 1. Sign in for credits</h2>
+      <h2>Step 1. Sign in</h2>
       ${authBlock()}
     </section>
 

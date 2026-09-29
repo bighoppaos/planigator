@@ -1228,6 +1228,10 @@ button.text-button {
   cursor: pointer;
 }
 
+.example-slot {
+  text-align: center;
+  margin: 8px 0 18px;
+}
 button.text-button.example-load {
   position: relative;
   display: inline-block;
