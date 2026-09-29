@@ -3565,8 +3565,13 @@ function routeStyle() {
 }
 
 function styleIsBasemap(map) {
-  if (basemap === "vector") return Boolean(map.getSource("openmaptiles"));
-  return Boolean(map.getLayer("satellite"));
+  try {
+    if (!map?.isStyleLoaded?.()) return false;
+    if (basemap === "vector") return Boolean(map.getSource("openmaptiles"));
+    return Boolean(map.getLayer("satellite"));
+  } catch {
+    return false;
+  }
 }
 
 const ROUTE_LINE_COLOR = ["case", ["==", ["get", "current"], 1], "#2f6fed", "#1f8a62"];
@@ -3622,25 +3627,54 @@ function restoreRouteLine() {
   paintNavLine(hit.along, leg ? leg.end : Infinity);
 }
 
+let basemapTimer = 0;
+
+function queueBasemap() {
+  if (basemapTimer) return;
+  basemapTimer = window.setTimeout(() => {
+    basemapTimer = 0;
+    applyBasemap();
+  }, 2000);
+}
+
 function applyBasemap() {
   const map = routeMap;
-  if (!map?.isStyleLoaded?.()) return;
+  if (!map) return;
+  if (!map.isStyleLoaded?.()) {
+    queueBasemap();
+    return;
+  }
   if (styleIsBasemap(map)) {
     ensureRouteLayers(map);
+    restoreRouteLine();
     return;
   }
   const next = basemap;
-  map.setStyle(next === "vector" ? vectorStyleUrl : satelliteMapStyle(), { diff: false });
+  try {
+    map.setStyle(next === "vector" ? vectorStyleUrl : satelliteMapStyle(), { diff: false });
+  } catch {
+    queueBasemap();
+    return;
+  }
+  const giveUp = window.setTimeout(() => {
+    if (routeMap === map && basemap === next && !styleIsBasemap(map)) queueBasemap();
+  }, 4000);
   map.once("style.load", () => {
+    window.clearTimeout(giveUp);
     if (routeMap !== map) return;
-    if (basemap !== next) {
-      applyBasemap();
+    if (basemap !== next || !styleIsBasemap(map)) {
+      queueBasemap();
       return;
     }
     ensureRouteLayers(map);
     restoreRouteLine();
+    paintBasemapButtons();
   });
 }
+
+window.addEventListener("online", () => {
+  if (routeMap && !styleIsBasemap(routeMap)) applyBasemap();
+});
 
 function paintBasemapButtons() {
   const button = document.getElementById("routeBasemap");
@@ -4529,9 +4563,12 @@ function inDistance(meters) {
     const feet = Math.max(1, Math.round(meters * 3.28084));
     return `in ${feet} ${feet === 1 ? "foot" : "feet"}`;
   }
-  const rounded = miles.toFixed(1);
-  const unit = Number(rounded) === 1 ? "mile" : "miles";
-  return `in ${rounded} ${unit}`;
+  const tenth = Math.round(miles * 10) / 10;
+  if (Math.abs(tenth - Math.round(tenth)) < 0.05) {
+    const whole = Math.round(tenth);
+    return `in ${whole} ${whole === 1 ? "mile" : "miles"}`;
+  }
+  return `in ${tenth.toFixed(1)} miles`;
 }
 
 function approachPhrase(nextText, metersLeft) {
@@ -4566,7 +4603,7 @@ function speakNavProgress(leg, found, hereAlong) {
   const miles = leftMeters / 1609.344;
   const text = String(found.step?.text || "").trim();
   const phrase = () => directionWithMilesLeft(text, leftMeters);
-  const bands = [5, 4, 3, 2, 1];
+  const bands = [5, 4, 3, 2, 1, 0.5];
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
     spokenMiles.clear();
@@ -6455,10 +6492,6 @@ function paintPlaceList() {
     routeList.replaceChildren();
     routeList.hidden = true;
   }
-  const clear = document.getElementById("routePlaceClear");
-  if (clear) clear.hidden = truckHits.length === 0;
-  const pageClear = document.getElementById("clearPlaces");
-  if (pageClear) pageClear.hidden = truckHits.length === 0;
   const searchLabel = placeSeek === "truck" ? "Search here · 1 credit" : "Search here";
   const soughtHere = Boolean(placeSeek) && routeFull === placeSeekFull;
   const mapSearch = document.getElementById("routePlaceSearch");
@@ -6466,6 +6499,10 @@ function paintPlaceList() {
     mapSearch.hidden = !soughtHere;
     mapSearch.textContent = searchLabel;
   }
+  const clear = document.getElementById("routePlaceClear");
+  if (clear) clear.hidden = !(soughtHere || truckHits.length > 0);
+  const pageClear = document.getElementById("clearPlaces");
+  if (pageClear) pageClear.hidden = !(placeSeek || truckHits.length > 0);
   const pageSearch = document.getElementById("searchPlaces");
   if (pageSearch) {
     pageSearch.hidden = !(placeSeek && !routeFull);
@@ -7172,6 +7209,7 @@ function onNavFix(lat, lon, alt) {
     resumeTurnZoom();
   }
   paintCompassRose();
+  if (routeMap && !styleIsBasemap(routeMap)) queueBasemap();
   refreshPlace(lat, lon);
   rebuildNavLegs();
   paintRouteLines();
