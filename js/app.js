@@ -274,6 +274,8 @@ function defaultState() {
     confirmRemoveId: null,
     confirmDeleteId: null,
     speedNote: "",
+    speedFrom: "",
+    speedTo: "",
     boxFont: 13,
     darkMode: false,
     signupNote: "",
@@ -362,6 +364,8 @@ function loadState() {
     const boxFont = Number(saved.boxFont);
     if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
     state.darkMode = saved.darkMode === true;
+    state.speedFrom = String(saved.speedFrom || "");
+    state.speedTo = String(saved.speedTo || "");
     const session = localStorage.getItem("planigator.web.session");
     const guestDraft = saved.fromAccount === false;
     if (!storedTripHasWork(saved)) return state;
@@ -457,6 +461,8 @@ function persist() {
     boxFont: state.boxFont,
     darkMode: state.darkMode === true,
     fromAccount: state.signedIn === true,
+    speedFrom: state.speedFrom || "",
+    speedTo: state.speedTo || "",
   }));
 }
 
@@ -817,9 +823,30 @@ function pointReady(stop) {
   return Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon));
 }
 
-function markGovernedStale() {
+function speedChoiceLabel() {
+  if (!state.settings.governed) return "Off";
+  return String(state.settings.governedMph || DEFAULT_MPH);
+}
+
+function clearSpeedNote() {
+  state.speedFrom = "";
+  state.speedTo = "";
+  state.speedNote = "";
+}
+
+function markGovernedStale(fromLabel) {
   if (!state.plan) return;
-  state.speedNote = "The clocks stay as they are. Recalculate if you want HERE to figure the drive hours for this speed. Fast mode may also pick different roads.";
+  const from = String(fromLabel || "");
+  const to = speedChoiceLabel();
+  if (!state.speedFrom && from && from !== to) state.speedFrom = from;
+  if (state.speedFrom) state.speedTo = to;
+  if (!state.speedFrom || state.speedFrom === state.speedTo) clearSpeedNote();
+  persist();
+}
+
+function speedNoteText() {
+  if (!state.plan || !state.speedFrom || !state.speedTo || state.speedFrom === state.speedTo) return "";
+  return `The clocks stay as they are. Recalculate if you want HERE to figure the drive hours for this speed (${state.speedFrom} to ${state.speedTo}). Fast mode may also pick different roads.`;
 }
 
 function billableStops() {
@@ -1236,7 +1263,7 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
   const routeNote = hereLegs?.from
     ? `HERE© truck route from ${hereLegs.from} (${TRUCK_PROFILE.summary}). Earlier stops were not recalculated.`
     : `HERE© truck route (${TRUCK_PROFILE.summary}).`;
-  if (!silent && !hereLegs?.from) state.speedNote = "";
+  if (!silent && !hereLegs?.from) clearSpeedNote();
   if (!skipHash && state.signedIn) {
     saveTrip();
     if (silent) {
@@ -1493,7 +1520,7 @@ function loadExample() {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
-  state.speedNote = "";
+  clearSpeedNote();
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
   addressEditStarted = false;
@@ -8397,7 +8424,7 @@ function arrangedPage({ s, routeFrom, id }) {
             <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
             <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
           </div>
-          ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
+          ${speedNoteText() ? `<p class="fine speed-note">${escapeAttr(speedNoteText())}</p>` : ""}
         </div>
         <div class="set-pair">
           ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
@@ -8686,16 +8713,14 @@ function commitPicker() {
     return;
   }
   if (id === "mph") {
+    const before = speedChoiceLabel();
     const raw = chosenWheel("mph");
-    if (raw === "off" || raw === "off2") {
-      if (state.settings.governed) markGovernedStale();
-      state.settings.governed = false;
-    } else {
-      const next = Number(raw) || DEFAULT_MPH;
-      if (next !== Number(state.settings.governedMph)) markGovernedStale();
+    if (raw === "off" || raw === "off2") state.settings.governed = false;
+    else {
       state.settings.governed = true;
-      state.settings.governedMph = next;
+      state.settings.governedMph = Number(raw) || DEFAULT_MPH;
     }
+    markGovernedStale(before);
   }
   if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
   if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
@@ -8881,8 +8906,9 @@ function bindSettings() {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-toggle");
       if (id === "governed") {
+        const before = speedChoiceLabel();
         state.settings.governed = !state.settings.governed;
-        markGovernedStale();
+        markGovernedStale(before);
       }
       if (id === "leaveNow") {
         if (!state.settings.leaveNow) poofBox(document.querySelector('[data-pick="leaveAt"]'));
@@ -8910,9 +8936,10 @@ function bindSettings() {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-pick");
       if (id === "mph") {
+        const before = speedChoiceLabel();
         const wasOn = state.settings.governed;
         state.settings.governed = true;
-        if (!wasOn) markGovernedStale();
+        if (!wasOn) markGovernedStale(before);
       }
       state.picker = id;
       render();
