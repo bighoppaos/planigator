@@ -8223,7 +8223,16 @@ function planTimeline(heading) {
     if (around.self) parts.push(chip(around.self));
     parts.push(around.following.map(chip).join(""));
   });
-  return `<section class="step"><h2>${heading}</h2>${planSummary()}${parts.join("") || `<p class="fine">Calculate to fill the plan.</p>`}</section>`;
+  return `<section class="step" id="planStep"><h2>${heading}</h2>${planSummary()}${parts.join("") || `<p class="fine">Calculate to fill the plan.</p>`}${planEndButtons()}</section>`;
+}
+
+function planEndButtons() {
+  if (!state.plan) return "";
+  const install = showInstallButton()
+    ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>`
+    : "";
+  const hint = state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : "";
+  return `<div class="stack plan-end"><button type="button" class="flag-box" id="shareTrip">Share trip link</button>${install}</div>${hint}`;
 }
 
 function arrangedPage({ s, routeFrom, id }) {
@@ -8288,19 +8297,17 @@ function arrangedPage({ s, routeFrom, id }) {
     calculate: () => `<section class="actions step" id="actions">
       <h2>${h("Calculate the truck route")}</h2>
       <label class="flag-box trip-name">Trip name
-        <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
+        <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
       </label>
       <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
       <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
         ${state.plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
-        ${state.plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
         ${state.plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
-        ${state.plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
+        ${summaryLivesOnPlan() ? "" : planEndButtons()}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
-      ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
-      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 40. The first saved card gives 40 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Fast mode picks the least time, and Short mode picks the least distance.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
       ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>`,
@@ -8676,7 +8683,10 @@ function bindTypingFields() {
       queueBoxFontSave();
       return;
     }
-    if (onSettingsInput(el)) return;
+    if (onSettingsInput(el)) {
+      if (el.id === "tripName") fitTripName(el);
+      return;
+    }
     if (el.matches("[data-field]")) onStopFieldInput(el);
   });
   document.addEventListener("change", (event) => {
@@ -8924,6 +8934,8 @@ function bind() {
     render();
   });
   $("#calculate")?.addEventListener("click", () => calculate());
+  const tripName = document.getElementById("tripName");
+  if (tripName) fitTripName(tripName);
   mountMap();
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);
@@ -9192,6 +9204,22 @@ function mountExampleSparkle() {
 function fitAddressField(field) {
   field.style.height = "0px";
   field.style.height = `${field.scrollHeight}px`;
+}
+
+function fitTripName(field) {
+  const style = getComputedStyle(field);
+  const line = parseFloat(style.lineHeight) || 21;
+  const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  const one = line + pad;
+  if (!field.value) {
+    field.style.height = `${one}px`;
+    return;
+  }
+  field.style.minHeight = "0px";
+  field.style.height = "0px";
+  const next = Math.max(one, field.scrollHeight);
+  field.style.minHeight = "";
+  field.style.height = `${next}px`;
 }
 
 if (document.body.classList.contains("planner-only")) {
