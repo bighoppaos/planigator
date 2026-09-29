@@ -1421,6 +1421,7 @@ function loadTrip(id) {
   if (navOn) return;
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
+  if (trip.id !== state.activeTripId) clearSpeedNote();
   state.settings = { ...state.settings, ...(trip.settings || {}) };
   delete state.settings.sleepHours;
   delete state.settings.readyMinutes;
@@ -2077,6 +2078,7 @@ function newTrip() {
   Object.assign(state, keep);
   state.notice = "";
   addressEditStarted = false;
+  clearSpeedNote();
   lookupOpen.clear();
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
