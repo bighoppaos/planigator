@@ -473,6 +473,51 @@ function leewayPhrase() {
   return "Leeway";
 }
 
+function laterPieceDelayHours(stop, fromPiece) {
+  const list = Array.isArray(stop?.driveDelays) ? stop.driveDelays : [];
+  const hours = [];
+  for (let index = Math.max(0, fromPiece); index < list.length; index += 1) {
+    hours.push(Math.max(0, Number(list[index]) || 0) / 60);
+  }
+  while (hours.length && hours[hours.length - 1] === 0) hours.pop();
+  return hours;
+}
+
+function delayReplayedDrives(events, delayHours) {
+  const result = events.map((event) => ({ ...event }));
+  if (!delayHours.length) return { events: result, overflowMs: 0 };
+  let overflowMs = 0;
+  let driveIndex = -1;
+  for (let i = 0; i < result.length; i += 1) {
+    if (result[i].kind !== "drive") continue;
+    driveIndex += 1;
+    const delayMs = (delayHours[driveIndex] || 0) * 3600 * 1000;
+    if (delayMs < 60 * 1000) continue;
+    const restIndex = result.findIndex((event, index) => index > i && event.kind === "rest");
+    if (restIndex < 0) {
+      for (let j = i + 1; j < result.length; j += 1) {
+        result[j] = { ...result[j], start: result[j].start + delayMs, end: result[j].end + delayMs };
+      }
+      overflowMs += delayMs;
+      continue;
+    }
+    const rest = result[restIndex];
+    const slack = Math.max(0, rest.end - rest.start - 10 * 3600 * 1000);
+    const overflow = Math.max(0, delayMs - slack);
+    for (let j = i + 1; j < result.length; j += 1) {
+      if (j < restIndex) {
+        result[j] = { ...result[j], start: result[j].start + delayMs, end: result[j].end + delayMs };
+      } else if (j === restIndex) {
+        result[j] = { ...result[j], start: result[j].start + delayMs, end: result[j].end + overflow };
+      } else {
+        result[j] = { ...result[j], start: result[j].start + overflow, end: result[j].end + overflow };
+      }
+    }
+    overflowMs += overflow;
+  }
+  return { events: result, overflowMs };
+}
+
 function pieceDelayMinutes(stop, pieceIndex) {
   if (!stop || pieceIndex < 0) return 0;
   if (Array.isArray(stop.driveDelays)) return Math.max(0, Number(stop.driveDelays[pieceIndex]) || 0);
@@ -595,7 +640,14 @@ function applyDrivePieceDelays(stop, events, before, cap) {
           const overflow = Math.max(0, askedMs - fitted);
           if (overflow >= 60 * 1000) sim.now += overflow;
           const leftover = routeHoursAfter(events, nextIndex);
-          if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
+          if (leftover > 0.01) {
+            const replayed = delayReplayedDrives(
+              sim.driveReporting(leftover, cap, [0], [0]),
+              laterPieceDelayHours(stop, drivePiece),
+            );
+            sim.now += replayed.overflowMs;
+            shifted.push(...replayed.events);
+          }
           break;
         }
         const overflow = Math.max(0, askedMs - fitted);
@@ -622,7 +674,14 @@ function applyDrivePieceDelays(stop, events, before, cap) {
           if (restCut >= 60 * 1000) sim.now += restCut;
           restCut = 0;
           const leftover = routeHoursAfter(events, i + 1);
-          if (leftover > 0.01) shifted.push(...sim.driveReporting(leftover, cap, [0], [0]));
+          if (leftover > 0.01) {
+            const replayed = delayReplayedDrives(
+              sim.driveReporting(leftover, cap, [0], [0]),
+              laterPieceDelayHours(stop, drivePiece),
+            );
+            sim.now += replayed.overflowMs;
+            shifted.push(...replayed.events);
+          }
           break;
         }
       }
