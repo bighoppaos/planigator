@@ -5323,6 +5323,8 @@ let turnFrameTarget = null;
 let turnFrameBearing = null;
 let turnShownKey = "";
 let turnShownAlong = null;
+let turnOpenAlong = null;
+let turnBehind = null;
 let turnKeepAlong = null;
 let turnZoomOut = null;
 let turnZoomOutTimer = 0;
@@ -5436,19 +5438,42 @@ function turnGuideAlong() {
 
 function turnSpan(along) {
   const lineEnd = polylineMeters(navLine);
+  const quarter = 0.25 * 1609.344;
+  const mile = 1609.344;
   const turnAlong = currentDirectionEnd(along);
-  const rawAhead = turnAlong == null ? 80 : Math.max(0, turnAlong - along);
-  // A long continue is not a turn. Stay within half a mile until the maneuver is closer.
-  const ahead = Math.min(rawAhead, 0.5 * 1609.344);
-  const farAlong = Math.min(lineEnd, Math.max(along + 40, along + ahead));
+  const stepKey = turnStepKey(along);
+  if (turnOpenAlong == null) turnOpenAlong = along;
+  if (
+    turnShownKey
+    && stepKey
+    && turnShownKey !== stepKey
+    && Number.isFinite(turnShownAlong)
+    && turnShownAlong <= along + 30
+  ) {
+    turnBehind = { along: turnShownAlong };
+  }
+  if (turnBehind && along - turnBehind.along >= mile) turnBehind = null;
+  let fromAlong = along;
+  let farAlong = along;
+  if (turnBehind && along - turnBehind.along < mile) {
+    fromAlong = Math.min(along, turnBehind.along);
+    farAlong = Math.min(lineEnd, along + quarter);
+  } else {
+    const driven = Math.max(0, along - turnOpenAlong);
+    const opening = Math.min(mile, quarter + driven);
+    const opened = driven >= mile - quarter;
+    if (opened && turnAlong != null && turnAlong > along + 40) farAlong = Math.min(lineEnd, turnAlong);
+    else farAlong = Math.min(lineEnd, along + Math.max(40, opening));
+  }
   const far = pointAlong(navLine, farAlong);
+  const aim = pointAlong(navLine, Math.min(lineEnd, along + quarter)) || far;
   let bearing = 0;
   if (!northLock) {
-    bearing = far && navFix
-      ? navBearing(navFix, [far.lat, far.lon])
+    bearing = aim && navFix
+      ? navBearing(navFix, [aim.lat, aim.lon])
       : (navCompass != null ? navCompass : 0);
   }
-  return { turnAlong, ahead, farAlong, far, bearing, deeper: 0 };
+  return { turnAlong, ahead: Math.max(0, farAlong - along), farAlong, fromAlong, far, bearing, deeper: 0 };
 }
 
 function turnStepKey(along) {
@@ -5508,7 +5533,7 @@ function turnZoomCap(metersAhead) {
 function aimTurnZoom(zoom, metersAhead) {
   const cap = turnZoomCap(metersAhead);
   if (!Number.isFinite(zoom)) return cap;
-  return Math.min(cap, Math.max(zoom, cap - 0.4));
+  return Math.min(cap, zoom);
 }
 
 function fitTurnCamera(bounds, bearing, deeper) {
@@ -5668,12 +5693,7 @@ function frameNextTurn() {
   const span = turnSpan(along);
   if (!span.far) return;
   const stepKey = turnStepKey(along);
-  const metersAhead = Math.abs(span.farAlong - along);
-  const tooWide = routeMap.getZoom() < turnZoomCap(metersAhead) - 1;
-  if (turnZoomOut) {
-    if (turnZoomOut.stepKey === stepKey && !tooWide) return;
-    stopTurnZoomOut();
-  }
+  if (turnZoomOut) stopTurnZoomOut();
   let bearingDelta = 0;
   if (turnFrameBearing != null) {
     bearingDelta = Math.abs(span.bearing - turnFrameBearing) % 360;
@@ -5681,31 +5701,23 @@ function frameNextTurn() {
   }
   const sameView = turnFrameAt && turnFrameTarget != null
     && Math.abs(turnFrameTarget - span.farAlong) < 40
+    && Math.abs((span.fromAlong || along) - (turnFrameAt.along || along)) < 40
     && metersBetween(turnFrameAt, navFix) < 80
-    && bearingDelta < 12
-    && !tooWide;
+    && bearingDelta < 12;
   if (sameView) return;
-  // At the turn: hold you and that turn for 60 seconds, then zoom out
-  // to you and the next turn.
-  const passed = turnShownKey && turnShownKey !== stepKey
-    && Number.isFinite(turnShownAlong) && turnShownAlong <= along + 40;
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (passed && !reduce) {
-    beginTurnHold(turnShownAlong, stepKey, span.turnAlong);
-    return;
-  }
-  const bounds = boundsForTurn(along, span.farAlong);
+  const bounds = boundsForTurn(span.fromAlong, span.farAlong);
   if (!bounds) return;
   const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
   if (fit.camera) {
-    fit.camera.zoom = aimTurnZoom(fit.camera.zoom, Math.abs(span.farAlong - along));
+    fit.camera.zoom = aimTurnZoom(fit.camera.zoom, Math.max(span.ahead, span.farAlong - span.fromAlong));
   }
   turnFrameAt = [navFix[0], navFix[1]];
+  turnFrameAt.along = span.fromAlong;
   turnFrameTarget = span.farAlong;
   turnFrameBearing = span.bearing;
   turnShownKey = stepKey;
   turnShownAlong = span.turnAlong;
-  placeTurnPin(span.turnAlong);
+  placeTurnPin(turnBehind && along - turnBehind.along < 1609.344 ? turnBehind.along : span.turnAlong);
   navZoomHold = Date.now() + 800;
   routeMap.stop();
   if (fit.camera) {
@@ -7642,6 +7654,8 @@ function beginRouteNav() {
   navFollowing = false;
   tripFit = "nextTurn";
   clearTurnFrame();
+  turnOpenAlong = null;
+  turnBehind = null;
   navZoom = 15;
   freezeTyping(true);
   syncRouteChrome();
