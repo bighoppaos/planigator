@@ -315,6 +315,40 @@ function defaultState() {
   };
 }
 
+let heldAccountTrip = null;
+let stripStoredTrip = false;
+
+function storedTripHasWork(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  if (saved.origin && Number.isFinite(Number(saved.origin.lat)) && Number.isFinite(Number(saved.origin.lon))) return true;
+  if ((saved.tripName || "").trim()) return true;
+  if (saved.plan && Array.isArray(saved.plan.events) && saved.plan.events.length) return true;
+  if (Array.isArray(saved.trips) && saved.trips.length) return true;
+  return (Array.isArray(saved.stops) ? saved.stops : []).some((stop) => {
+    if (!stop) return false;
+    if (stop.useCurrentLocation) return true;
+    if ((stop.address || "").trim()) return true;
+    if ((stop.name || "").trim() && (stop.name || "").trim() !== "Stop 1") return true;
+    if (Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon))) return true;
+    return (Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001;
+  });
+}
+
+function applyStoredTrip(state, saved) {
+  state.origin = saved.origin || null;
+  if (Array.isArray(saved.stops) && saved.stops.length) state.stops = saved.stops;
+  const gps = state.stops.find((stop) => stop.useCurrentLocation);
+  if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
+    state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
+  }
+  if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
+  state.tripName = saved.tripName || "";
+  state.activeTripId = saved.activeTripId || null;
+  state.trips = Array.isArray(saved.trips) ? saved.trips : [];
+  if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
+  state.driveProgress = readDriveProgress(saved.driveProgress);
+}
+
 function loadState() {
   const state = defaultState();
   try {
@@ -324,21 +358,15 @@ function loadState() {
     state.settings = { ...state.settings, ...(saved.settings || {}) };
     delete state.settings.sleepHours;
     delete state.settings.readyMinutes;
-    state.origin = saved.origin || null;
-    if (Array.isArray(saved.stops) && saved.stops.length) state.stops = saved.stops;
-    const gps = state.stops.find((stop) => stop.useCurrentLocation);
-    if (!state.origin && gps && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))) {
-      state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
-    }
-    if (state.stops[0]?.useCurrentLocation && !state.origin) state.stops.shift();
-    state.tripName = saved.tripName || "";
-    state.activeTripId = saved.activeTripId || null;
-    state.trips = Array.isArray(saved.trips) ? saved.trips : [];
-    if (saved.plan && Array.isArray(saved.plan.events)) state.plan = saved.plan;
-    state.driveProgress = readDriveProgress(saved.driveProgress);
     const boxFont = Number(saved.boxFont);
     if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
     state.darkMode = saved.darkMode === true;
+    const session = localStorage.getItem("planigator.web.session");
+    const guestDraft = saved.fromAccount === false;
+    if (!storedTripHasWork(saved)) return state;
+    if (guestDraft) applyStoredTrip(state, saved);
+    else if (session) heldAccountTrip = saved;
+    else stripStoredTrip = true;
   } catch {
     return state;
   }
@@ -349,6 +377,11 @@ const state = loadState();
 applyDarkMode();
 settleLoadedStops(state.stops);
 pinEnteredClocks();
+if (stripStoredTrip) {
+  stripStoredTrip = false;
+  persist();
+  forgetAccountTripCache();
+}
 
 function settleLoadedStops(stops) {
   for (const stop of stops || []) {
@@ -422,7 +455,31 @@ function persist() {
     driveProgress: state.driveProgress,
     boxFont: state.boxFont,
     darkMode: state.darkMode === true,
+    fromAccount: state.signedIn === true,
   }));
+}
+
+function forgetAccountTripCache() {
+  try { localStorage.removeItem(TRIP_CACHE); } catch {
+    // The copy is already gone if this browser blocked storage.
+  }
+}
+
+function restoreHeldAccountTrip() {
+  const saved = heldAccountTrip;
+  if (!saved || !state.signedIn) return;
+  heldAccountTrip = null;
+  if (!editorIsUnused()) return;
+  applyStoredTrip(state, saved);
+  settleLoadedStops(state.stops);
+  pinEnteredClocks();
+  persist();
+}
+
+function discardHeldAccountTrip() {
+  heldAccountTrip = null;
+  forgetAccountTripCache();
+  persist();
 }
 
 function readDriveProgress(value) {
@@ -2288,13 +2345,16 @@ async function refreshCalls() {
 }
 
 async function refreshCredits({ calls = true } = {}) {
+  let me = null;
   try {
-    applyAccount(await creditsMe());
+    me = await creditsMe();
+    applyAccount(me);
   } catch {
     if (state.credits == null) state.credits = null;
   }
   if (calls) await refreshCalls();
   else state.calls = [];
+  return me;
 }
 
 function clearLookupMessage() {
@@ -2657,7 +2717,6 @@ async function redeemCode(code) {
 }
 
 async function logout() {
-  writeTripCache();
   if (boxFontTimer) {
     window.clearTimeout(boxFontTimer);
     boxFontTimer = 0;
@@ -2692,7 +2751,9 @@ async function logout() {
   state.tripsLoading = false;
   resetLocalBoxFont();
   resetEditor();
+  heldAccountTrip = null;
   persist();
+  forgetAccountTripCache();
   await refreshCredits();
   render();
 }
@@ -8080,7 +8141,9 @@ export function initPlanner(el) {
   const tripsPromise = session ? pullAccountTrips() : Promise.resolve();
   loadHeroLines().finally(() => {
   render();
-  refreshCredits({ calls: false }).then(async () => {
+  refreshCredits({ calls: false }).then(async (me) => {
+    if (state.signedIn) restoreHeldAccountTrip();
+    else if ((me && me.signedIn === false) || !localStorage.getItem("planigator.web.session")) discardHeldAccountTrip();
     if (sessionStorage.getItem("planigator.web.signup") === "1") {
       sessionStorage.removeItem("planigator.web.signup");
       if (state.signedIn) {
@@ -8102,8 +8165,10 @@ export function initPlanner(el) {
       state.tripsLoading = false;
       resetLocalBoxFont();
       resetEditor();
+      heldAccountTrip = null;
       state.idleNote = "Signed out after an hour away.";
       persist();
+      forgetAccountTripCache();
     } else if (!maybeCelebratePack() && !maybeCelebrateCard() && state.signedIn) {
       pulseActivity();
     }
@@ -8147,8 +8212,10 @@ async function watchSignIn() {
     state.notice = state.idleSignOut ? "" : "Signed out.";
     resetLocalBoxFont();
     resetEditor();
+    heldAccountTrip = null;
     if (state.idleSignOut) state.idleNote = "Signed out after an hour away.";
     persist();
+    forgetAccountTripCache();
     render();
   }
 }
