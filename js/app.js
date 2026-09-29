@@ -1308,7 +1308,6 @@ async function keepSharedOnAccount({ quiet = false } = {}) {
 }
 
 function saveTrip() {
-  if (!state.plan) return;
   const named = state.tripName.trim();
   let id = state.activeTripId;
   const existing = state.trips.find((trip) => trip.id === id);
@@ -1327,17 +1326,58 @@ function saveTrip() {
     tripName: named,
     origin: originPoint(),
     plan: slimPlan(state.plan),
-    summary: {
+    summary: state.plan ? {
       miles: state.plan.miles,
       driveHours: state.plan.driveHours,
       rollAt: state.plan.rollAt,
       arriveAt: state.plan.arriveAt,
-    },
+    } : null,
     driveProgress: state.driveProgress,
     pendingUpload: true,
   };
   state.trips = [trip, ...state.trips.filter((item) => item.id !== id)].slice(0, 40);
   state.activeTripId = id;
+}
+
+async function saveNamedTrip() {
+  if (navOn) return;
+  const field = document.getElementById("tripName");
+  if (field) state.tripName = field.value;
+  if (!storedTripHasWork({
+    stops: state.stops,
+    tripName: state.tripName,
+    origin: originPoint(),
+    plan: state.plan,
+    trips: [],
+  })) {
+    state.saveNote = "Add a stop or a name, then Save.";
+    render();
+    return;
+  }
+  saveTrip();
+  persist();
+  if (state.signedIn) {
+    try {
+      await putTrips(state.trips);
+      markTripsUploaded();
+      persist();
+      state.saveNote = "Saved to your account.";
+    } catch (error) {
+      state.saveNote = error.message || "Saved on this device. The account copy did not update.";
+    }
+  } else {
+    state.saveNote = "Saved on this device. Sign in to keep it on your account.";
+  }
+  render();
+}
+
+function tripNameRow() {
+  return `<div class="trip-name-row">
+    <label class="flag-box trip-name">Trip name
+      <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
+    </label>
+    <button type="button" class="flag-box" id="saveTrip"${navOn ? " disabled" : ""}>Save</button>
+  </div>${state.saveNote ? `<p class="fine save-note">${escapeAttr(state.saveNote)}</p>` : ""}`;
 }
 
 function loadTrip(id) {
@@ -8360,15 +8400,12 @@ function arrangedPage({ s, routeFrom, id }) {
       </div>
       ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
     </section>`,
-    stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${cards}</section>`,
+    stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${cards}${tripNameRow()}</section>`,
     plan: () => planTimeline(h("The plan")),
     calculate: () => `<section class="actions step" id="actions">
       <h2>${h("Calculate the truck route")}</h2>
-      <label class="flag-box trip-name">Trip name
-        <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
-      </label>
-      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
-      <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
+      <button type="button" class="flag-box choice-lg${s.routeMode === "short" ? " on" : ""}" id="routeMode" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
+      <button type="button" class="flag-box choice-lg on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
       <div class="stack">
         ${state.plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
         ${state.plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
@@ -9002,6 +9039,7 @@ function bind() {
     render();
   });
   $("#calculate")?.addEventListener("click", () => calculate());
+  $("#saveTrip")?.addEventListener("click", () => { void saveNamedTrip(); });
   const tripName = document.getElementById("tripName");
   if (tripName) fitTripName(tripName);
   mountMap();
