@@ -30,7 +30,7 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import SamJs from "./sam.js?v=1";
-import { kittenSpeech } from "./kitten-voice.js?v=1";
+import { kittenSpeech } from "./kitten-voice.js?v=2";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -3474,7 +3474,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
-    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button><button type="button" class="flag-box" data-pick="navVoice">Voice: ${escapeAttr(navVoiceLabel())}</button></div><p class="fine">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one. The first time, the phone downloads the voice.</p>` : ""}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button><button type="button" class="flag-box" data-pick="navVoice">Voice: ${escapeAttr(navVoiceLabel())}</button></div><p class="fine">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo are different voices, and they keep the song. Robot is the small one. The first time, the phone downloads the voices.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directions ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
@@ -4499,10 +4499,13 @@ function playKittenSpeech(text, voice) {
     if (token !== voiceJob) return;
     if (navOn) clearStopNote(true);
     playSamples(clip.samples, clip.rate);
-  }).catch(() => {
+  }).catch((err) => {
     if (token !== voiceJob) return;
-    showStopNote(`${voice} did not load. Using the robot.`, 6000);
-    playNavSpeech(text);
+    const raw = String(err && (err.message || err) || "");
+    const why = /fetch|network|download|signal|failed/i.test(raw)
+      ? "Check the signal and try that voice again."
+      : raw.replace(/\s+/g, " ").slice(0, 140);
+    showStopNote(`${voice} did not load. ${why}`, 8000);
   });
 }
 
