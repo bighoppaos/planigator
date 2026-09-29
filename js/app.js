@@ -4426,13 +4426,48 @@ let spokenStepKey = "";
 let spokenTurnKey = "";
 const spokenMiles = new Set();
 
-function mixNavVoice() {
+let mixCtx = null;
+
+function preferMix() {
   try {
-    if (navigator.audioSession) navigator.audioSession.type = "ambient";
+    if (navigator.audioSession && navigator.audioSession.type !== "ambient") {
+      navigator.audioSession.type = "ambient";
+    }
   } catch {
     // This phone does not let a page mix with other audio.
   }
 }
+
+function mixNavVoice() {
+  preferMix();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  try {
+    if (!mixCtx) mixCtx = new AudioCtx();
+    if (mixCtx.state === "suspended") mixCtx.resume();
+    if (!mixCtx._mixStarted) {
+      const osc = mixCtx.createOscillator();
+      const gain = mixCtx.createGain();
+      gain.gain.value = 0.00001;
+      osc.frequency.value = 40;
+      osc.connect(gain);
+      gain.connect(mixCtx.destination);
+      osc.start();
+      mixCtx._mixStarted = true;
+    }
+  } catch {
+    // The mix tone is only there so speech does not take the speakers.
+  }
+}
+
+function stopMixNavVoice() {
+  const ctx = mixCtx;
+  mixCtx = null;
+  if (!ctx) return;
+  try { ctx.close(); } catch { /* already closed */ }
+}
+
+preferMix();
 
 function unlockNavVoice() {
   const synth = window.speechSynthesis;
@@ -4441,6 +4476,7 @@ function unlockNavVoice() {
   synth.resume();
   const utter = new SpeechSynthesisUtterance("Navigation on.");
   utter.lang = "en-US";
+  utter.onstart = () => preferMix();
   synth.speak(utter);
 }
 
@@ -7456,6 +7492,7 @@ function endRouteNav() {
   if (switchButton) switchButton.hidden = true;
   stopNavMotion();
   resetNavVoice();
+  stopMixNavVoice();
   navFollowing = false;
   tripFit = "off";
   clearTurnFrame();
