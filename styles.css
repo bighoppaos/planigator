@@ -1228,6 +1228,18 @@ button.text-button {
   cursor: pointer;
 }
 
+.arrange-bar {
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.arrange-bar a {
+  margin-right: 8px;
+  font-weight: 700;
+}
+.arrange-bar a[aria-current="page"] {
+  color: #1f8a62;
+}
 .example-slot {
   text-align: center;
   margin: 8px 0 18px;

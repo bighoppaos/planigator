@@ -3130,16 +3130,16 @@ function directionsBlock() {
   </details>`;
 }
 
-function planBox() {
+function planBox(heading = "Step 6. Read the plan and navigate") {
   const plan = state.plan;
   if (!plan) {
     return `<section class="result step">
-      <h2>Step 6. Read the plan and navigate</h2>
+      <h2>${heading}</h2>
       <p class="fine">After Calculate, the map, directions, and next stops show here.</p>
     </section>`;
   }
   return `<section class="result step">
-    <h2>Step 6. Read the plan and navigate</h2>
+    <h2>${heading}</h2>
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
@@ -7720,7 +7720,7 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
   else render();
 }
 
-function stopCard(stop, index) {
+function stopCard(stop, index, showPlan = true) {
   const dests = destinations();
   const destIndex = dests.findIndex((item) => item.id === stop.id);
   const originStop = isOriginStop(state.stops, index);
@@ -7775,10 +7775,10 @@ function stopCard(stop, index) {
       </div>
       ${locked ? doneStamp() : ""}
     </article>
-    ${destIndex === 0 ? around.now.map(chip).join("") : ""}
+    ${showPlan ? `${destIndex === 0 ? around.now.map(chip).join("") : ""}
     ${around.before.map(chip).join("")}
     ${around.self ? chip(around.self) : ""}
-    ${around.following.map(chip).join("")}
+    ${around.following.map(chip).join("")}` : ""}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;
 }
@@ -8014,6 +8014,134 @@ async function watchSignIn() {
   }
 }
 
+const ARRANGEMENTS = [
+  null,
+  { name: "Sign in, then the trip. The plan stays on each stop.", planOnCards: true, order: ["example", "sign", "start", "hours", "stops", "calculate", "map", "trips"] },
+  { name: "Build the trip before you sign in. The plan stays on each stop.", planOnCards: true, order: ["example", "start", "hours", "stops", "calculate", "map", "sign", "trips"] },
+  { name: "The plan is its own step, after Calculate and before the map.", planOnCards: false, order: ["example", "sign", "start", "hours", "stops", "calculate", "plan", "map", "trips"] },
+  { name: "Calculate, then the map, then the plan.", planOnCards: false, order: ["example", "sign", "start", "hours", "stops", "calculate", "map", "plan", "trips"] },
+  { name: "Saved trips first, so you open a trip and then change it.", planOnCards: true, order: ["example", "trips", "sign", "start", "hours", "stops", "calculate", "map"] },
+  { name: "Stops first. The plan is its own step after Calculate.", planOnCards: false, order: ["example", "stops", "start", "hours", "calculate", "plan", "map", "sign", "trips"] },
+  { name: "Hours, then where you start, then the stops. The plan follows Calculate.", planOnCards: false, order: ["example", "hours", "start", "stops", "sign", "calculate", "plan", "map", "trips"] },
+  { name: "The map first, then the plan, then the stops.", planOnCards: false, order: ["example", "map", "plan", "stops", "calculate", "hours", "start", "sign", "trips"] },
+  { name: "Where you start, the stops and their plan, then the hours.", planOnCards: true, order: ["example", "start", "stops", "hours", "sign", "calculate", "map", "trips"] },
+  { name: "Sign in, the stops and their plan, then where you start.", planOnCards: true, order: ["example", "sign", "stops", "start", "hours", "calculate", "map", "trips"] },
+];
+
+function arrangementId() {
+  const n = Number(window.PLAN_ARRANGE);
+  return n >= 1 && n <= 10 ? n : 0;
+}
+
+function arrangeBar(id, spec) {
+  const links = ARRANGEMENTS.slice(1).map((item, index) => {
+    const n = index + 1;
+    return `<a href="./arrange-${n}.html"${n === id ? " aria-current=\"page\"" : ""}>${n}</a>`;
+  }).join(" ");
+  return `<p class="arrange-bar"><a href="./">Home</a> ${links}<br>${escapeAttr(spec.name)}</p>`;
+}
+
+function planTimeline(heading) {
+  if (!state.plan) {
+    return `<section class="step"><h2>${heading}</h2><p class="fine">After Calculate, the drives, breaks, and leeway show here.</p></section>`;
+  }
+  const parts = [];
+  state.stops.forEach((stop, index) => {
+    const around = eventsAround(stop.id);
+    const destIndex = destinations().findIndex((item) => item.id === stop.id);
+    if (destIndex === 0) parts.push(around.now.map(chip).join(""));
+    parts.push(around.before.map(chip).join(""));
+    if (around.self) parts.push(chip(around.self));
+    parts.push(around.following.map(chip).join(""));
+  });
+  return `<section class="step"><h2>${heading}</h2>${parts.join("") || `<p class="fine">Calculate to fill the plan.</p>`}</section>`;
+}
+
+function arrangedPage({ s, routeFrom, id }) {
+  const spec = ARRANGEMENTS[id];
+  let step = 0;
+  const h = (name) => {
+    step += 1;
+    return `Step ${step}. ${name}`;
+  };
+  const cards = state.stops
+    .map((stop, index) => (stop.useCurrentLocation ? "" : stopCard(stop, index, spec.planOnCards)))
+    .join("");
+  const shared = state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : "";
+  const blocks = {
+    example: () => exampleBlock(),
+    sign: () => `<section class="step"><h2>${h("Sign in")}</h2>${authBlock()}</section>`,
+    start: () => `<section class="hos step" id="stepStart" style="--box-font: ${state.boxFont}px">
+      <h2>${h("Choose where the trip starts")}</h2>
+      <div class="settings-grid action-grid">
+        <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
+        <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="fromAddress">Start from an address</button>
+        ${state.chooseStart ? `<p class="fine start-choice-note">Choose Start from my location or Start from an address.</p>` : ""}
+        ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
+        ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
+      </div>
+      <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
+    </section>`,
+    hours: () => `<section class="hos step" style="--box-font: ${state.boxFont}px">
+      <h2>${h("Set speed, hours, and when you leave")}</h2>
+      <div class="settings-pairs">
+        <div class="set-pair">
+          <div class="set-box${s.governed ? " on" : ""}">
+            <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
+            <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
+          </div>
+        </div>
+        <div class="set-pair">
+          ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
+          ${s.leaveNow ? "" : settingValue("leaveAt", "Leave at", formatUserShort(s.leaveAt, s.leaveAtOffset))}
+        </div>
+        <div class="set-pair">
+          ${settingToggle("startAnytime", "Start anytime", s.startAnytime)}
+          ${s.startAnytime ? "" : settingValue("startTime", "Day start", formatClockMinutes(s.startMinutes))}
+        </div>
+        <div class="set-pair">
+          ${settingToggle("endAnytime", "End anytime", s.endAnytime)}
+          ${s.endAnytime ? "" : settingValue("endTime", "Day end", formatClockMinutes(s.endMinutes))}
+        </div>
+        <div class="set-pair">
+          ${settingToggle("military", "Military time", s.military)}
+          ${settingToggle("kilometers", "Kilometers", s.kilometers)}
+        </div>
+        <div class="set-pair">
+          ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
+          ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
+          ${state.plan ? `<button type="button" class="flag-box" id="updateTimes"${state.updatingTimes || state.estimating ? " disabled" : ""}>${state.updatingTimes ? "Finding you…" : "Update times"}</button>` : ""}
+        </div>
+      </div>
+      ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
+    </section>`,
+    stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${cards}</section>`,
+    plan: () => planTimeline(h("The plan")),
+    calculate: () => `<section class="actions step" id="actions">
+      <h2>${h("Calculate the truck route")}</h2>
+      <label class="flag-box trip-name">Trip name
+        <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
+      </label>
+      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
+      <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
+      <div class="stack">
+        ${state.plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
+        ${state.plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
+        ${state.plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
+        ${state.plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
+        ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
+      </div>
+      ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
+      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 40. The first saved card gives 40 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
+      ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
+      ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+    </section>`,
+    map: () => planBox(h("Navigate")),
+    trips: () => savedTripsBlock(),
+  };
+  return `${arrangeBar(id, spec)}${spec.order.map((key) => blocks[key]()).join("\n")}`;
+}
+
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
@@ -8058,7 +8186,23 @@ function render() {
     .map((stop, index) => (stop.useCurrentLocation ? "" : stopCard(stop, index)))
     .join("");
   const plan = state.plan;
-  root.innerHTML = `
+  const arranged = arrangementId();
+  root.innerHTML = arranged ? `
+    ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
+    <div class="hero-lift"><section class="hero card hero-mark">
+      <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
+      <div class="hero-copy">
+      <h1>www.planigator.help</h1>
+      <ul class="pitch">
+        ${heroLines.map((line) => `<li>${escapeAttr(line)}</li>`).join("")}
+      </ul>
+      </div>
+    </section></div>
+    ${arrangedPage({ s, routeFrom, id: arranged })}
+    ${hereCallsBlock()}
+    ${lookupMapSheet()}
+    ${pickerSheet()}
+  ` : `
     ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
     <div class="hero-lift"><section class="hero card hero-mark">
       <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
