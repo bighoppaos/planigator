@@ -2366,6 +2366,11 @@ button[data-after],
   border-top: 1px solid var(--line);
 }
 
+#planStep {
+  margin-left: -12px;
+  margin-right: -12px;
+}
+
 .trip-name-row {
   display: flex;
   align-items: center;
