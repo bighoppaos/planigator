@@ -2,6 +2,7 @@ import { phonemize } from "./kitten/speak.js";
 import { TextCleaner } from "./kitten/text-cleaner.js";
 import { TextPreprocessor } from "./kitten/preprocess.js";
 import { loadNpz } from "./kitten/npz-loader.js";
+import { fetchCached } from "./voice-fetch.js";
 import { InferenceSession, Tensor, env } from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js";
 
 // The phone plays this through the page audio mixer, so a song keeps going.
@@ -38,6 +39,8 @@ const SPEED_PRIORS = {
 const cleaner = new TextCleaner();
 const preprocessor = new TextPreprocessor({ remove_punctuation: false });
 
+const progressFns = new Set();
+let generation = 0;
 let loading = null;
 let engine = null;
 
@@ -46,36 +49,64 @@ env.wasm.numThreads = 1;
 env.wasm.simd = true;
 env.wasm.proxy = false;
 
+function reportProgress(ratio) {
+  for (const fn of progressFns) {
+    try { fn(ratio); } catch { /* a listener can fail without stopping the voice */ }
+  }
+}
+
+export function releaseKitten() {
+  generation += 1;
+  const current = engine;
+  engine = null;
+  loading = null;
+  if (current && current.release) current.release().catch(() => {});
+}
+
 export function loadKitten() {
   if (engine) return Promise.resolve(engine);
   if (!loading) {
+    const gen = generation;
     loading = buildEngine().then((ready) => {
+      if (gen !== generation) {
+        ready?.release?.().catch(() => {});
+        return null;
+      }
       engine = ready;
       return ready;
     }).catch((err) => {
-      loading = null;
+      if (gen === generation) loading = null;
       throw err;
     });
   }
   return loading;
 }
 
-export async function kittenSpeech(text, voice) {
-  const ready = await loadKitten();
-  const samples = await ready.speak(text, voice);
-  return { samples, rate: SAMPLE_RATE };
+export async function kittenSpeech(text, voice, onProgress) {
+  if (onProgress) progressFns.add(onProgress);
+  try {
+    if (engine) onProgress?.(1);
+    const ready = await loadKitten();
+    if (!ready) throw new Error("Voice load stopped.");
+    const samples = await ready.speak(text, voice);
+    return { samples, rate: SAMPLE_RATE };
+  } finally {
+    if (onProgress) progressFns.delete(onProgress);
+  }
 }
 
 async function buildEngine() {
-  const [modelBuffer, voicesBuffer] = await Promise.all([
-    fetchCached(MODEL_URL),
-    fetchCached(VOICES_URL),
-  ]);
+  const modelBuffer = await fetchCached(MODEL_URL, (ratio) => reportProgress(ratio * 0.9));
+  const voicesBuffer = await fetchCached(VOICES_URL, (ratio) => reportProgress(0.9 + ratio * 0.1));
   const voices = await loadNpz(voicesBuffer);
   const session = await openSession(modelBuffer);
+  reportProgress(1);
   return {
     speak(text, voice) {
       return speakWith(session, voices, text, voice);
+    },
+    release() {
+      return Promise.resolve(session.release?.());
     },
   };
 }
@@ -92,32 +123,6 @@ async function openSession(modelBuffer) {
       throw err;
     }
   }
-}
-
-async function fetchCached(url) {
-  try {
-    if (typeof caches !== "undefined") {
-      const cache = await caches.open("planigator-voices");
-      const hit = await cache.match(url);
-      if (hit) return hit.arrayBuffer();
-      const buffer = await fetchBuffer(url);
-      try {
-        await cache.put(url, new Response(buffer.slice(0)));
-      } catch {
-        // Private browsing can refuse the cache. The voice still plays.
-      }
-      return buffer;
-    }
-  } catch {
-    // Cache lookup failed. Download it directly.
-  }
-  return fetchBuffer(url);
-}
-
-async function fetchBuffer(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
-  return resp.arrayBuffer();
 }
 
 function ensurePunctuation(text) {

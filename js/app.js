@@ -30,7 +30,8 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import SamJs from "./sam.js?v=1";
-import { kittenSpeech } from "./kitten-voice.js?v=2";
+import { kittenSpeech, releaseKitten } from "./kitten-voice.js?v=3";
+import { kokoroSpeech, releaseKokoro } from "./kokoro-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -3474,7 +3475,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
-    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button><button type="button" class="flag-box" data-pick="navVoice">Voice: ${escapeAttr(navVoiceLabel())}</button></div><p class="fine">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo are different voices, and they keep the song. Robot is the small one. The first time, the phone downloads the voices.</p>` : ""}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. The circle is the download. These keep the song playing. Robot is the small one.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directions ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
@@ -4480,22 +4481,67 @@ function playNavSpeech(text) {
 
 let voiceJob = 0;
 
-function previewKitten(voice) {
+let voiceBusy = false;
+let voicePct = -1;
+
+function voiceStepper() {
+  const pct = voiceBusy && voicePct >= 0 ? `${voicePct}%` : "";
+  return `<span class="voice-step"><button type="button" class="flag-box" id="voicePrev" aria-label="Previous voice">‹</button><span class="voice-now flag-box" id="voiceNow"><span class="voice-spin${voiceBusy ? " on" : ""}" id="voiceSpin"></span><span id="voiceName">${escapeAttr(navVoiceLabel())}</span><span id="voicePct">${pct}</span></span><button type="button" class="flag-box" id="voiceNext" aria-label="Next voice">›</button></span>`;
+}
+
+function paintVoiceLoad() {
+  const spin = document.getElementById("voiceSpin");
+  const pct = document.getElementById("voicePct");
+  const now = document.getElementById("voiceNow");
+  if (spin) spin.classList.toggle("on", voiceBusy);
+  if (pct) pct.textContent = voiceBusy && voicePct >= 0 ? `${voicePct}%` : "";
+  if (now) now.setAttribute("aria-busy", voiceBusy ? "true" : "false");
+}
+
+function showVoiceLoad(ratio) {
+  voiceBusy = true;
+  voicePct = ratio == null ? -1 : Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+  paintVoiceLoad();
+}
+
+function clearVoiceLoad() {
+  voiceBusy = false;
+  voicePct = -1;
+  paintVoiceLoad();
+}
+
+function previewChosenVoice() {
   preferMix();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (AudioCtx && !mixCtx) {
     mixCtx = new AudioCtx();
     mixCtx.resume();
   }
-  playKittenSpeech(`This is ${voice}.`, voice);
+  const label = navVoiceLabel();
+  playChosenVoice(navVoiceId() === "robot" ? "This is the robot." : `This is ${label}.`);
 }
 
-function playKittenSpeech(text, voice) {
+function playChosenVoice(text) {
   const said = spokenAloud(text);
   if (!said) return;
   const token = ++voiceJob;
-  showStopNote(`Getting ${voice}. The first time takes a minute.`, 20000);
-  kittenSpeech(said, voice).then((clip) => {
+  const voice = navVoiceId();
+  if (voice === "robot") {
+    clearVoiceLoad();
+    releaseKitten();
+    releaseKokoro();
+    playNavSpeech(said);
+    return;
+  }
+  showVoiceLoad(0);
+  const job = voice.startsWith("k:")
+    ? (releaseKitten(), kokoroSpeech(said, voice.slice(2), (ratio) => {
+      if (token === voiceJob) showVoiceLoad(ratio);
+    }))
+    : (releaseKokoro(), kittenSpeech(said, voice, (ratio) => {
+      if (token === voiceJob) showVoiceLoad(ratio);
+    }));
+  job.then((clip) => {
     if (token !== voiceJob) return;
     if (navOn) clearStopNote(true);
     playSamples(clip.samples, clip.rate);
@@ -4505,8 +4551,23 @@ function playKittenSpeech(text, voice) {
     const why = /fetch|network|download|signal|failed/i.test(raw)
       ? "Check the signal and try that voice again."
       : raw.replace(/\s+/g, " ").slice(0, 140);
-    showStopNote(`${voice} did not load. ${why}`, 8000);
+    showStopNote(`${navVoiceLabel()} did not load. ${why}`, 8000);
+  }).finally(() => {
+    if (token === voiceJob) clearVoiceLoad();
   });
+}
+
+function stepNavVoice(dir) {
+  const list = NAV_VOICES;
+  let index = list.findIndex(([id]) => id === navVoiceId());
+  if (index < 0) index = 0;
+  index = (index + dir + list.length) % list.length;
+  state.settings.navVoice = list[index][0];
+  persist();
+  saveActiveTripSettings();
+  const name = document.getElementById("voiceName");
+  if (name) name.textContent = list[index][1];
+  previewChosenVoice();
 }
 
 function stopMixNavVoice() {
@@ -4526,6 +4587,34 @@ const NAV_VOICES = [
   ["Hugo", "Hugo"],
   ["Kiki", "Kiki"],
   ["Leo", "Leo"],
+  ["k:af_heart", "Heart"],
+  ["k:af_alloy", "Alloy"],
+  ["k:af_aoede", "Aoede"],
+  ["k:af_bella", "Bella 2"],
+  ["k:af_jessica", "Jessica"],
+  ["k:af_kore", "Kore"],
+  ["k:af_nicole", "Nicole"],
+  ["k:af_nova", "Nova"],
+  ["k:af_river", "River"],
+  ["k:af_sarah", "Sarah"],
+  ["k:af_sky", "Sky"],
+  ["k:am_adam", "Adam"],
+  ["k:am_echo", "Echo"],
+  ["k:am_eric", "Eric"],
+  ["k:am_fenrir", "Fenrir"],
+  ["k:am_liam", "Liam"],
+  ["k:am_michael", "Michael"],
+  ["k:am_onyx", "Onyx"],
+  ["k:am_puck", "Puck"],
+  ["k:am_santa", "Santa"],
+  ["k:bf_alice", "Alice"],
+  ["k:bf_emma", "Emma"],
+  ["k:bf_isabella", "Isabella"],
+  ["k:bf_lily", "Lily"],
+  ["k:bm_daniel", "Daniel"],
+  ["k:bm_fable", "Fable"],
+  ["k:bm_george", "George"],
+  ["k:bm_lewis", "Lewis"],
   ["robot", "Robot"],
 ];
 
@@ -4541,10 +4630,7 @@ function navVoiceLabel() {
 }
 
 function unlockNavVoice() {
-  const say = "Navigation on.";
-  const voice = navVoiceId();
-  if (voice === "robot") playNavSpeech(say);
-  else playKittenSpeech(say, voice);
+  playChosenVoice("Navigation on.");
 }
 
 const STATE_NAMES = {
@@ -4631,9 +4717,7 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
-  const voice = navVoiceId();
-  if (voice === "robot") playNavSpeech(text);
-  else playKittenSpeech(text, voice);
+  playChosenVoice(text);
 }
 
 function resetNavVoice() {
@@ -8951,9 +9035,6 @@ function pickerSheet() {
   if (id === "mph") {
     title = "Governed speed";
     wheels = `<div class="time-col">${mphWheel()}</div>`;
-  } else if (id === "navVoice") {
-    title = "Voice";
-    wheels = `<div class="time-col">${pickerOptions(NAV_VOICES.map(([value]) => value), navVoiceId(), "navVoice", (value) => NAV_VOICES.find(([id]) => id === value)?.[1] || value)}</div>`;
   } else if (id === "hoursOfEleven") {
     title = "Hours I’ll drive out of the 11";
     wheels = `<div class="time-col">${pickerOptions(HOS_ELEVEN, state.settings.hoursOfEleven, "hoursOfEleven")}</div>`;
@@ -9066,16 +9147,6 @@ function commitPicker() {
       state.settings.governedMph = Number(raw) || DEFAULT_MPH;
     }
     markGovernedStale(before);
-  }
-  if (id === "navVoice") {
-    const picked = chosenWheel("navVoice");
-    if (NAV_VOICES.some(([value]) => value === picked)) {
-      state.settings.navVoice = picked;
-      if (picked !== "robot") {
-        state.notice = `Getting ${picked}. The first time takes a minute.`;
-        previewKitten(picked);
-      }
-    }
   }
   if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
   if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
@@ -9287,6 +9358,8 @@ function bindSettings() {
       else render();
     });
   });
+  document.getElementById("voicePrev")?.addEventListener("click", () => stepNavVoice(-1));
+  document.getElementById("voiceNext")?.addEventListener("click", () => stepNavVoice(1));
   document.querySelectorAll("button[data-pick]").forEach((el) => {
     el.addEventListener("click", () => {
       const id = el.getAttribute("data-pick");

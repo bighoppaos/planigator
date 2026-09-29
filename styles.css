@@ -2049,6 +2049,43 @@ html.route-full body > :not(#routeStage) {
 .nav-go { margin-top: 4px; }
 .nav-go #startNav,
 .nav-go #endNav { margin-top: 0; }
+.voice-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-go .voice-step .flag-box {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: calc(var(--box-font, 13px) * 22 / 13);
+  line-height: 1.2;
+}
+.voice-now {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 7rem;
+}
+.voice-spin {
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: none;
+  flex: 0 0 auto;
+}
+.voice-spin.on {
+  display: inline-block;
+  animation: voice-spin 0.7s linear infinite;
+}
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-spin.on { animation: none; border-right-color: currentColor; }
+}
 #startNav,
 #endNav {
   animation: start-nav-colors 2.5s linear infinite;
