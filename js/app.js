@@ -828,10 +828,40 @@ function speedChoiceLabel() {
   return String(state.settings.governedMph || DEFAULT_MPH);
 }
 
-function clearSpeedNote() {
+function blankSpeedNote() {
   state.speedFrom = "";
   state.speedTo = "";
   state.speedNote = "";
+}
+
+function parkSpeedNote() {
+  const trip = state.trips.find((item) => item.id === state.activeTripId);
+  if (!trip) return;
+  if (state.speedFrom && state.speedTo && state.speedFrom !== state.speedTo) {
+    trip.speedFrom = state.speedFrom;
+    trip.speedTo = state.speedTo;
+  } else {
+    delete trip.speedFrom;
+    delete trip.speedTo;
+  }
+}
+
+function showTripSpeedNote(trip) {
+  const from = String(trip?.speedFrom || "");
+  const to = String(trip?.speedTo || "");
+  if (from && to && from !== to) {
+    state.speedFrom = from;
+    state.speedTo = to;
+  } else blankSpeedNote();
+}
+
+function clearSpeedNote() {
+  blankSpeedNote();
+  const trip = state.trips.find((item) => item.id === state.activeTripId);
+  if (trip) {
+    delete trip.speedFrom;
+    delete trip.speedTo;
+  }
 }
 
 function markGovernedStale(fromLabel) {
@@ -841,6 +871,7 @@ function markGovernedStale(fromLabel) {
   if (!state.speedFrom && from && from !== to) state.speedFrom = from;
   if (state.speedFrom) state.speedTo = to;
   if (!state.speedFrom || state.speedFrom === state.speedTo) clearSpeedNote();
+  else parkSpeedNote();
   persist();
 }
 
@@ -1362,6 +1393,9 @@ function saveTrip() {
     } : null,
     driveProgress: state.driveProgress,
     pendingUpload: true,
+    ...(state.speedFrom && state.speedTo && state.speedFrom !== state.speedTo
+      ? { speedFrom: state.speedFrom, speedTo: state.speedTo }
+      : {}),
   };
   state.trips = [trip, ...state.trips.filter((item) => item.id !== id)].slice(0, 40);
   state.activeTripId = id;
@@ -1421,7 +1455,10 @@ function loadTrip(id) {
   if (navOn) return;
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
-  if (trip.id !== state.activeTripId) clearSpeedNote();
+  if (trip.id !== state.activeTripId) {
+    parkSpeedNote();
+    showTripSpeedNote(trip);
+  }
   state.settings = { ...state.settings, ...(trip.settings || {}) };
   delete state.settings.sleepHours;
   delete state.settings.readyMinutes;
@@ -1507,6 +1544,7 @@ function rollOpenExample() {
 }
 
 function loadExample() {
+  parkSpeedNote();
   const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
   state.settings = { ...state.settings, ...(trip.settings || {}) };
   delete state.settings.sleepHours;
@@ -1521,7 +1559,7 @@ function loadExample() {
     state.origin = { lat: Number(gps.lat), lon: Number(gps.lon) };
   }
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
-  clearSpeedNote();
+  blankSpeedNote();
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
   addressEditStarted = false;
@@ -1571,6 +1609,8 @@ function tripCacheItem(trip) {
     plan: trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null,
     summary: trip.summary || null,
     driveProgress: readDriveProgress(trip.driveProgress),
+    speedFrom: trip.speedFrom || "",
+    speedTo: trip.speedTo || "",
   };
 }
 
@@ -2054,6 +2094,7 @@ function resetEditor() {
 
 function newTrip() {
   if (navOn) return;
+  parkSpeedNote();
   const keep = {
     trips: state.trips,
     settings: { ...state.settings },
@@ -2078,7 +2119,7 @@ function newTrip() {
   Object.assign(state, keep);
   state.notice = "";
   addressEditStarted = false;
-  clearSpeedNote();
+  blankSpeedNote();
   lookupOpen.clear();
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
