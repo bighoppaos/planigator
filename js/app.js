@@ -5373,9 +5373,9 @@ function turnSpan(along) {
   const far = pointAlong(navLine, farAlong);
   let bearing = 0;
   if (!northLock) {
-    bearing = navCompass != null
-      ? navCompass
-      : (far ? navBearing(navFix, [far.lat, far.lon]) : 0);
+    bearing = far && navFix
+      ? navBearing(navFix, [far.lat, far.lon])
+      : (navCompass != null ? navCompass : 0);
   }
   return { turnAlong, ahead, farAlong, far, bearing, deeper: 0 };
 }
@@ -5434,9 +5434,20 @@ function turnZoomCap(metersAhead) {
   return 17;
 }
 
+function aimTurnZoom(zoom, metersAhead) {
+  const cap = turnZoomCap(metersAhead);
+  if (!Number.isFinite(zoom)) return cap;
+  return Math.min(cap, Math.max(zoom, cap - 0.4));
+}
+
 function fitTurnCamera(bounds, bearing, deeper) {
   let framed = paddingForTurnZoom(turnViewPadding(), 0);
-  let fitted = routeMap.cameraForBounds(bounds, { padding: framed.padding, bearing });
+  let fitted = null;
+  try {
+    fitted = routeMap.cameraForBounds(bounds, { padding: framed.padding, bearing: 0 });
+  } catch {
+    fitted = null;
+  }
   if (deeper > 0 && fitted && Number.isFinite(fitted.zoom)) {
     const room = Math.min(deeper, Math.max(0, 18 - fitted.zoom));
     if (room > 0.01) {
@@ -5565,8 +5576,7 @@ function moveTurnZoomOut(t) {
   const bearing = heldBearing(span.bearing);
   const fit = fitTurnCamera(bounds, bearing, 0);
   if (!fit.camera) return null;
-  const cap = turnZoomCap(Math.abs(farAlong - along));
-  if (fit.camera.zoom > cap) fit.camera.zoom = cap;
+  fit.camera.zoom = aimTurnZoom(fit.camera.zoom, Math.abs(farAlong - along));
   routeMap.easeTo({
     center: fit.camera.center,
     zoom: fit.camera.zoom,
@@ -5587,8 +5597,10 @@ function frameNextTurn() {
   const span = turnSpan(along);
   if (!span.far) return;
   const stepKey = turnStepKey(along);
+  const metersAhead = Math.abs(span.farAlong - along);
+  const tooWide = routeMap.getZoom() < turnZoomCap(metersAhead) - 1;
   if (turnZoomOut) {
-    if (turnZoomOut.stepKey === stepKey) return;
+    if (turnZoomOut.stepKey === stepKey && !tooWide) return;
     stopTurnZoomOut();
   }
   let bearingDelta = 0;
@@ -5599,7 +5611,8 @@ function frameNextTurn() {
   const sameView = turnFrameAt && turnFrameTarget != null
     && Math.abs(turnFrameTarget - span.farAlong) < 40
     && metersBetween(turnFrameAt, navFix) < 80
-    && bearingDelta < 12;
+    && bearingDelta < 12
+    && !tooWide;
   if (sameView) return;
   // At the turn: hold you and that turn for 60 seconds, then zoom out
   // to you and the next turn.
@@ -5614,8 +5627,7 @@ function frameNextTurn() {
   if (!bounds) return;
   const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
   if (fit.camera) {
-    const cap = turnZoomCap(Math.abs(span.farAlong - along));
-    if (fit.camera.zoom > cap) fit.camera.zoom = cap;
+    fit.camera.zoom = aimTurnZoom(fit.camera.zoom, Math.abs(span.farAlong - along));
   }
   turnFrameAt = [navFix[0], navFix[1]];
   turnFrameTarget = span.farAlong;
