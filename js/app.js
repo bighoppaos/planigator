@@ -761,7 +761,7 @@ function pointReady(stop) {
 
 function markGovernedStale() {
   if (!state.plan) return;
-  state.speedNote = "Recalculate to update the HERE miles for this governed speed.";
+  state.speedNote = "The clocks stay as they are. Calculate if you want HERE to figure the drive hours for this speed. Fast mode may also pick different roads.";
 }
 
 function billableStops() {
