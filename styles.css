@@ -2414,11 +2414,19 @@ button[data-after],
 
 .save-note { margin: 4px 0 0; }
 
+.route-choices {
+  display: inline-grid;
+  grid-template-columns: max-content;
+  max-width: 100%;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
 .actions #calculate,
 .actions #routeMode {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 #calculate.choice-lg,

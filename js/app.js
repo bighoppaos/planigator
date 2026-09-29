@@ -8425,11 +8425,12 @@ function arrangedPage({ s, routeFrom, id }) {
     plan: () => planTimeline(h("The plan")),
     calculate: () => `<section class="actions step" id="actions">
       <h2>${h("Calculate the truck route")}</h2>
-      <button type="button" class="flag-box choice-lg${s.routeMode === "short" ? " on" : ""}" id="routeMode" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
-      <button type="button" class="flag-box choice-lg on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
+      <div class="route-choices">
+        <button type="button" class="flag-box choice-lg${s.routeMode === "short" ? " on" : ""}" id="routeMode" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
+        <button type="button" class="flag-box choice-lg on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
+      </div>
       <div class="stack">
         ${state.plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
-        ${state.plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
         ${summaryLivesOnPlan() ? "" : planEndButtons()}
         ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
       </div>
@@ -9175,7 +9176,6 @@ function bind() {
     if (routeFull) fitRouteCover();
     routeMap?.resize();
   });
-  $("#shareNav")?.addEventListener("click", () => shareToNav());
   $("#installApp")?.addEventListener("click", () => installApp());
   $("#copyPlan")?.addEventListener("click", () => copyPlan());
   $("#locate")?.addEventListener("click", () => locate());
