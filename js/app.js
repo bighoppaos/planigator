@@ -3200,6 +3200,37 @@ function routeFromLine(originStop) {
   return "";
 }
 
+function routeFeatureCollection() {
+  let currentId = "";
+  if (navLegs.length) currentId = activeNavLeg()?.stop?.id || "";
+  if (!currentId) {
+    for (const stop of state.stops || []) {
+      if (!stop || stop.useCurrentLocation || stop.done || stop.skipRoute) continue;
+      if (Array.isArray(stop.path) && stop.path.length >= 2) {
+        currentId = stop.id;
+        break;
+      }
+    }
+  }
+  const features = [];
+  for (const stop of state.stops || []) {
+    if (!Array.isArray(stop.path)) continue;
+    const coordinates = [];
+    for (const pair of stop.path) {
+      const lat = Number(pair?.[0]);
+      const lon = Number(pair?.[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) coordinates.push([lon, lat]);
+    }
+    if (coordinates.length < 2) continue;
+    features.push({
+      type: "Feature",
+      properties: { current: stop.id === currentId ? 1 : 0 },
+      geometry: { type: "LineString", coordinates },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
 function routePoints() {
   const line = [];
   for (const stop of state.stops) {
@@ -3538,12 +3569,13 @@ function styleIsBasemap(map) {
   return Boolean(map.getLayer("satellite"));
 }
 
+const ROUTE_LINE_COLOR = ["case", ["==", ["get", "current"], 1], "#2f6fed", "#1f8a62"];
+
 function ensureRouteLayers(map) {
   if (!map.getSource("route")) {
-    const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
     map.addSource("route", {
       type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+      data: routeFeatureCollection(),
     });
     map.addLayer({
       id: "route-casing",
@@ -3555,7 +3587,7 @@ function ensureRouteLayers(map) {
       id: "route",
       type: "line",
       source: "route",
-      paint: { "line-color": "#1f8a62", "line-width": 4 },
+      paint: { "line-color": ROUTE_LINE_COLOR, "line-width": 4 },
     });
   }
   if (!map.getSource("left")) {
@@ -3567,21 +3599,23 @@ function ensureRouteLayers(map) {
       id: "left",
       type: "line",
       source: "left",
-      paint: { "line-color": "#3dcaa0", "line-width": 6 },
+      paint: { "line-color": "#9ec5ff", "line-width": 6 },
     });
   }
+}
+
+function paintRouteLines() {
+  const map = routeMap;
+  const source = map?.getSource("route");
+  if (!source) return;
+  source.setData(routeFeatureCollection());
+  if (map.getLayer("route")) map.setPaintProperty("route", "line-color", ROUTE_LINE_COLOR);
 }
 
 function restoreRouteLine() {
   const map = routeMap;
   if (!map?.getSource("route")) return;
-  const coordinates = routePoints().map(([lat, lon]) => [lon, lat]);
-  if (coordinates.length >= 2) {
-    map.getSource("route").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates },
-    });
-  }
+  paintRouteLines();
   if (!(navOn && navFix && navLine.length >= 2)) return;
   const hit = navNearest(navFix[0], navFix[1], navLine);
   const leg = legUnderFix(navFix[0], navFix[1]);
@@ -7140,6 +7174,7 @@ function onNavFix(lat, lon, alt) {
   paintCompassRose();
   refreshPlace(lat, lon);
   rebuildNavLegs();
+  paintRouteLines();
   noteArrivedStops(lat, lon);
   if (navLine.length < 2) {
     paintDrive(null);
@@ -7803,7 +7838,7 @@ function mountMap() {
     const coordinates = line.map(([lat, lon]) => [lon, lat]);
     map.addSource("route", {
       type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates } },
+      data: routeFeatureCollection(),
     });
     map.addLayer({
       id: "route-casing",
@@ -7815,7 +7850,7 @@ function mountMap() {
       id: "route",
       type: "line",
       source: "route",
-      paint: { "line-color": "#1f8a62", "line-width": 4 },
+      paint: { "line-color": ROUTE_LINE_COLOR, "line-width": 4 },
     });
     map.addSource("left", {
       type: "geojson",
@@ -7825,7 +7860,7 @@ function mountMap() {
       id: "left",
       type: "line",
       source: "left",
-      paint: { "line-color": "#3dcaa0", "line-width": 6 },
+      paint: { "line-color": "#9ec5ff", "line-width": 6 },
     });
     const holdCamera = () => { navMapTouch = true; };
     const releaseCamera = () => {
