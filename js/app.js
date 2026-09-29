@@ -4552,6 +4552,8 @@ function speakNavProgress(leg, found, hereAlong) {
 let placeAt = null;
 let placeText = "";
 let placeBusy = false;
+let placeLookedAt = 0;
+let placePending = null;
 
 function paintPlace(text) {
   const chip = document.getElementById("routePlace");
@@ -4582,22 +4584,41 @@ function paintDrive(alongMeters) {
   chip.textContent = text;
 }
 
-function refreshPlace(lat, lon) {
-  if (placeText) paintPlace(placeText);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || placeBusy) return;
-  if (placeAt && placeText && metersBetween(placeAt, [lat, lon]) < 8000) return;
+function refreshPlace(lat, lon, force = false) {
+  const due = force || !placeLookedAt || Date.now() - placeLookedAt >= 60000;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (!due && placeAt && placeText && metersBetween(placeAt, [lat, lon]) < 8000) {
+    paintPlace(placeText);
+    return;
+  }
+  if (placeBusy) {
+    placePending = [lat, lon];
+    return;
+  }
   placeBusy = true;
+  placeLookedAt = Date.now();
   whereCity(lat, lon).then((data) => {
     const city = String(data?.city || "").trim();
-    const state = String(data?.state || "").trim();
-    const text = [city, state].filter(Boolean).join(", ");
+    const stateName = String(data?.state || "").trim();
+    const text = [city, stateName].filter(Boolean).join(", ");
     if (!text) return;
     placeAt = [lat, lon];
     placeText = text;
     paintPlace(text);
   }).catch(() => {}).finally(() => {
     placeBusy = false;
+    if (!placePending) return;
+    const [nextLat, nextLon] = placePending;
+    placePending = null;
+    refreshPlace(nextLat, nextLon, true);
   });
+}
+
+function armPlaceClock() {
+  window.setInterval(() => {
+    if (!navOn || !navFix) return;
+    refreshPlace(navFix[0], navFix[1], true);
+  }, 60000);
 }
 
 function sayNav(title, sub, note) {
@@ -7477,6 +7498,10 @@ function beginRouteNav() {
   freezeTyping(true);
   syncRouteChrome();
   document.getElementById("routeStage")?.scrollIntoView({ block: "nearest" });
+  placeText = "";
+  placeAt = null;
+  placeLookedAt = 0;
+  paintPlace("");
   sayNav("Finding you…", "Allow location to move along this trip.", "");
   if (navWatch == null && navigator.geolocation) {
     navWatch = navigator.geolocation.watchPosition(
@@ -8330,6 +8355,7 @@ export function initPlanner(el) {
     if (state.signedIn) watchSignIn();
   }, 15000);
   armLeaveNowClock();
+  armPlaceClock();
 }
 
 async function watchSignIn() {
@@ -9138,8 +9164,8 @@ function bind() {
   if (tripName) fitTripName(tripName);
   mountMap();
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
-  if (navFix) refreshPlace(navFix[0], navFix[1]);
-  else if (Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
+  if (navOn && navFix) refreshPlace(navFix[0], navFix[1]);
+  else if (!navOn && Number.isFinite(Number(state.origin?.lat)) && Number.isFinite(Number(state.origin?.lon))) refreshPlace(Number(state.origin.lat), Number(state.origin.lon));
   bindDirectionSteps(document);
   bindDirectionBrowse();
   $("#saveCard")?.addEventListener("click", () => saveCard());
