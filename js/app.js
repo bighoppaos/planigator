@@ -30,6 +30,7 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import SamJs from "./sam.js?v=1";
+import { kittenSpeech } from "./kitten-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -4449,19 +4450,14 @@ function stopNavUtterance() {
   window.speechSynthesis?.cancel();
 }
 
-function playNavSpeech(text) {
-  const said = spokenAloud(text);
-  if (!said) return;
+function playSamples(samples, rate) {
   preferMix();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
-  let samples = false;
-  try { samples = samVoice.buf32(said); } catch { samples = false; }
-  if (!samples || !samples.length) return;
+  if (!AudioCtx || !samples?.length) return;
   if (!mixCtx) mixCtx = new AudioCtx();
   if (mixCtx.state === "suspended") mixCtx.resume();
   stopNavUtterance();
-  const buffer = mixCtx.createBuffer(1, samples.length, 22050);
+  const buffer = mixCtx.createBuffer(1, samples.length, rate);
   buffer.getChannelData(0).set(samples);
   const source = mixCtx.createBufferSource();
   source.buffer = buffer;
@@ -4473,6 +4469,43 @@ function playNavSpeech(text) {
   source.start();
 }
 
+function playNavSpeech(text) {
+  const said = spokenAloud(text);
+  if (!said) return;
+  let samples = false;
+  try { samples = samVoice.buf32(said); } catch { samples = false; }
+  if (!samples || !samples.length) return;
+  playSamples(samples, 22050);
+}
+
+let voiceJob = 0;
+
+function previewKitten(voice) {
+  preferMix();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (AudioCtx && !mixCtx) {
+    mixCtx = new AudioCtx();
+    mixCtx.resume();
+  }
+  playKittenSpeech(`This is ${voice}.`, voice);
+}
+
+function playKittenSpeech(text, voice) {
+  const said = spokenAloud(text);
+  if (!said) return;
+  const token = ++voiceJob;
+  showStopNote(`Getting ${voice}. The first time takes a minute.`, 20000);
+  kittenSpeech(said, voice).then((clip) => {
+    if (token !== voiceJob) return;
+    if (navOn) clearStopNote(true);
+    playSamples(clip.samples, clip.rate);
+  }).catch(() => {
+    if (token !== voiceJob) return;
+    showStopNote(`${voice} did not load. Using the robot.`, 6000);
+    playNavSpeech(text);
+  });
+}
+
 function stopMixNavVoice() {
   stopNavUtterance();
   const ctx = mixCtx;
@@ -4481,8 +4514,33 @@ function stopMixNavVoice() {
   try { ctx.close(); } catch { /* already closed */ }
 }
 
+const NAV_VOICES = [
+  ["phone", "Phone"],
+  ["Bella", "Bella"],
+  ["Jasper", "Jasper"],
+  ["Luna", "Luna"],
+  ["Bruno", "Bruno"],
+  ["Rosie", "Rosie"],
+  ["Hugo", "Hugo"],
+  ["Kiki", "Kiki"],
+  ["Leo", "Leo"],
+  ["robot", "Robot"],
+];
+
+function navVoiceId() {
+  const id = state.settings.navVoice;
+  if (NAV_VOICES.some(([value]) => value === id)) return id;
+  if (state.settings.phoneVoice === false) return "robot";
+  return "phone";
+}
+
+function navVoiceLabel() {
+  const id = navVoiceId();
+  return NAV_VOICES.find(([value]) => value === id)?.[1] || "Phone";
+}
+
 function usePhoneVoice() {
-  return state.settings.phoneVoice !== false;
+  return navVoiceId() === "phone";
 }
 
 function speakPhone(text) {
@@ -4498,8 +4556,10 @@ function speakPhone(text) {
 
 function unlockNavVoice() {
   const say = "Navigation on.";
-  if (usePhoneVoice()) speakPhone(say);
-  else playNavSpeech(say);
+  const voice = navVoiceId();
+  if (voice === "phone") speakPhone(say);
+  else if (voice === "robot") playNavSpeech(say);
+  else playKittenSpeech(say, voice);
 }
 
 const STATE_NAMES = {
@@ -4586,8 +4646,10 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
-  if (usePhoneVoice()) speakPhone(text);
-  else playNavSpeech(text);
+  const voice = navVoiceId();
+  if (voice === "phone") speakPhone(text);
+  else if (voice === "robot") playNavSpeech(text);
+  else playKittenSpeech(text, voice);
 }
 
 function resetNavVoice() {
@@ -8739,8 +8801,8 @@ function arrangedPage({ s, routeFrom, id }) {
           ${settingToggle("kilometers", "Kilometers", s.kilometers)}
         </div>
         <div class="set-pair">
-          ${settingToggle("phoneVoice", s.phoneVoice === false ? "Mix voice" : "Phone voice", s.phoneVoice !== false)}
-          <p class="fine speed-note">Phone voice pauses music. Mix voice keeps the song and sounds like a robot.</p>
+          ${settingValue("navVoice", "Voice", navVoiceLabel(), true)}
+          <p class="fine speed-note">Phone pauses the song. Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one.</p>
         </div>
         <div class="set-pair">
           ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
@@ -8909,6 +8971,9 @@ function pickerSheet() {
   if (id === "mph") {
     title = "Governed speed";
     wheels = `<div class="time-col">${mphWheel()}</div>`;
+  } else if (id === "navVoice") {
+    title = "Voice";
+    wheels = `<div class="time-col">${pickerOptions(NAV_VOICES.map(([value]) => value), navVoiceId(), "navVoice", (value) => NAV_VOICES.find(([id]) => id === value)?.[1] || value)}</div>`;
   } else if (id === "hoursOfEleven") {
     title = "Hours I’ll drive out of the 11";
     wheels = `<div class="time-col">${pickerOptions(HOS_ELEVEN, state.settings.hoursOfEleven, "hoursOfEleven")}</div>`;
@@ -9021,6 +9086,16 @@ function commitPicker() {
       state.settings.governedMph = Number(raw) || DEFAULT_MPH;
     }
     markGovernedStale(before);
+  }
+  if (id === "navVoice") {
+    const picked = chosenWheel("navVoice");
+    if (NAV_VOICES.some(([value]) => value === picked)) {
+      state.settings.navVoice = picked;
+      if (picked !== "phone" && picked !== "robot") {
+        state.notice = `Getting ${picked}. The first time takes a minute.`;
+        previewKitten(picked);
+      }
+    }
   }
   if (id === "hoursOfEleven") state.settings.hoursOfEleven = Math.min(11, Math.max(1, Number(chosenWheel("hoursOfEleven")) || 11));
   if (id === "hoursBeforeThirty") state.settings.hoursBeforeThirty = Math.min(8, Math.max(0.5, Number(chosenWheel("hoursBeforeThirty")) || 8));
@@ -9224,7 +9299,6 @@ function bindSettings() {
       }
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
-      if (id === "phoneVoice") state.settings.phoneVoice = state.settings.phoneVoice === false;
       if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
       persist();
       saveActiveTripSettings();
