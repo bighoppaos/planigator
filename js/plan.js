@@ -555,7 +555,12 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       drivePiece += 1;
       const delayMs = delayThatFitsBeforeDayEnd(sim, askedMs);
       const dayEnd = dayEndAt(sim);
-      if (delayMs >= 60 * 1000 && laterWouldPassDayEnd(events, i + 1, carry + delayMs, dayEnd)) {
+      // The next thing is already the 10-hour rest. This delay is not another
+      // drive. It starts that rest later. Minutes past the day end still come
+      // out of the 10. The morning stays put until the rest would be under 10 hours.
+      if (askedMs >= 60 * 1000 && events[i + 1]?.kind === "rest") {
+        carry += askedMs;
+      } else if (delayMs >= 60 * 1000 && laterWouldPassDayEnd(events, i + 1, carry + delayMs, dayEnd)) {
         // Keep the 30-minute break in the day. The delay then moves the
         // drives under that break. Drives that would pass the day end are
         // laid out again after the reset.
@@ -597,8 +602,7 @@ function applyDrivePieceDelays(stop, events, before, cap) {
         if (overflow >= 60 * 1000) restCut += overflow;
         i = nextIndex;
         continue;
-      }
-      if (delayMs >= 60 * 1000) {
+      } else if (delayMs >= 60 * 1000) {
         const spent = sim.spendDriveTime(delayMs, cap);
         carry += delayMs;
         spent.rests.forEach((rest, restIndex) => {
