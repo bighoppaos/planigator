@@ -2,14 +2,13 @@ import { phonemize } from "./kitten/speak.js";
 import { TextCleaner } from "./kitten/text-cleaner.js";
 import { TextPreprocessor } from "./kitten/preprocess.js";
 import { loadNpz } from "./kitten/npz-loader.js";
-import { fetchCached } from "./voice-fetch.js";
+import { configureVoiceWasm, fetchCached, withTimeout } from "./voice-fetch.js?v=2";
 import { InferenceSession, Tensor, env } from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js";
 
 // The phone plays this through the page audio mixer, so a song keeps going.
 // Each name is a different row in voices.npz. Robot is separate and is not handled here.
 const MODEL_URL = "https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8/resolve/main/kitten_tts_nano_v0_8.onnx";
 const VOICES_URL = "https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8/resolve/main/voices.npz";
-const WASM_ROOT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/";
 const SAMPLE_RATE = 24000;
 const AUDIO_TRIM = 5000;
 const MAX_CHUNK_CHARS = 400;
@@ -44,10 +43,7 @@ let generation = 0;
 let loading = null;
 let engine = null;
 
-env.wasm.wasmPaths = WASM_ROOT;
-env.wasm.numThreads = 1;
-env.wasm.simd = true;
-env.wasm.proxy = false;
+const wasmUrl = configureVoiceWasm(env);
 
 function reportProgress(ratio) {
   for (const fn of progressFns) {
@@ -96,11 +92,12 @@ export async function kittenSpeech(text, voice, onProgress) {
 }
 
 async function buildEngine() {
-  const modelBuffer = await fetchCached(MODEL_URL, (ratio) => reportProgress(ratio * 0.9));
-  const voicesBuffer = await fetchCached(VOICES_URL, (ratio) => reportProgress(0.9 + ratio * 0.1));
+  const modelBuffer = await fetchCached(MODEL_URL, (ratio) => reportProgress(ratio * 0.62));
+  const voicesBuffer = await fetchCached(VOICES_URL, (ratio) => reportProgress(0.62 + ratio * 0.16));
   const voices = await loadNpz(voicesBuffer);
-  const session = await openSession(modelBuffer);
+  await fetchCached(wasmUrl, (ratio) => reportProgress(0.78 + ratio * 0.19));
   reportProgress(1);
+  const session = await withTimeout(openSession(modelBuffer), 40000, "The voice did not start.");
   return {
     speak(text, voice) {
       return speakWith(session, voices, text, voice);
@@ -112,17 +109,12 @@ async function buildEngine() {
 }
 
 async function openSession(modelBuffer) {
-  try {
-    env.wasm.simd = true;
-    return await InferenceSession.create(modelBuffer, { executionProviders: ["wasm"] });
-  } catch (err) {
-    env.wasm.simd = false;
-    try {
-      return await InferenceSession.create(modelBuffer, { executionProviders: ["wasm"] });
-    } catch {
-      throw err;
-    }
-  }
+  const bytes = modelBuffer instanceof Uint8Array ? modelBuffer : new Uint8Array(modelBuffer);
+  return InferenceSession.create(bytes, {
+    executionProviders: ["wasm"],
+    executionMode: "sequential",
+    graphOptimizationLevel: "disabled",
+  });
 }
 
 function ensurePunctuation(text) {
@@ -187,7 +179,7 @@ async function speakWith(session, voices, text, voiceName) {
 
 async function speakChunk(session, voiceEntry, key, chunk) {
   const processed = preprocessor.process(chunk);
-  const phonemes = await phonemize(processed);
+  const phonemes = await withTimeout(phonemize(processed), 15000, "The voice did not start.");
   const tokenIds = cleaner.clean(phonemes);
   if (tokenIds.length < 3) throw new Error("Could not pronounce that.");
   const [numStyles, styleDim] = voiceEntry.shape;

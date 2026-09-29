@@ -1,3 +1,27 @@
+const WASM_ROOT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/";
+
+export function configureVoiceWasm(env) {
+  const ios = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent || "");
+  env.wasm.wasmPaths = WASM_ROOT;
+  env.wasm.numThreads = 1;
+  env.wasm.simd = !ios;
+  env.wasm.proxy = false;
+  return `${WASM_ROOT}${env.wasm.simd ? "ort-wasm-simd.wasm" : "ort-wasm.wasm"}`;
+}
+
+export function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }, (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
 export async function fetchCached(url, onProgress) {
   try {
     if (typeof caches !== "undefined") {

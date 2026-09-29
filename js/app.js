@@ -30,8 +30,8 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import SamJs from "./sam.js?v=1";
-import { kittenSpeech, releaseKitten } from "./kitten-voice.js?v=3";
-import { kokoroSpeech, releaseKokoro } from "./kokoro-voice.js?v=1";
+import { kittenSpeech, releaseKitten } from "./kitten-voice.js?v=4";
+import { kokoroSpeech, releaseKokoro } from "./kokoro-voice.js?v=2";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -4484,9 +4484,14 @@ let voiceJob = 0;
 let voiceBusy = false;
 let voicePct = -1;
 
+function voiceLoadText() {
+  if (!voiceBusy) return "";
+  if (voicePct < 0) return "Starting";
+  return `${voicePct}%`;
+}
+
 function voiceStepper() {
-  const pct = voiceBusy && voicePct >= 0 ? `${voicePct}%` : "";
-  return `<span class="voice-step"><button type="button" class="flag-box" id="voicePrev" aria-label="Previous voice">‹</button><span class="voice-now flag-box" id="voiceNow"><span class="voice-spin${voiceBusy ? " on" : ""}" id="voiceSpin"></span><span id="voiceName">${escapeAttr(navVoiceLabel())}</span><span id="voicePct">${pct}</span></span><button type="button" class="flag-box" id="voiceNext" aria-label="Next voice">›</button></span>`;
+  return `<span class="voice-step"><button type="button" class="flag-box" id="voicePrev" aria-label="Previous voice">‹</button><span class="voice-now flag-box" id="voiceNow"><span class="voice-spin${voiceBusy ? " on" : ""}" id="voiceSpin"></span><span id="voiceName">${escapeAttr(navVoiceLabel())}</span><span id="voicePct">${escapeAttr(voiceLoadText())}</span></span><button type="button" class="flag-box" id="voiceNext" aria-label="Next voice">›</button></span>`;
 }
 
 function paintVoiceLoad() {
@@ -4494,13 +4499,13 @@ function paintVoiceLoad() {
   const pct = document.getElementById("voicePct");
   const now = document.getElementById("voiceNow");
   if (spin) spin.classList.toggle("on", voiceBusy);
-  if (pct) pct.textContent = voiceBusy && voicePct >= 0 ? `${voicePct}%` : "";
+  if (pct) pct.textContent = voiceLoadText();
   if (now) now.setAttribute("aria-busy", voiceBusy ? "true" : "false");
 }
 
 function showVoiceLoad(ratio) {
   voiceBusy = true;
-  voicePct = ratio == null ? -1 : Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+  voicePct = ratio == null || ratio >= 1 ? -1 : Math.min(99, Math.round(Math.max(0, ratio) * 100));
   paintVoiceLoad();
 }
 
@@ -4548,9 +4553,11 @@ function playChosenVoice(text) {
   }).catch((err) => {
     if (token !== voiceJob) return;
     const raw = String(err && (err.message || err) || "");
-    const why = /fetch|network|download|signal|failed/i.test(raw)
-      ? "Check the signal and try that voice again."
-      : raw.replace(/\s+/g, " ").slice(0, 140);
+    const why = /did not start|multiple calls|initializ/i.test(raw)
+      ? "It did not start. Wait a few seconds and tap an arrow again."
+      : /fetch|network|download|signal|failed/i.test(raw)
+        ? "Check the signal and try that voice again."
+        : raw.replace(/\s+/g, " ").slice(0, 140);
     showStopNote(`${navVoiceLabel()} did not load. ${why}`, 8000);
   }).finally(() => {
     if (token === voiceJob) clearVoiceLoad();

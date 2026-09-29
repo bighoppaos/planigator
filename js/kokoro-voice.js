@@ -1,5 +1,5 @@
 import { phonemize } from "./phonemizer.js";
-import { fetchCached } from "./voice-fetch.js";
+import { configureVoiceWasm, fetchCached, withTimeout } from "./voice-fetch.js?v=2";
 import { InferenceSession, Tensor, env } from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js";
 
 // Kokoro English voices. Each name is a different 256-number style in a small voice file.
@@ -25,10 +25,7 @@ const KOKORO_VOCAB = {
   "\u2197": 172, "\u2198": 173, "\u1d7b": 177,
 };
 
-env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/";
-env.wasm.numThreads = 1;
-env.wasm.simd = true;
-env.wasm.proxy = false;
+const wasmUrl = configureVoiceWasm(env);
 
 const progressFns = new Set();
 const voiceBins = new Map();
@@ -67,14 +64,15 @@ function loadSession() {
   if (session) return Promise.resolve(session);
   if (!loading) {
     const gen = generation;
-    loading = fetchCached(MODEL_URL, (ratio) => reportProgress(ratio * 0.98)).then(async (buffer) => {
-      const created = await openSession(buffer);
+    loading = fetchCached(MODEL_URL, (ratio) => reportProgress(ratio * 0.8)).then(async (buffer) => {
+      await fetchCached(wasmUrl, (ratio) => reportProgress(0.8 + ratio * 0.17));
+      reportProgress(1);
+      const created = await withTimeout(openSession(buffer), 40000, "The voice did not start.");
       if (gen !== generation) {
         created.release?.().catch(() => {});
         return null;
       }
       session = created;
-      reportProgress(0.98);
       return created;
     }).catch((err) => {
       if (gen === generation) loading = null;
@@ -85,17 +83,12 @@ function loadSession() {
 }
 
 async function openSession(modelBuffer) {
-  try {
-    env.wasm.simd = true;
-    return await InferenceSession.create(modelBuffer, { executionProviders: ["wasm"] });
-  } catch (err) {
-    env.wasm.simd = false;
-    try {
-      return await InferenceSession.create(modelBuffer, { executionProviders: ["wasm"] });
-    } catch {
-      throw err;
-    }
-  }
+  const bytes = modelBuffer instanceof Uint8Array ? modelBuffer : new Uint8Array(modelBuffer);
+  return InferenceSession.create(bytes, {
+    executionProviders: ["wasm"],
+    executionMode: "sequential",
+    graphOptimizationLevel: "disabled",
+  });
 }
 
 async function voiceStyle(voice, onProgress) {
@@ -156,7 +149,7 @@ async function speakWith(ready, text, voice, onProgress) {
 
 async function speakChunk(ready, chunk, voice, onProgress) {
   const american = !String(voice).startsWith("b");
-  const lines = await phonemize(chunk, american ? "en-us" : "en");
+  const lines = await withTimeout(phonemize(chunk, american ? "en-us" : "en"), 15000, "The voice did not start.");
   const phonemes = tidyPhonemes((Array.isArray(lines) ? lines : [String(lines || "")]).join(" "), american);
   const ids = tokenIds(phonemes);
   if (ids.length < 3) throw new Error("Could not pronounce that.");
