@@ -317,6 +317,7 @@ function defaultState() {
 
 let heldAccountTrip = null;
 let stripStoredTrip = false;
+let addressEditStarted = false;
 
 function storedTripHasWork(saved) {
   if (!saved || typeof saved !== "object") return false;
@@ -1371,6 +1372,15 @@ async function saveNamedTrip() {
   render();
 }
 
+function paintClearTrip() {
+  const slot = document.getElementById("clearTripSlot");
+  if (slot) slot.hidden = !addressEditStarted;
+}
+
+function clearTripButton() {
+  return `<p class="trips-clear" id="clearTripSlot"${addressEditStarted ? "" : " hidden"}><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
+}
+
 function tripNameRow() {
   return `<div class="trip-name-row">
     <label class="flag-box trip-name">Trip name
@@ -1398,6 +1408,7 @@ function loadTrip(id) {
   state.plan = trip.plan && Array.isArray(trip.plan.events) ? trip.plan : null;
   state.driveProgress = readDriveProgress(trip.driveProgress);
   state.notice = `Opened ${trip.name}.`;
+  addressEditStarted = false;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
@@ -1485,6 +1496,7 @@ function loadExample() {
   state.speedNote = "";
   state.error = "";
   state.notice = `Opened ${trip.name}.`;
+  addressEditStarted = false;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   calculate({ silent: true, skipHash: true });
@@ -2037,6 +2049,7 @@ function newTrip() {
   Object.assign(state, defaultState());
   Object.assign(state, keep);
   state.notice = "";
+  addressEditStarted = false;
   lookupOpen.clear();
   writingHash = true;
   history.replaceState(null, "", location.pathname + location.search);
@@ -8289,7 +8302,7 @@ function arrangeBar(id, spec) {
 
 const HOME_LAYOUT = {
   planOnCards: false,
-  order: ["example", "hours", "start", "sign", "trips", "stops", "calculate", "plan", "map", "clear"],
+  order: ["example", "hours", "start", "sign", "trips", "stops", "calculate", "plan", "map"],
 };
 
 function pageLayout() {
@@ -8400,7 +8413,7 @@ function arrangedPage({ s, routeFrom, id }) {
       </div>
       ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
     </section>`,
-    stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${cards}${tripNameRow()}</section>`,
+    stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${clearTripButton()}${cards}${tripNameRow()}</section>`,
     plan: () => planTimeline(h("The plan")),
     calculate: () => `<section class="actions step" id="actions">
       <h2>${h("Calculate the truck route")}</h2>
@@ -8417,8 +8430,8 @@ function arrangedPage({ s, routeFrom, id }) {
       ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>`,
     map: () => planBox(h("Navigate")),
-    trips: () => savedTripsBlock({ clear: !spec.order.includes("clear") }),
-    clear: () => `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`,
+    trips: () => savedTripsBlock({ clear: false }),
+    clear: () => clearTripButton(),
   };
   const body = spec.order.map((key) => blocks[key]()).join("\n");
   return id ? `${arrangeBar(id, spec)}${body}` : body;
@@ -8757,6 +8770,8 @@ function onStopFieldInput(input) {
     paintStopButton();
   } else stop[field] = input.value;
   if (field === "address") {
+    addressEditStarted = true;
+    paintClearTrip();
     const button = card.querySelector("[data-act=lookup]");
     const typed = input.value.trim();
     const verified = String(stop.verifiedLabel || "").trim();
