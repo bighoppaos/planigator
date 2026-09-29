@@ -1227,7 +1227,10 @@ p.late-note { margin: 4px 0 8px; }
 .example-note { margin: 0; }
 .signup-note { margin: 8px 0 0; font-size: 1.35rem; font-weight: 700; }
 .fine { font-size: 13px; color: var(--muted); }
-.speed-note { margin: 4px 0 0; }
+.set-pair > .speed-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 button.text-button {
   background: none;
   border: 0;

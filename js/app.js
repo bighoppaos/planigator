@@ -819,7 +819,7 @@ function pointReady(stop) {
 
 function markGovernedStale() {
   if (!state.plan) return;
-  state.speedNote = "The clocks stay as they are. Calculate if you want HERE to figure the drive hours for this speed. Fast mode may also pick different roads.";
+  state.speedNote = "The clocks stay as they are. Recalculate if you want HERE to figure the drive hours for this speed. Fast mode may also pick different roads.";
 }
 
 function billableStops() {
@@ -8397,6 +8397,7 @@ function arrangedPage({ s, routeFrom, id }) {
             <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
             <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
           </div>
+          ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
         </div>
         <div class="set-pair">
           ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
@@ -8419,7 +8420,6 @@ function arrangedPage({ s, routeFrom, id }) {
           ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
         </div>
       </div>
-      ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
     </section>`,
     stops: () => `${shared}<section class="stops step"><h2>${h("Add each stop")}</h2>${clearTripButton()}${cards}${tripNameRow()}</section>`,
     plan: () => planTimeline(h("The plan")),
