@@ -822,6 +822,52 @@ function leaveAtNow() {
   });
 }
 
+function rebuiltPlan() {
+  const timed = stopsAndLeaveForPlan();
+  return buildPlan({
+    stops: zonedPlanStops(timed.stops),
+    settings: {
+      ...state.settings,
+      leaveAt: timed.leaveAt,
+    },
+    now: timed.leaveAt,
+  });
+}
+
+function planShape(plan) {
+  return (plan?.events || []).map((event) => [
+    event.id,
+    event.kind,
+    event.late ? 1 : 0,
+    event.timePhrase || "",
+    Math.round(Number(event.miles) * 10) || 0,
+  ].join("~")).join("|");
+}
+
+function catchUpPlan() {
+  if (!state.settings.leaveNow || !state.plan || state.estimating) return;
+  try {
+    const result = rebuiltPlan();
+    if (!result || result.error) return;
+    state.plan = result;
+  } catch {
+    // Keep the plan already on the page.
+  }
+}
+
+function refreshShownPlan() {
+  if (state.estimating) return;
+  if (state.plan) {
+    try {
+      const result = rebuiltPlan();
+      if (result && !result.error) state.plan = result;
+    } catch {
+      // Keep the plan already on the page.
+    }
+  }
+  render();
+}
+
 function normalizeStop(stop) {
   return {
     ...stop,
@@ -2988,7 +3034,7 @@ function routePoints() {
   return pins;
 }
 
-function savedTripsBlock() {
+function savedTripsBlock({ clear = true } = {}) {
   const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
   const list = state.trips.length ? `<ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
@@ -2999,8 +3045,9 @@ function savedTripsBlock() {
         <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>` : "";
+  const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
   return `<section class="trips">
-    <p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>
+    ${clear ? clearButton : ""}
     <h2>Saved trips</h2>
     ${loading}
     ${list}
@@ -3138,6 +3185,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       <p class="fine">After Calculate, the map, directions, and next stops show here.</p>
     </section>`;
   }
+  const directions = directionsBlock();
   return `<section class="result step">
     <h2>${heading}</h2>
     <div class="route-stage" id="routeStage">
@@ -3193,16 +3241,11 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       <div id="routePlaceList" class="route-place-list" hidden></div>
     </div>
     <div id="routeDirectionsHome"></div>
+    ${directions}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
-    ${directionsBlock()}
-    ${directionsBlock() ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button><div class="nav-actions nav-go"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
-    <div class="result-lines">
-      <p class="flag-box">Leave by ${escapeAttr(formatPlanTime(plan.rollAt, zoneForStop(originStop())))}</p>
-      <p class="flag-box">Arrive ${escapeAttr(formatPlanTime(plan.arriveAt, zoneForStop(arriveStop())))}</p>
-      <p class="flag-box">Driving ${escapeAttr(hoursLabel(plan.driveHours))} · ${escapeAttr(formatMiles(plan.miles))}</p>
-      <p class="flag-box">HOS on this path ${plan.breakCount} × 30-min · ${plan.restCount} × Off-duty/Sleeper Berth</p>
-      <p class="flag-box">Total trip-time including 10's and 30's: ${escapeAttr(durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000))}.</p>
-    </div>
+    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
+    ${summaryLivesOnPlan() ? "" : planSummary()}
   </section>`;
 }
 
@@ -4389,9 +4432,13 @@ function placeDirections(full) {
   const list = document.getElementById("routeDirections");
   const home = document.getElementById("routeDirectionsHome");
   const miles = document.getElementById("routeStopMiles");
+  const go = document.getElementById("navGo");
   if (!list || !home || !miles) return;
   if (full) miles.after(list);
-  else home.after(list);
+  else {
+    home.after(list);
+    if (go) list.after(go);
+  }
 }
 
 function syncRouteChrome() {
@@ -7314,6 +7361,8 @@ function refillDirections() {
   if (routeFull && miles) miles.after(next);
   else if (home) home.after(next);
   else miles?.after(next);
+  const go = document.getElementById("navGo");
+  if (go && next && !routeFull) next.after(go);
   bindDirectionSteps(next);
   bindDirectionBrowse();
 }
@@ -7570,8 +7619,87 @@ function leewayDays(hours) {
   return `${dayLabel} ${h} hr ${m} min`;
 }
 
-function chip(event) {
-  const ink = stopInk(event.rgb);
+function driveTowardName(event) {
+  if (event?.timePhrase !== "Drive") return "";
+  const named = (event.title || "").trim();
+  if (named) return named;
+  const index = state.stops.findIndex((stop) => stop.id === event.stopID);
+  if (index < 0) return "";
+  return cardTitle(index, state.stops);
+}
+
+function paintPlanClocks() {
+  const plan = state.plan;
+  const chips = document.querySelectorAll("[data-chip]");
+  const sums = document.querySelectorAll("[data-plan-summary]");
+  if (!plan || !chips.length || !sums.length) return false;
+  const byId = new Map();
+  chips.forEach((node) => {
+    const id = node.getAttribute("data-chip");
+    const list = byId.get(id) || [];
+    list.push(node);
+    byId.set(id, list);
+  });
+  for (const event of plan.events || []) {
+    const nodes = byId.get(String(event.id));
+    if (!nodes?.length) return false;
+    const parts = chipParts(event);
+    for (const node of nodes) {
+      const mid = node.querySelector(".chip-mid");
+      const when = node.querySelector(".chip-when");
+      if (!when || Boolean(parts.middle) !== Boolean(mid)) return false;
+      if (mid) mid.textContent = parts.middle;
+      when.textContent = parts.span;
+    }
+  }
+  const leave = `Leave by ${formatPlanTime(plan.rollAt, zoneForStop(originStop()))}`;
+  const arrive = `Arrive by ${formatPlanTime(plan.arriveAt, zoneForStop(arriveStop()))}`;
+  const driving = `Driving: ${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}`;
+  const hos = `HOS on this path: ${plan.breakCount} × 30-min · ${plan.restCount} × Off-duty/Sleeper Berth`;
+  const total = `Total trip-time including 10's and 30's: ${durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000)}.`;
+  let complete = true;
+  sums.forEach((box) => {
+    const set = (key, text) => {
+      const el = box.querySelector(`[data-sum="${key}"]`);
+      if (!el) complete = false;
+      else el.textContent = text;
+    };
+    set("leave", leave);
+    set("arrive", arrive);
+    set("driving", driving);
+    set("hos", hos);
+    set("total", total);
+  });
+  return complete;
+}
+
+function tickLeaveNow() {
+  if (document.visibilityState === "hidden") return;
+  if (!state.settings.leaveNow || !state.plan || state.estimating) return;
+  const before = planShape(state.plan);
+  const result = rebuiltPlan();
+  if (!result || result.error) return;
+  const shapeChanged = planShape(result) !== before;
+  state.plan = result;
+  const typing = Boolean(state.picker) || Boolean(document.activeElement?.matches?.("input, textarea, select"));
+  if (!shapeChanged && paintPlanClocks()) return;
+  if (routeFull || navOn || typing) {
+    if (shapeChanged && (routeFull || navOn)) routePageStale = true;
+    paintPlanClocks();
+    return;
+  }
+  render();
+}
+
+function armLeaveNowClock() {
+  const delay = 60000 - (Date.now() % 60000) + 250;
+  window.setTimeout(() => {
+    tickLeaveNow();
+    window.setInterval(tickLeaveNow, 60000);
+  }, delay);
+}
+
+function chipParts(event) {
   const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
   const restMinutes = Math.round(Number(event.tripHours) * 60);
   const hideHours = event.kind === "thirty" || (event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60);
@@ -7580,17 +7708,24 @@ function chip(event) {
     ? leewayDays(event.tripHours)
     : [hours, miles].filter(Boolean).join(" · ");
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
-  const toward = event.title && event.kind !== "stop" ? `Toward ${event.title}` : "";
+  const towardName = driveTowardName(event);
+  const toward = towardName ? `Toward ${towardName}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
+  return { label, middle, span };
+}
+
+function chip(event) {
+  const ink = stopInk(event.rgb);
+  const { label, middle, span } = chipParts(event);
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
   const body = `
-    <div class="chip ${event.kind}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
+    <div class="chip ${event.kind}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
-      ${section(middle)}
-      ${section(span)}
+      ${section(middle, "chip-mid")}
+      ${section(span, "chip-when")}
     </div>
   `;
   const delay = driveDelayTarget(event);
@@ -7990,11 +8125,14 @@ export function initPlanner(el) {
   document.addEventListener("keydown", mark);
   document.addEventListener("scroll", mark, true);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") watchSignIn();
+    if (document.visibilityState !== "visible") return;
+    watchSignIn();
+    tickLeaveNow();
   });
   setInterval(() => {
     if (state.signedIn) watchSignIn();
   }, 15000);
+  armLeaveNowClock();
 }
 
 async function watchSignIn() {
@@ -8041,6 +8179,37 @@ function arrangeBar(id, spec) {
   return `<p class="arrange-bar"><a href="./">Home</a> ${links}<br>${escapeAttr(spec.name)}</p>`;
 }
 
+const HOME_LAYOUT = {
+  planOnCards: false,
+  order: ["example", "hours", "start", "sign", "trips", "stops", "calculate", "plan", "map", "clear"],
+};
+
+function pageLayout() {
+  const id = arrangementId();
+  return id ? ARRANGEMENTS[id] : HOME_LAYOUT;
+}
+
+function summaryLivesOnPlan() {
+  return pageLayout().order.includes("plan");
+}
+
+function planSummary() {
+  const plan = state.plan;
+  if (!plan) return "";
+  const leave = formatPlanTime(plan.rollAt, zoneForStop(originStop()));
+  const arrive = formatPlanTime(plan.arriveAt, zoneForStop(arriveStop()));
+  const driving = `${hoursLabel(plan.driveHours)} · ${formatMiles(plan.miles)}`;
+  const hos = `${plan.breakCount} × 30-min · ${plan.restCount} × Off-duty/Sleeper Berth`;
+  const total = durationLabel((plan.arriveAt - plan.rollAt) / 3600 / 1000);
+  return `<div class="result-lines" data-plan-summary="1">
+    <p class="flag-box" data-sum="leave">Leave by ${escapeAttr(leave)}</p>
+    <p class="flag-box" data-sum="arrive">Arrive by ${escapeAttr(arrive)}</p>
+    <p class="flag-box" data-sum="driving">Driving: ${escapeAttr(driving)}</p>
+    <p class="flag-box" data-sum="hos">HOS on this path: ${escapeAttr(hos)}</p>
+    <p class="flag-box" data-sum="total">Total trip-time including 10's and 30's: ${escapeAttr(total)}.</p>
+  </div>`;
+}
+
 function planTimeline(heading) {
   if (!state.plan) {
     return `<section class="step"><h2>${heading}</h2><p class="fine">After Calculate, the drives, breaks, and leeway show here.</p></section>`;
@@ -8054,11 +8223,11 @@ function planTimeline(heading) {
     if (around.self) parts.push(chip(around.self));
     parts.push(around.following.map(chip).join(""));
   });
-  return `<section class="step"><h2>${heading}</h2>${parts.join("") || `<p class="fine">Calculate to fill the plan.</p>`}</section>`;
+  return `<section class="step"><h2>${heading}</h2>${planSummary()}${parts.join("") || `<p class="fine">Calculate to fill the plan.</p>`}</section>`;
 }
 
 function arrangedPage({ s, routeFrom, id }) {
-  const spec = ARRANGEMENTS[id];
+  const spec = id ? ARRANGEMENTS[id] : HOME_LAYOUT;
   let step = 0;
   const h = (name) => {
     step += 1;
@@ -8110,7 +8279,6 @@ function arrangedPage({ s, routeFrom, id }) {
         <div class="set-pair">
           ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
           ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
-          ${state.plan ? `<button type="button" class="flag-box" id="updateTimes"${state.updatingTimes || state.estimating ? " disabled" : ""}>${state.updatingTimes ? "Finding you…" : "Update times"}</button>` : ""}
         </div>
       </div>
       ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
@@ -8137,14 +8305,17 @@ function arrangedPage({ s, routeFrom, id }) {
       ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>`,
     map: () => planBox(h("Navigate")),
-    trips: () => savedTripsBlock(),
+    trips: () => savedTripsBlock({ clear: !spec.order.includes("clear") }),
+    clear: () => `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`,
   };
-  return `${arrangeBar(id, spec)}${spec.order.map((key) => blocks[key]()).join("\n")}`;
+  const body = spec.order.map((key) => blocks[key]()).join("\n");
+  return id ? `${arrangeBar(id, spec)}${body}` : body;
 }
 
 function render() {
   const root = plannerRoot || document.getElementById("app");
   if (!root) return;
+  catchUpPlan();
   const liveStage = document.getElementById("routeStage");
   // A new map on this screen covers Exit and zoom until the page is force-closed.
   if (routeFull && routeMap && liveStage?.isConnected) {
@@ -8182,12 +8353,8 @@ function render() {
   const s = state.settings;
   const origin = state.stops.find((stop) => stop.useCurrentLocation);
   const routeFrom = routeFromLine(origin);
-  const destCards = state.stops
-    .map((stop, index) => (stop.useCurrentLocation ? "" : stopCard(stop, index)))
-    .join("");
-  const plan = state.plan;
   const arranged = arrangementId();
-  root.innerHTML = arranged ? `
+  root.innerHTML = `
     ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
     <div class="hero-lift"><section class="hero card hero-mark">
       <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
@@ -8202,105 +8369,6 @@ function render() {
     ${hereCallsBlock()}
     ${lookupMapSheet()}
     ${pickerSheet()}
-  ` : `
-    ${state.signupNote ? `<p class="ok signup-note">${escapeAttr(state.signupNote)}</p>` : ""}
-    <div class="hero-lift"><section class="hero card hero-mark">
-      <img class="hero-anim" src="./icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
-      <div class="hero-copy">
-      <h1>www.planigator.help</h1>
-      <ul class="pitch">
-        ${heroLines.map((line) => `<li>${escapeAttr(line)}</li>`).join("")}
-      </ul>
-      </div>
-    </section></div>
-
-    ${exampleBlock()}
-
-    <section class="step">
-      <h2>Step 1. Sign in</h2>
-      ${authBlock()}
-    </section>
-
-    <section class="hos step" id="stepStart" style="--box-font: ${state.boxFont}px">
-      <h2>Step 2. Choose where the trip starts</h2>
-        <div class="settings-grid action-grid">
-          <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
-          <button type="button" class="set-box${!state.stops[0]?.useCurrentLocation && (state.stops[0]?.name || "").trim().toLowerCase() === "start" ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="fromAddress">Start from an address</button>
-          ${state.chooseStart ? `<p class="fine start-choice-note">Choose Start from my location or Start from an address.</p>` : ""}
-          ${routeFrom ? `<div class="route-line"><span class="when-arrow" aria-hidden="true"></span>${routeFrom}</div>` : ""}
-          ${state.locationNotice === "That's still the latest location." ? `<div class="route-line"><span class="flag-box">That's still the latest location.</span></div>` : ""}
-        </div>
-        <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
-    </section>
-
-    <section class="hos step" style="--box-font: ${state.boxFont}px">
-      <h2>Step 3. Set speed, hours, and when you leave</h2>
-        <div class="settings-pairs">
-          <div class="set-pair">
-            <div class="set-box${s.governed ? " on" : ""}">
-              <button type="button" class="set-name" data-toggle="governed">Governed speed</button>
-              <button type="button" class="set-value" data-pick="mph">${s.governed ? s.governedMph : "Off"}</button>
-            </div>
-          </div>
-          <div class="set-pair">
-            ${settingToggle("leaveNow", "Leave now", s.leaveNow)}
-            ${s.leaveNow ? "" : settingValue("leaveAt", "Leave at", formatUserShort(s.leaveAt, s.leaveAtOffset))}
-          </div>
-          <div class="set-pair">
-            ${settingToggle("startAnytime", "Start anytime", s.startAnytime)}
-            ${s.startAnytime ? "" : settingValue("startTime", "Day start", formatClockMinutes(s.startMinutes))}
-          </div>
-          <div class="set-pair">
-            ${settingToggle("endAnytime", "End anytime", s.endAnytime)}
-            ${s.endAnytime ? "" : settingValue("endTime", "Day end", formatClockMinutes(s.endMinutes))}
-          </div>
-          <div class="set-pair">
-            ${settingToggle("military", "Military time", s.military)}
-            ${settingToggle("kilometers", "Kilometers", s.kilometers)}
-          </div>
-          <div class="set-pair">
-            ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
-            ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
-            ${state.plan ? `<button type="button" class="flag-box" id="updateTimes"${state.updatingTimes || state.estimating ? " disabled" : ""}>${state.updatingTimes ? "Finding you…" : "Update times"}</button>` : ""}
-          </div>
-        </div>
-        ${state.plan && state.speedNote ? `<p class="fine speed-note">${escapeAttr(state.speedNote)}</p>` : ""}
-    </section>
-
-    ${state.notice === "This trip was shared with you." ? `<p class="ok shared-note">${escapeAttr(state.notice)}</p>` : ""}
-
-    <section class="stops step">
-      <h2>Step 4. Add each stop</h2>
-      ${destCards}
-    </section>
-
-    <section class="actions step" id="actions">
-      <h2>Step 5. Calculate the truck route</h2>
-      <label class="flag-box trip-name">Trip name
-        <textarea id="tripName" rows="2" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
-      </label>
-      <button type="button" class="flag-box${s.routeMode === "short" ? " on" : ""}" data-toggle="routeMode">${s.routeMode === "short" ? "Short mode" : "Fast mode"}</button>
-      <button type="button" class="flag-box on" id="calculate" ${state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>${calculateButtonLabel()}</button>
-      <div class="stack">
-        ${plan && !tripOnAccount() ? `<button type="button" class="flag-box" id="addTripAccount">${state.signedIn ? "Add this trip to my account" : "Sign in to add this trip to your account"}</button>` : ""}
-        ${plan ? `<button type="button" class="flag-box" id="shareTrip">Share trip link</button>` : ""}
-        ${plan && state.unlimited ? `<button type="button" class="flag-box" id="shareNav">Share to Planigator Nav</button>` : ""}
-        ${plan && showInstallButton() ? `<button type="button" class="flag-box" id="installApp">Add Planigator to your home screen</button>` : ""}
-        ${state.cardOnFile ? `<button type="button" class="secondary" id="buyPack" ${state.buying ? "disabled" : ""}>${state.buying ? "Opening checkout…" : "If you need more credits, buy 124 credits for $1.49"}</button>` : ""}
-      </div>
-      ${state.installHint ? `<p class="fine">${escapeAttr(state.installHint)}</p>` : ""}
-      <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Google sign-in gives 40. The first saved card gives 40 more, once per account. We do not charge that card when they run out. Truck only — not car, bike, or walk.</p>
-      ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
-    </section>
-
-    ${planBox()}
-
-    ${savedTripsBlock()}
-    ${hereCallsBlock()}
-    ${lookupMapSheet()}
-    ${pickerSheet()}
-
   `;
   const slot = document.getElementById("googleBtn");
   if (keepGoogle && slot) slot.replaceWith(keepGoogle);
@@ -8509,7 +8577,9 @@ function commitPicker() {
   state.picker = "";
   persist();
   saveActiveTripSettings();
-  render();
+  const shiftsClock = id === "hoursOfEleven" || id === "hoursBeforeThirty" || id === "startTime" || id === "endTime" || id === "leaveAtTime";
+  if (shiftsClock && state.plan) refreshShownPlan();
+  else render();
 }
 
 const settingsApply = {
@@ -8692,7 +8762,9 @@ function bindSettings() {
       if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
       persist();
       saveActiveTripSettings();
-      render();
+      const shiftsClock = id === "leaveNow" || id === "startAnytime" || id === "endAnytime";
+      if (shiftsClock && state.plan) refreshShownPlan();
+      else render();
     });
   });
   document.querySelectorAll("button[data-pick]").forEach((el) => {
@@ -8742,7 +8814,8 @@ function applyClock(wrap) {
   if (id === "endTime") state.settings.endMinutes = total;
   persist();
   saveActiveTripSettings();
-  render();
+  if (state.plan) refreshShownPlan();
+  else render();
 }
 
 function applyWhen(wrap) {
@@ -8758,7 +8831,8 @@ function applyWhen(wrap) {
     state.settings.leaveAt = msFromWall(year, month - 1, day, hour, minute, offset);
     persist();
     saveActiveTripSettings();
-    render();
+    if (state.plan) refreshShownPlan();
+    else render();
     return;
   }
   const field = wrap.getAttribute("data-stop-field");
@@ -8850,7 +8924,6 @@ function bind() {
     render();
   });
   $("#calculate")?.addEventListener("click", () => calculate());
-  $("#updateTimes")?.addEventListener("click", () => updateTimesFromHere());
   mountMap();
   paintDrive(navOn && navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : null);
   if (navFix) refreshPlace(navFix[0], navFix[1]);

@@ -2015,7 +2015,9 @@ html.route-full body > :not(#routeStage) {
   font-size: calc(var(--box-font, 13px) * 22 / 13);
   line-height: 1.2;
 }
-.nav-go { margin-top: 14px; }
+.nav-go { margin-top: 4px; }
+.nav-go #startNav,
+.nav-go #endNav { margin-top: 0; }
 #startNav,
 #endNav {
   animation: start-nav-colors 2.5s linear infinite;
@@ -2234,6 +2236,7 @@ button.lookup.lookup-flash {
   align-items: flex-start;
   gap: 4px;
   margin-top: 4px;
+  margin-bottom: 8px;
 }
 
 .result-lines .flag-box { max-width: 100%; }

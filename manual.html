@@ -169,19 +169,8 @@
 
     <div class="card" id="plan">
       <h2>Plan a trip</h2>
-      <p>The planner is six steps, in order.</p>
-      <h3>Step 1. Sign in</h3>
-      <p>Load an example trip sits under the front picture, above this step. Sign in with Google. A new account gets 40 credits. Trips stay in this browser until you sign in. After you sign in, saved trips stay with that account.</p>
-
-      <h3>Step 2. Choose where the trip starts</h3>
-      <div class="samples" aria-hidden="true">
-        <span class="set-box on">Start from my location</span>
-        <span class="set-box">Start from an address</span>
-      </div>
-      <p class="caption">Green means that choice is on.</p>
-      <p>Start from my location uses the phone or computer location. The browser asks first. That lookup is free. Start from an address is a normal stop: you type it, then look it up, and that lookup is 1 credit. If you press Calculate before choosing one of these, the page moves up to this step.</p>
-
-      <h3>Step 3. Set speed, hours, and when you leave</h3>
+      <p>Load an example trip sits under the front picture. Then the planner is seven steps, in order.</p>
+      <h3>Step 1. Set speed, hours, and when you leave</h3>
       <div class="samples" aria-hidden="true">
         <span class="set-box on"><span class="set-name">Governed speed</span><strong class="set-value">65</strong></span>
         <span class="set-box">Leave now</span>
@@ -194,16 +183,26 @@
         <span class="set-box">Kilometers</span>
         <span class="set-box set-fill"><span class="set-name">Hours I’ll drive out of the 11</span><strong class="set-value">11</strong></span>
         <span class="set-box set-fill"><span class="set-name">Hours into driving before 30-minute break</span><strong class="set-value">8</strong></span>
-        <span class="flag-box">Update times</span>
       </div>
       <ul>
-        <li>Governed speed starts on at 65. Tap the number to pick 55 through 75. Tap Governed speed to turn the cap off.</li>
+        <li>Governed speed starts on at 65. Tap the number to pick 55 through 75. Tap Governed speed to turn the cap off. Changing the cap does not move the clocks until you Calculate again, because the miles come from HERE<sup>©</sup>.</li>
         <li>Leave now uses the current time. Leave at is the clock you pick. The numbers you type stay the numbers you typed.</li>
         <li>Day start is 6:00 AM and Day end is 8:00 PM until you change them. Driving stops at the day end. Start anytime and End anytime turn those clocks off.</li>
         <li>Military time shows 24-hour clocks, such as 18:00 instead of 6:00 PM. Kilometers shows distance in kilometers.</li>
         <li>Hours I’ll drive out of the 11 starts at 11. You can set it from 1 to 11. Hours into driving before the 30-minute break starts at 8.</li>
-        <li>Update times appears after a plan exists. It moves later clocks from where you are now. It does not use a credit, and it does not ask HERE<sup>©</sup> for a new route. See <a href="#times">Times</a>.</li>
+        <li>After a plan exists, changing Leave now, Leave at, the day clocks, the 11, or the 30 rebuilds the clocks. Leave now also moves every minute. That does not use a credit, and it does not ask HERE<sup>©</sup> for a new route.</li>
       </ul>
+
+      <h3>Step 2. Choose where the trip starts</h3>
+      <div class="samples" aria-hidden="true">
+        <span class="set-box on">Start from my location</span>
+        <span class="set-box">Start from an address</span>
+      </div>
+      <p class="caption">Green means that choice is on.</p>
+      <p>Start from my location uses the phone or computer location. The browser asks first. That lookup is free. Start from an address is a normal stop: you type it, then look it up, and that lookup is 1 credit. If you press Calculate before choosing one of these, the page moves up to this step.</p>
+
+      <h3>Step 3. Sign in</h3>
+      <p>Sign in with Google. A new account gets 40 credits. Trips stay in this browser until you sign in. After you sign in, saved trips stay with that account. Saved trips sit under this step. Clear trip is at the bottom of the page, under Navigate.</p>
 
       <h3>Step 4. Add each stop</h3>
       <p>Each stop is a card. See <a href="#stops">Stops</a> for every button on the card.</p>
@@ -221,8 +220,11 @@
       <p>After a route exists, a new stop added at the end calculates only from the last stop that already has miles. The button then says Recalculate from that stop, and only the new leg uses a credit. A stop inserted in the middle recalculates the trip, and each leg that has to be routed uses a credit. Stops you have already reached are skipped.</p>
       <p>Share trip link appears after Calculate. It puts the plan in the address bar so you can send it. When a signed-in driver opens that link, the whole trip is added to his account and shows under Saved trips. Add this trip to my account does the same thing for the trip on the page.</p>
 
-      <h3>Step 6. Read the plan and navigate</h3>
-      <p>The map, the leave-by and arrive clocks, the miles, the 30-minute breaks, and Off-duty/Sleeper Berth show up here. Start navigation is under the directions. See <a href="#map">Map buttons</a> and <a href="#navigate">Navigate</a>.</p>
+      <h3>Step 6. The plan</h3>
+      <p>Leave by, Arrive by, Driving, HOS on this path, and total trip time sit at the top. Under those, each drive says Toward and the stop name. The 30-minute breaks, Off-duty/Sleeper Berth, leeway, and finish chips follow.</p>
+
+      <h3>Step 7. Navigate</h3>
+      <p>The map and the directions are here. Start navigation and End navigation sit just under the directions. See <a href="#map">Map buttons</a> and <a href="#navigate">Navigate</a>.</p>
     </div>
 
     <div class="card" id="credits">
@@ -251,7 +253,7 @@
         <li>Use this spot does not use a lookup credit. You still pay 1 credit when you Calculate that leg.</li>
         <li>Search on the map is 1 credit and takes the place of Look up this address. Calculate is still 1 credit for the leg.</li>
         <li>A lookup that finds nothing is refunded.</li>
-        <li>Navigation, the compass, zoom, Update times, elevation, and wind do not use credits.</li>
+        <li>Navigation, the compass, zoom, elevation, and wind do not use credits. Moving the clocks when you change a time, or when Leave now ticks forward, does not use a credit.</li>
         <li>Finding the next Love's, Walmart, or Cat scale does not use a credit. Next truck stop is 1 credit. Adding any of them onto the route is 2 more: one leg to that place, and one leg from there to the stop you were already driving toward.</li>
       </ul>
       <p>Google sign-in gives 40 credits. The first time a debit or credit card is saved, that account gets 40 more, once. A prepaid card does not get that extra 40. Removing the card and adding another one does not give another 40. The saved card is not charged when the free credits run out. Extra packs are 124 credits for $1.49, and that button shows only when a card is already on file.</p>
@@ -279,10 +281,10 @@
 
     <div class="card" id="times">
       <h2>Times, delays, and a finished stop</h2>
-      <p>After Calculate, the plan lists leave-by, arrive, driving time, miles, each 30-minute break, and each <strong>Off-duty/Sleeper Berth</strong>. Leeway chips say Leeway.</p>
+      <p>After Calculate, the plan lists Leave by, Arrive by, Driving, HOS on this path, and total trip time at the top. Under that, each drive says Toward and the stop name. Each 30-minute break and each <strong>Off-duty/Sleeper Berth</strong> follows. Leeway chips say Leeway.</p>
+      <p>Changing Leave now, Leave at, a day clock, the 11, the 30, a stop time, or a delay rebuilds those times. Leave now moves again every minute, including the leeway that is waiting on the current minute. None of that asks HERE<sup>©</sup> for a new road. Governed speed still needs Calculate, because that changes the HERE<sup>©</sup> miles.</p>
       <p>On a driving line you can add Possible delay time, in minutes. Those minutes come out of the hours you can drive that day. A delay on a drive moves the drives after the next 30-minute break. The break stays in the day. If those drives would pass the end of the day, they move to after the reset. Delay that does not fit before the day ends keeps coming out of the 10-hour rest. It does not stop at the half hour left in the day. The morning drive still starts at the usual time until that rest would be shorter than 10 hours. Then the morning drive starts later. When that day is used up, a 10-hour reset is added. That reset clears the clock, and the next drive starts when the reset ends. A delay on the last drive moves that arrival. Time left before the window absorbs it. If the arrival passes the be-there-by, that drive is late.</p>
       <p>On the finish chip, Possible delay time is a live load. You are not driving while they load you, so those minutes come out of the 14-hour day only. They do not come out of drive time. The next drive leaves after that timer. When the 14 is used up, a 10-hour reset is added and the clock clears. Load time that did not fit does not follow. Neither timer uses a credit or asks HERE<sup>©</sup> for a new road.</p>
-      <p>Update times uses your location on the saved route. It shortens the current leg to what is left and moves the later clocks. The roads and the miles on later stops stay the saved HERE<sup>©</sup> legs. The clocks you typed, and Leave at, stay as you typed them. If you are more than 2 miles off the saved line, it tells you to recalculate the stop you are driving toward. If you are already at the last stop, it says so and does not move the plan.</p>
       <p>When you reach a stop, that card locks. A green check with a smile covers it. The word Done is not on the card. Recalculate skips that stop. You can still add a stop after it. The minus on that card still removes it. Tap it, then tap Remove.</p>
       <article class="stop-card is-done done-sample" aria-hidden="true">
         <p>Stop 1</p>
