@@ -29,6 +29,7 @@ import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
+import SamJs from "./sam.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
 
 const STORAGE = "planigator.web.v1";
@@ -4427,6 +4428,8 @@ let spokenTurnKey = "";
 const spokenMiles = new Set();
 
 let mixCtx = null;
+let navVoiceNode = null;
+const samVoice = new SamJs({ speed: 72, pitch: 64 });
 
 function preferMix() {
   try {
@@ -4438,29 +4441,38 @@ function preferMix() {
   }
 }
 
-function mixNavVoice() {
+function stopNavUtterance() {
+  if (!navVoiceNode) return;
+  try { navVoiceNode.stop(); } catch { /* already stopped */ }
+  navVoiceNode = null;
+}
+
+function playNavSpeech(text) {
+  const said = spokenAloud(text);
+  if (!said) return;
   preferMix();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (!AudioCtx) return;
-  try {
-    if (!mixCtx) mixCtx = new AudioCtx();
-    if (mixCtx.state === "suspended") mixCtx.resume();
-    if (!mixCtx._mixStarted) {
-      const osc = mixCtx.createOscillator();
-      const gain = mixCtx.createGain();
-      gain.gain.value = 0.00001;
-      osc.frequency.value = 40;
-      osc.connect(gain);
-      gain.connect(mixCtx.destination);
-      osc.start();
-      mixCtx._mixStarted = true;
-    }
-  } catch {
-    // The mix tone is only there so speech does not take the speakers.
-  }
+  let samples = false;
+  try { samples = samVoice.buf32(said); } catch { samples = false; }
+  if (!samples || !samples.length) return;
+  if (!mixCtx) mixCtx = new AudioCtx();
+  if (mixCtx.state === "suspended") mixCtx.resume();
+  stopNavUtterance();
+  const buffer = mixCtx.createBuffer(1, samples.length, 22050);
+  buffer.getChannelData(0).set(samples);
+  const source = mixCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(mixCtx.destination);
+  navVoiceNode = source;
+  source.onended = () => {
+    if (navVoiceNode === source) navVoiceNode = null;
+  };
+  source.start();
 }
 
 function stopMixNavVoice() {
+  stopNavUtterance();
   const ctx = mixCtx;
   mixCtx = null;
   if (!ctx) return;
@@ -4470,14 +4482,7 @@ function stopMixNavVoice() {
 preferMix();
 
 function unlockNavVoice() {
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-  mixNavVoice();
-  synth.resume();
-  const utter = new SpeechSynthesisUtterance("Navigation on.");
-  utter.lang = "en-US";
-  utter.onstart = () => preferMix();
-  synth.speak(utter);
+  playNavSpeech("Navigation on.");
 }
 
 const STATE_NAMES = {
@@ -4563,21 +4568,15 @@ function spokenAloud(text) {
 }
 
 function speakNav(text) {
-  const synth = window.speechSynthesis;
-  if (!synth || !navOn || !text) return;
-  mixNavVoice();
-  synth.resume();
-  const utter = new SpeechSynthesisUtterance(spokenAloud(text));
-  utter.lang = "en-US";
-  utter.rate = 1;
-  synth.speak(utter);
+  if (!navOn || !text) return;
+  playNavSpeech(text);
 }
 
 function resetNavVoice() {
   spokenStepKey = "";
   spokenTurnKey = "";
   spokenMiles.clear();
-  window.speechSynthesis?.cancel();
+  stopNavUtterance();
 }
 
 function withoutGo(text) {
@@ -4659,7 +4658,7 @@ function speakNavProgress(leg, found, hereAlong) {
     const next = upcomingDirection(leg, found.index);
     const said = (next && approachPhrase(next, leftMeters)) || (text ? phrase() : "");
     if (said) {
-      window.speechSynthesis?.cancel();
+      stopNavUtterance();
       speakNav(said);
     }
   }
@@ -4674,7 +4673,7 @@ function speakNavProgress(leg, found, hereAlong) {
     if (!next) break;
     const said = approachPhrase(next, band * 1609.344);
     if (!said) break;
-    window.speechSynthesis?.cancel();
+    stopNavUtterance();
     speakNav(said);
     break;
   }
@@ -5996,7 +5995,7 @@ function refreshStopGuidance() {
 
 function speakStopNote(text) {
   if (!navOn || !text) return;
-  window.speechSynthesis?.cancel();
+  stopNavUtterance();
   speakNav(text);
 }
 
@@ -6092,7 +6091,7 @@ function guideFromChosenStop(chosen, lat, lon, hit) {
       navStopSpeakKey = key;
       if (navStopAnnounce) {
         navStopAnnounce = false;
-        window.speechSynthesis?.cancel();
+        stopNavUtterance();
         speakNav(`Not near ${name}`);
       }
     }
