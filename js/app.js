@@ -4515,7 +4515,6 @@ function stopMixNavVoice() {
 }
 
 const NAV_VOICES = [
-  ["phone", "Phone"],
   ["Bella", "Bella"],
   ["Jasper", "Jasper"],
   ["Luna", "Luna"],
@@ -4530,35 +4529,18 @@ const NAV_VOICES = [
 function navVoiceId() {
   const id = state.settings.navVoice;
   if (NAV_VOICES.some(([value]) => value === id)) return id;
-  if (state.settings.phoneVoice === false) return "robot";
-  return "phone";
+  return "Bella";
 }
 
 function navVoiceLabel() {
   const id = navVoiceId();
-  return NAV_VOICES.find(([value]) => value === id)?.[1] || "Phone";
-}
-
-function usePhoneVoice() {
-  return navVoiceId() === "phone";
-}
-
-function speakPhone(text) {
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-  stopNavUtterance();
-  synth.resume();
-  const utter = new SpeechSynthesisUtterance(spokenAloud(text));
-  utter.lang = "en-US";
-  utter.rate = 1;
-  synth.speak(utter);
+  return NAV_VOICES.find(([value]) => value === id)?.[1] || "Bella";
 }
 
 function unlockNavVoice() {
   const say = "Navigation on.";
   const voice = navVoiceId();
-  if (voice === "phone") speakPhone(say);
-  else if (voice === "robot") playNavSpeech(say);
+  if (voice === "robot") playNavSpeech(say);
   else playKittenSpeech(say, voice);
 }
 
@@ -4647,8 +4629,7 @@ function spokenAloud(text) {
 function speakNav(text) {
   if (!navOn || !text) return;
   const voice = navVoiceId();
-  if (voice === "phone") speakPhone(text);
-  else if (voice === "robot") playNavSpeech(text);
+  if (voice === "robot") playNavSpeech(text);
   else playKittenSpeech(text, voice);
 }
 
@@ -8802,7 +8783,7 @@ function arrangedPage({ s, routeFrom, id }) {
         </div>
         <div class="set-pair">
           ${settingValue("navVoice", "Voice", navVoiceLabel(), true)}
-          <p class="fine speed-note">Phone pauses the song. Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one.</p>
+          <p class="fine speed-note">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one. The first time, the phone downloads the voice.</p>
         </div>
         <div class="set-pair">
           ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
@@ -9091,7 +9072,7 @@ function commitPicker() {
     const picked = chosenWheel("navVoice");
     if (NAV_VOICES.some(([value]) => value === picked)) {
       state.settings.navVoice = picked;
-      if (picked !== "phone" && picked !== "robot") {
+      if (picked !== "robot") {
         state.notice = `Getting ${picked}. The first time takes a minute.`;
         previewKitten(picked);
       }
