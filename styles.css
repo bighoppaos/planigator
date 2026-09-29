@@ -2415,9 +2415,12 @@ button[data-after],
 .save-note { margin: 4px 0 0; }
 
 .route-choices {
-  display: inline-grid;
-  grid-template-columns: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   gap: 8px;
   margin: 0 0 8px;
 }
@@ -2426,7 +2429,10 @@ button[data-after],
 .actions #routeMode {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 #calculate.choice-lg,
