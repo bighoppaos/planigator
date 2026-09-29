@@ -2271,6 +2271,7 @@ button.lookup.lookup-flash {
   line-height: 1.2;
 }
 .trips .fine { text-align: center; margin: 4px 0 0; }
+.trips .opened-note { text-align: center; margin: 4px 0 0; }
 .trips ul { list-style: none; padding: 0; margin: 4px 0 0; }
 .trips li {
   display: flex;

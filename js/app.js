@@ -3148,6 +3148,13 @@ function routePoints() {
   return pins;
 }
 
+function openedTripNote() {
+  const notice = String(state.notice || "");
+  if (!notice.startsWith("Opened ") || !notice.endsWith(".")) return "";
+  if (notice === `Opened ${EXAMPLE_TRIP.name}.` && !state.activeTripId) return "";
+  return `<p class="ok opened-note">${escapeAttr(notice)}</p>`;
+}
+
 function savedTripsBlock({ clear = true } = {}) {
   const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
   if (!state.signedIn) return clear ? clearButton : "";
@@ -3164,6 +3171,7 @@ function savedTripsBlock({ clear = true } = {}) {
   return `<section class="trips">
     ${clear ? clearButton : ""}
     <h2>Saved trips</h2>
+    ${openedTripNote()}
     ${loading}
     ${list}
   </section>`;
@@ -8427,7 +8435,7 @@ function arrangedPage({ s, routeFrom, id }) {
       </div>
       <p class="fine">${state.unlimited ? "Unlimited credits on this account. " : (state.signedIn || state.cardOnFile) && state.credits != null ? `${state.credits} credit${state.credits === 1 ? "" : "s"} left. ` : ""}Calculate asks HERE<sup>©</sup> for truck miles and drive hours. Each address and each leg uses 1 credit. Fast mode picks the least time, and Short mode picks the least distance.</p>
       ${state.error ? `<p class="error">${escapeAttr(state.error)}</p>` : ""}
-      ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
+      ${state.notice && state.notice !== "Signed out." && state.notice !== "This trip was shared with you." && !exampleOpenNote() && !openedTripNote() ? `<p class="ok">${escapeAttr(state.notice)}</p>` : ""}
     </section>`,
     map: () => planBox(h("Navigate")),
     trips: () => savedTripsBlock({ clear: false }),
