@@ -3474,7 +3474,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
-    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button></div>` : ""}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button><button type="button" class="flag-box" data-pick="navVoice">Voice: ${escapeAttr(navVoiceLabel())}</button></div><p class="fine">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one. The first time, the phone downloads the voice.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directions ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
@@ -8780,10 +8780,6 @@ function arrangedPage({ s, routeFrom, id }) {
         <div class="set-pair">
           ${settingToggle("military", "Military time", s.military)}
           ${settingToggle("kilometers", "Kilometers", s.kilometers)}
-        </div>
-        <div class="set-pair">
-          ${settingValue("navVoice", "Voice", navVoiceLabel(), true)}
-          <p class="fine speed-note">Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, and Leo keep the song. Robot is the small one. The first time, the phone downloads the voice.</p>
         </div>
         <div class="set-pair">
           ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
