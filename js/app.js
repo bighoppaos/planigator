@@ -4442,9 +4442,11 @@ function preferMix() {
 }
 
 function stopNavUtterance() {
-  if (!navVoiceNode) return;
-  try { navVoiceNode.stop(); } catch { /* already stopped */ }
-  navVoiceNode = null;
+  if (navVoiceNode) {
+    try { navVoiceNode.stop(); } catch { /* already stopped */ }
+    navVoiceNode = null;
+  }
+  window.speechSynthesis?.cancel();
 }
 
 function playNavSpeech(text) {
@@ -4479,10 +4481,25 @@ function stopMixNavVoice() {
   try { ctx.close(); } catch { /* already closed */ }
 }
 
-preferMix();
+function usePhoneVoice() {
+  return state.settings.phoneVoice !== false;
+}
+
+function speakPhone(text) {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  stopNavUtterance();
+  synth.resume();
+  const utter = new SpeechSynthesisUtterance(spokenAloud(text));
+  utter.lang = "en-US";
+  utter.rate = 1;
+  synth.speak(utter);
+}
 
 function unlockNavVoice() {
-  playNavSpeech("Navigation on.");
+  const say = "Navigation on.";
+  if (usePhoneVoice()) speakPhone(say);
+  else playNavSpeech(say);
 }
 
 const STATE_NAMES = {
@@ -4569,7 +4586,8 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
-  playNavSpeech(text);
+  if (usePhoneVoice()) speakPhone(text);
+  else playNavSpeech(text);
 }
 
 function resetNavVoice() {
@@ -8721,6 +8739,10 @@ function arrangedPage({ s, routeFrom, id }) {
           ${settingToggle("kilometers", "Kilometers", s.kilometers)}
         </div>
         <div class="set-pair">
+          ${settingToggle("phoneVoice", s.phoneVoice === false ? "Mix voice" : "Phone voice", s.phoneVoice !== false)}
+          <p class="fine speed-note">Phone voice pauses music. Mix voice keeps the song and sounds like a robot.</p>
+        </div>
+        <div class="set-pair">
           ${settingValue("hoursOfEleven", "Hours I’ll drive out of the 11", String(s.hoursOfEleven), true)}
           ${settingValue("hoursBeforeThirty", "Hours into driving before 30-minute break", thirtyLabel(s.hoursBeforeThirty), true)}
         </div>
@@ -9202,6 +9224,7 @@ function bindSettings() {
       }
       if (id === "military") state.settings.military = !state.settings.military;
       if (id === "kilometers") state.settings.kilometers = !state.settings.kilometers;
+      if (id === "phoneVoice") state.settings.phoneVoice = state.settings.phoneVoice === false;
       if (id === "routeMode") state.settings.routeMode = state.settings.routeMode === "short" ? "fast" : "short";
       persist();
       saveActiveTripSettings();
