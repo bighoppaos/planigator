@@ -4881,16 +4881,14 @@ function paintDrive(alongMeters) {
 }
 
 function refreshPlace(lat, lon, force = false) {
-  const due = force || !placeLookedAt || Date.now() - placeLookedAt >= 60000;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-  if (!due && placeAt && placeText && metersBetween(placeAt, [lat, lon]) < 8000) {
-    paintPlace(placeText);
+  const moved = placeAt != null && metersBetween(placeAt, [lat, lon]) >= 8000;
+  const aged = !placeLookedAt || Date.now() - placeLookedAt >= 60000;
+  if (!force && !aged && !moved) {
+    if (placeText) paintPlace(placeText);
     return;
   }
-  if (placeBusy) {
-    placePending = [lat, lon];
-    return;
-  }
+  if (placeBusy) return;
   placeBusy = true;
   placeLookedAt = Date.now();
   whereCity(lat, lon).then((data) => {
@@ -4903,10 +4901,6 @@ function refreshPlace(lat, lon, force = false) {
     paintPlace(text);
   }).catch(() => {}).finally(() => {
     placeBusy = false;
-    if (!placePending) return;
-    const [nextLat, nextLon] = placePending;
-    placePending = null;
-    refreshPlace(nextLat, nextLon, true);
   });
 }
 
