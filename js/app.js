@@ -3527,7 +3527,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press Use this spot. Signed in, that is 1 credit.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot && (!state.signedIn || state.unlimited || state.credits > 0) ? "" : " disabled"}>${state.signedIn ? "Use this spot · 1 credit" : "Use this spot"}</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -4136,11 +4136,17 @@ async function useChosenSpot() {
   if (!stop || !spot) return;
   const hadLeg = stopHasSavedLeg(stop);
   let label = "Chosen on the map";
-  try {
-    const data = await spotAddress(spot.lat, spot.lon);
-    if (data?.label) label = String(data.label).trim() || label;
-  } catch {
-    // The point still works without a street label.
+  let note = "Using that address.";
+  if (state.signedIn) {
+    if (!state.unlimited && state.credits === 0) return;
+    try {
+      const data = await spotAddress(spot.lat, spot.lon);
+      if (data.credits != null) state.credits = data.credits;
+      if (data?.label) label = String(data.label).trim() || label;
+    } catch (error) {
+      if (error.credits != null) state.credits = error.credits;
+      note = "Using this point. The address did not load, so that credit was not used.";
+    }
   }
   stop.address = label;
   stop.verifiedLabel = label;
@@ -4163,7 +4169,7 @@ async function useChosenSpot() {
     mapPickMarker = null;
   }
   clearUsingNote(id);
-  setLookupMessage(id, "Using that address.", { ok: true });
+  setLookupMessage(id, note, { ok: true });
   persist();
   render();
 }
