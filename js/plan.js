@@ -14,7 +14,7 @@ import {
   isAnytimeEnd,
   isInsideDriveWindow,
   isPastDailyEnd,
-} from "./hos.js?v=133";
+} from "./hos.js?v=136";
 
 export const STOP_RGB = [
   [0.38, 0.7, 1],
@@ -260,29 +260,87 @@ export function schedules({
       if (arriveLatest) clock.holdToArriveBy(open, drive, cap);
       else clock.holdForArrival(open, drive, cap);
     }
-    // Possible delay on chips before a 30/10 sits in the driving pool so
-    // those chips shrink and the break still lands on the chosen mark. Delay
-    // on the last chip still lands after arrival (next leave moves; this
-    // stop's arrive stamp stays put when another stop follows).
+    // Delay before a 30 sits in the driving pool so that chip shrinks and the
+    // break stays on the mark. Delay before a 10 comes out of the off-duty
+    // period (rest starts later; morning stays put while rest ≥ 10). Delay on
+    // the last chip still lands after arrival.
     const nextStop = stops[index + 1];
     const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute && !nextStop.done;
     const laterVisible = stops.slice(index + 1).some((item, offset) => (
       !isOriginStop(stops, index + 1 + offset) && !item.skipRoute && !item.done
     ));
-    const probed = clock.clone().driveReporting(drive, cap, [0], [0]);
-    const probedDrives = probed.filter((event) => event.kind === "drive").length;
-    const poolDelays = laterPieceDelayHours(stop, 0);
+    const beforeDrive = clock.clone();
+    const askedDelays = laterPieceDelayHours(stop, 0);
+    const plainShape = beforeDrive.clone().driveReporting(drive, cap, [0], [0]);
+    const plainDrives = plainShape.filter((event) => event.kind === "drive").length;
+    const plainHasRest = plainShape.some((event) => event.kind === "rest");
+    // Shape the day with the asked delays so we can see which chips sit
+    // before a 30 vs before a 10. Delay before a 30 stays in the pool.
+    // Delay before a 10 comes out of the off-duty when that 10 still exists
+    // without the delay in the pool. Last-chip delay stays after arrive.
+    const shaped = beforeDrive.clone().driveReporting(drive, cap, [0], askedDelays);
+    const shapedDrives = shaped.filter((event) => event.kind === "drive").length;
+    const poolDelays = askedDelays.slice();
+    const restCandidates = [];
     let tailDelayMinutes = 0;
-    if (probedDrives > 0 && (nextVisible || !laterVisible)) {
-      const lastIdx = probedDrives - 1;
-      const lastHours = poolDelays[lastIdx] || 0;
-      if (lastHours > 0) {
-        tailDelayMinutes = Math.round(lastHours * 60);
-        poolDelays[lastIdx] = 0;
-        while (poolDelays.length && poolDelays[poolDelays.length - 1] === 0) poolDelays.pop();
+    // A lone delay on a one-chip drive that does not need a 10 without that
+    // delay is arrival delay for the next leave, not pool/off-duty delay.
+    const simpleTail = !plainHasRest && plainDrives === 1 && (nextVisible || !laterVisible) && (askedDelays[0] || 0) > 0
+      && askedDelays.every((hours, at) => at === 0 || !hours);
+    if (simpleTail) {
+      tailDelayMinutes = Math.round(askedDelays[0] * 60);
+      poolDelays.length = 0;
+    } else {
+      let driveIdx = -1;
+      for (let at = 0; at < shaped.length; at += 1) {
+        if (shaped[at].kind !== "drive") continue;
+        driveIdx += 1;
+        const hours = askedDelays[driveIdx] || 0;
+        if (hours <= 0) continue;
+        // Delay before a 10 comes out of the off-duty. Delay that filled up
+        // to the 30-minute mark (chip would have broken there if the window
+        // still fit) stays in the pool so that chip shrinks instead.
+        if (shaped[at + 1]?.kind === "rest") {
+          const wallHours = Math.max(0, Number(shaped[at].hours) || 0);
+          const thirtyAfter = clampedHoursBeforeThirty(clock.hoursBeforeThirty);
+          const filledThirtyMark = wallHours >= thirtyAfter - 0.01;
+          if (!filledThirtyMark) {
+            restCandidates[driveIdx] = hours;
+            poolDelays[driveIdx] = 0;
+          }
+        } else if (driveIdx === shapedDrives - 1 && (nextVisible || !laterVisible)) {
+          tailDelayMinutes = Math.round(hours * 60);
+          poolDelays[driveIdx] = 0;
+        }
+      }
+      while (poolDelays.length && poolDelays[poolDelays.length - 1] === 0) poolDelays.pop();
+    }
+    copyClock(clock, beforeDrive);
+    let events = clock.driveReporting(drive, cap, [0], poolDelays);
+    const restDelayHours = [];
+    if (restCandidates.some((hours) => hours > 0)) {
+      let driveIdx = -1;
+      for (let at = 0; at < events.length; at += 1) {
+        if (events[at].kind !== "drive") continue;
+        driveIdx += 1;
+        if ((restCandidates[driveIdx] || 0) > 0 && events[at + 1]?.kind === "rest") {
+          restDelayHours[driveIdx] = restCandidates[driveIdx];
+        }
+      }
+      const eaten = restDelayHours.some((hours) => hours > 0);
+      if (eaten) {
+        events = applyRestDriveDelays(events, restDelayHours, clock);
+      } else {
+        // That delay was what forced the 10. Keep it in the driving pool.
+        copyClock(clock, beforeDrive);
+        const kept = askedDelays.slice();
+        if (tailDelayMinutes && shapedDrives > 0) {
+          kept[shapedDrives - 1] = 0;
+          while (kept.length && kept[kept.length - 1] === 0) kept.pop();
+        }
+        events = clock.driveReporting(drive, cap, [0], kept);
       }
     }
-    const events = clock.driveReporting(drive, cap, [0], poolDelays);
     const chipRouteHours = events
       .filter((event) => event.kind === "drive")
       .map((event) => event.routeHours);
@@ -567,6 +625,41 @@ function routeHoursAfter(events, fromIndex) {
     if (events[i].kind === "drive") hours += Math.max(0, Number(events[i].hours) || 0);
   }
   return hours;
+}
+
+/** Delay on a drive that is already followed by a 10. The drive chip stays
+ *  put. The delay starts the off-duty later and comes out of that rest while
+ *  the morning can stay put (rest stays at least 10 hours). */
+function applyRestDriveDelays(events, restDelayHours, clock) {
+  let drivePiece = 0;
+  let carry = 0;
+  const shifted = [];
+  for (let i = 0; i < events.length; i += 1) {
+    const event = events[i];
+    if (event.kind === "drive") {
+      const delayH = Math.max(0, Number(restDelayHours[drivePiece]) || 0);
+      drivePiece += 1;
+      shifted.push({ ...event, start: event.start + carry, end: event.end + carry });
+      if (delayH > 0 && events[i + 1]?.kind === "rest") {
+        carry += delayH * 3600 * 1000;
+      }
+      continue;
+    }
+    if (event.kind === "rest") {
+      const start = event.start + carry;
+      const tenEnd = start + 10 * 3600 * 1000;
+      const resume = resumeAfterRest(clock.startMinutes, clock.endMinutes, tenEnd, clock.timeZone || "");
+      const end = Math.max(tenEnd, resume);
+      shifted.push({ ...event, start, end });
+      carry = end - event.end;
+      continue;
+    }
+    shifted.push({ ...event, start: event.start + carry, end: event.end + carry });
+  }
+  const oldEnd = events.length ? events[events.length - 1].end : clock.now;
+  const newEnd = shifted.length ? shifted[shifted.length - 1].end : clock.now;
+  clock.now += newEnd - oldEnd;
+  return shifted;
 }
 
 function applyDrivePieceDelays(stop, events, before, cap, opts = {}) {
