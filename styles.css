@@ -581,6 +581,17 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   max-height: 88%;
   filter: drop-shadow(0 2px 0 rgb(0 0 0 / 0.28));
 }
+.chip.is-done {
+  position: relative;
+  min-height: 4.8em;
+  overflow: hidden;
+}
+.chip.is-done > :not(.done-mark) {
+  opacity: 0.4;
+}
+.chip.is-done .done-mark svg {
+  width: min(70%, 180px);
+}
 
 .stops {
   margin: 8px -12px 16px;

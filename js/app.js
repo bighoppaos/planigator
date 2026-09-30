@@ -23,14 +23,14 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=162";
+} from "./plan.js?v=163";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=6";
 import { loadTowns, townAt } from "./town.js?v=1";
 
 const STORAGE = "planigator.web.v1";
@@ -655,7 +655,7 @@ function originStop() {
 
 function arriveStop() {
   const stops = state.stops || [];
-  const dests = stops.filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute);
+  const dests = stops.filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute && !stop.done);
   return dests[dests.length - 1];
 }
 
@@ -756,7 +756,7 @@ function zonedPlanStops(stops) {
 }
 
 function tripReadyToRecalc(stops = state.stops) {
-  const dests = (stops || []).filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute);
+  const dests = (stops || []).filter((stop, index) => !isOriginStop(stops, index) && !stop.skipRoute && !stop.done);
   if (!dests.length) return false;
   return dests.every((stop) => (Number(stop.miles) || 0) > 0.05 || (Number(stop.hours) || 0) > 0.0001);
 }
@@ -1178,8 +1178,7 @@ async function updateTimesFromHere() {
     if (!stop.useCurrentLocation) {
       const at = state.stops.findIndex((item) => item.id === stop.id);
       if (at >= 0 && !isOriginStop(state.stops, at)) {
-        stop.done = true;
-        paintDoneStop(stop.id);
+        markStopDone(stop);
       }
     }
     if (!next) {
@@ -1901,6 +1900,98 @@ function paintDoneStop(id) {
   });
   card.querySelectorAll(".here-leg, .stop-done").forEach((node) => node.remove());
   card.insertAdjacentHTML("beforeend", doneStamp());
+}
+
+function donePlanChip(stop, index = state.stops.findIndex((item) => item.id === stop.id)) {
+  const at = index >= 0 ? index : 0;
+  const rgb = stopColor(at, state.stops);
+  const ink = stopInk(rgb);
+  const title = cardTitle(at, state.stops);
+  return `<div class="chip is-done" data-done-plan="${escapeAttr(stop.id)}" style="background:${cssRGB(rgb)};color:${ink.color}" aria-label="${escapeAttr(title)} done">
+    <div class="chip-sec">${escapeAttr(title)}</div>
+    ${doneStamp()}
+  </div>`;
+}
+
+function rebuildPlanAfterDone() {
+  if (!state.plan) {
+    persist();
+    return;
+  }
+  const timed = stopsAndLeaveForPlan();
+  const result = buildPlan({
+    stops: zonedPlanStops(timed.stops),
+    settings: {
+      ...state.settings,
+      leaveAt: timed.leaveAt,
+    },
+    now: timed.leaveAt,
+  });
+  if (!result.error) state.plan = result;
+  persist();
+  patchPlanAfterDone();
+  routePageStale = true;
+  const calc = document.getElementById("calculate");
+  if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
+}
+
+function patchPlanOnCards() {
+  if (!pageLayout().planOnCards) return;
+  const firstLive = state.stops.findIndex((stop, index) => (
+    !isOriginStop(state.stops, index) && !stop.done && !stop.skipRoute
+  ));
+  state.stops.forEach((stop, index) => {
+    if (isOriginStop(state.stops, index) || stop.useCurrentLocation) return;
+    const card = document.querySelector(`[data-stop="${stop.id}"]`);
+    if (!card) return;
+    let node = card.nextElementSibling;
+    while (node && !node.matches?.("article.stop-card, button[data-after], button[data-before], section")) {
+      const next = node.nextElementSibling;
+      if (
+        node.matches?.(".chip, .chip-row, [data-done-plan]")
+        || node.classList?.contains("late-note")
+      ) {
+        node.remove();
+        node = next;
+        continue;
+      }
+      break;
+    }
+    let html = "";
+    if (stop.done) html = donePlanChip(stop, index);
+    else if (!stop.skipRoute) {
+      const around = eventsAround(stop.id);
+      if (index === firstLive) html += around.now.map(chip).join("");
+      html += around.before.map(chip).join("");
+      if (around.self) html += chip(around.self);
+      html += around.following.map(chip).join("");
+    }
+    if (html) card.insertAdjacentHTML("afterend", html);
+  });
+}
+
+function patchPlanAfterDone() {
+  const planStep = document.getElementById("planStep");
+  if (planStep) {
+    const heading = planStep.querySelector("h2")?.textContent || "The plan";
+    planStep.outerHTML = planTimeline(heading);
+  }
+  patchPlanOnCards();
+}
+
+function markStopDone(stop, { switched = false } = {}) {
+  if (!stop || stop.done) return;
+  stop.done = true;
+  if (switched) stop.switched = true;
+  stop.skipRoute = true;
+  paintDoneStop(stop.id);
+  const next = state.stops.find((item, index) => (
+    !isOriginStop(state.stops, index) && !item.done && !item.skipRoute && stopHasSavedLeg(item)
+  ));
+  if (next) {
+    state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
+  }
+  rebuildPlanAfterDone();
 }
 
 function closerLegEnd(leg, hit) {
@@ -5615,6 +5706,33 @@ function syncTripFitButton() {
   button.classList.toggle("on", tripFit !== "off");
 }
 
+function tripViewPadding() {
+  const map = document.getElementById("routeMap");
+  const pad = { top: 88, right: 72, bottom: 120, left: 72 };
+  if (!map) return pad;
+  const mapBox = map.getBoundingClientRect();
+  if (mapBox.height < 2 || mapBox.width < 2) return pad;
+  const stack = document.querySelector("#routeStage .route-bottom");
+  if (stack) {
+    const box = stack.getBoundingClientRect();
+    if (box.height > 2 && box.top < mapBox.bottom) {
+      // Keep the whole trip above the directions / ETA stack (9:46).
+      pad.bottom = Math.round(mapBox.bottom - box.top + 40);
+    }
+  }
+  const clear = railClearance();
+  pad.left = Math.max(pad.left, clear.left + 10);
+  pad.right = Math.max(pad.right, clear.right + 10);
+  pad.top = Math.max(pad.top, routeFull ? 72 : 52);
+  const maxY = Math.max(40, Math.floor(mapBox.height / 2) - 20);
+  const maxX = Math.max(40, Math.floor(mapBox.width / 2) - 20);
+  pad.top = Math.min(pad.top, maxY);
+  pad.bottom = Math.min(pad.bottom, maxY);
+  pad.left = Math.min(pad.left, maxX);
+  pad.right = Math.min(pad.right, maxX);
+  return pad;
+}
+
 function fitCoords(coordinates, maxZoom) {
   if (!routeMap || !window.maplibregl || coordinates.length < 2) return;
   const bounds = coordinates.reduce(
@@ -5622,7 +5740,7 @@ function fitCoords(coordinates, maxZoom) {
     new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
   );
   routeMap.stop();
-  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom, bearing: 0, duration: 600 });
+  routeMap.fitBounds(bounds, { padding: tripViewPadding(), maxZoom, bearing: 0, duration: 600 });
 }
 
 let turnFrameAt = null;
@@ -6037,9 +6155,13 @@ function noHandsSlots() {
   const map = routeMap?.getContainer();
   const height = map?.clientHeight || 640;
   const width = map?.clientWidth || 360;
-  const recalc = document.getElementById("routeRecalc");
   const mapBox = map?.getBoundingClientRect();
-  let userY = height * 0.72;
+  const pad = turnViewPadding();
+  // Keep points in the open map, not under the directions drawer.
+  const clearTop = Math.max(8, Math.min(pad.top, height * 0.2));
+  const clearBottom = Math.max(clearTop + 140, height - Math.max(pad.bottom, 24));
+  const recalc = document.getElementById("routeRecalc");
+  let userY = clearTop + (clearBottom - clearTop) * 0.78;
   let buttonH = 48;
   if (recalc && mapBox && mapBox.height > 10) {
     const box = recalc.getBoundingClientRect();
@@ -6048,9 +6170,9 @@ function noHandsSlots() {
       userY = box.top + box.height / 2 - mapBox.top;
     }
   }
-  userY = Math.max(buttonH * 3, Math.min(height - 24, userY));
-  const turnY = Math.min(userY - 80, buttonH * 2);
-  return { width, height, userY, turnY: Math.max(12, turnY) };
+  userY = Math.max(clearTop + buttonH * 1.6, Math.min(clearBottom - 10, userY));
+  const turnY = Math.min(userY - buttonH * 2.1, clearTop + Math.max(10, buttonH * 0.45));
+  return { width, height, userY, turnY: Math.max(clearTop + 8, turnY) };
 }
 
 function frameNextTurn() {
@@ -6080,8 +6202,13 @@ function frameNextTurn() {
   let bearing = northLock ? 0 : (ahead ? navBearing(navFix, [at.lat, at.lon]) : travelBearing(along));
   if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
   const dist = metersBetween(navFix, [at.lat, at.lon]);
-  const pixels = Math.max(48, slots.userY - slots.turnY);
-  const zoom = zoomForPixelSpan(ahead ? dist : Math.max(dist, 180), pixels, navFix[0]);
+  const pixels = Math.max(72, slots.userY - slots.turnY);
+  // Close turns were crushing into max zoom (8:29 / 8:46). Keep a wider span
+  // so the view matches the zoomed-out 8:30 / 8:47 placement.
+  const minSpan = routeFull ? 170 : 240;
+  const span = Math.max(minSpan, ahead ? dist : Math.max(dist, 180));
+  let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
+  zoom = Math.min(zoom, routeFull ? 16.25 : 15.7);
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
   const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
@@ -6515,13 +6642,7 @@ function confirmStopSwitch() {
   const row = document.getElementById("routeSwitchRow");
   if (row) row.hidden = true;
   if (held?.stop && !held.stop.done) {
-    held.stop.done = true;
-    held.stop.switched = true;
-    paintDoneStop(held.stop.id);
-    persist();
-    const calc = document.getElementById("calculate");
-    if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
-    if (routeFull) routePageStale = true;
+    markStopDone(held.stop, { switched: true });
   }
   if (nextId) aimNavAtStop(nextId, true);
 }
@@ -7483,7 +7604,7 @@ function showWholeTrip() {
     new window.maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
   );
   routeMap.stop();
-  routeMap.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 14, bearing: 0, duration: 600 });
+  routeMap.fitBounds(bounds, { padding: tripViewPadding(), maxZoom: 14, bearing: 0, duration: 600 });
 }
 
 function stopNavMotion() {
@@ -8614,10 +8735,21 @@ function stopCard(stop, index, showPlan = true) {
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = stopCanRemove(index);
   const locked = stop.done && !originStop;
+  const firstLive = !locked && state.stops.findIndex((item, at) => (
+    !isOriginStop(state.stops, at) && !item.done && !item.skipRoute
+  )) === index;
   const firstAddress = state.stops.findIndex((item) => !item.useCurrentLocation) === index;
   const beforeButton = firstAddress
     ? `<button type="button" class="flag-box" data-before="${stop.id}">Add a stop before ${escapeAttr(title)}</button>`
     : "";
+  const planBits = !showPlan
+    ? ""
+    : locked
+      ? donePlanChip(stop, index)
+      : `${firstLive ? around.now.map(chip).join("") : ""}
+    ${around.before.map(chip).join("")}
+    ${around.self ? chip(around.self) : ""}
+    ${around.following.map(chip).join("")}`;
   return `
     ${beforeButton}
     <article class="stop-card${locked ? " is-done" : ""}" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}"${locked ? ` aria-label="${escapeAttr(title)} done"` : ""}>
@@ -8662,10 +8794,7 @@ function stopCard(stop, index, showPlan = true) {
       </div>
       ${locked ? doneStamp() : ""}
     </article>
-    ${showPlan ? `${destIndex === 0 ? around.now.map(chip).join("") : ""}
-    ${around.before.map(chip).join("")}
-    ${around.self ? chip(around.self) : ""}
-    ${around.following.map(chip).join("")}` : ""}
+    ${planBits}
     <button type="button" class="flag-box" data-after="${stop.id}">Add a stop after ${escapeAttr(title)}</button>
   `;
 }
@@ -8974,10 +9103,18 @@ function planTimeline(heading) {
     return `<section class="step"><h2>${heading}</h2><p class="fine">After Calculate, the drives, breaks, and leeway show here.</p></section>`;
   }
   const parts = [];
+  const firstLive = state.stops.findIndex((stop, index) => (
+    !isOriginStop(state.stops, index) && !stop.done && !stop.skipRoute
+  ));
   state.stops.forEach((stop, index) => {
+    if (isOriginStop(state.stops, index)) return;
+    if (stop.done) {
+      parts.push(donePlanChip(stop, index));
+      return;
+    }
+    if (stop.skipRoute) return;
     const around = eventsAround(stop.id);
-    const destIndex = destinations().findIndex((item) => item.id === stop.id);
-    if (destIndex === 0) parts.push(around.now.map(chip).join(""));
+    if (index === firstLive) parts.push(around.now.map(chip).join(""));
     parts.push(around.before.map(chip).join(""));
     if (around.self) parts.push(chip(around.self));
     parts.push(around.following.map(chip).join(""));

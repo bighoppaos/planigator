@@ -79,7 +79,9 @@ export function legsToCalculate(stops) {
 }
 
 export function scheduledIndexes(stops) {
-  return stops.map((_, index) => index).filter((index) => !isOriginStop(stops, index) && !stops[index]?.skipRoute);
+  return stops.map((_, index) => index).filter((index) => (
+    !isOriginStop(stops, index) && !stops[index]?.skipRoute && !stops[index]?.done
+  ));
 }
 
 export function cardTitle(index, stops) {
@@ -246,8 +248,8 @@ export function schedules({
   });
   const cap = clampedMaxHours(maxHoursBeforeReset);
   stops.forEach((stop, index) => {
-    // Passed stops stay on the trip, but the clock starts at the one still ahead.
-    if (isOriginStop(stops, index) || stop.skipRoute) return;
+    // Passed and done stops stay on the trip list, but the clock starts at the one still ahead.
+    if (isOriginStop(stops, index) || stop.skipRoute || stop.done) return;
     clock.timeZone = stop.timeZone || "";
     const drive = inboundDrive(index, driveHours);
     const limited = deadlineFor?.get(index);
@@ -340,8 +342,10 @@ export function schedules({
       ? 0
       : pieceDelayMinutes(stop, laid.tailIndex);
     const nextStop = stops[index + 1];
-    const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute;
-    const laterVisible = stops.slice(index + 1).some((item, offset) => !isOriginStop(stops, index + 1 + offset) && !item.skipRoute);
+    const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute && !nextStop.done;
+    const laterVisible = stops.slice(index + 1).some((item, offset) => (
+      !isOriginStop(stops, index + 1 + offset) && !item.skipRoute && !item.done
+    ));
     const applyTail = tailDelayMinutes >= 1 && (nextVisible || !laterVisible);
     const inDay = !isAnytimeEnd(clock.endMinutes)
       && isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone);
