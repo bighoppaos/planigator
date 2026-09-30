@@ -30,7 +30,7 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
 import { loadTowns, townAt } from "./town.js?v=1";
 
 const STORAGE = "planigator.web.v1";
@@ -3450,7 +3450,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
         <div class="rail-pop" id="railDetourPop">
           <button type="button" id="routeDetour" aria-expanded="false" aria-label="Detour"><span>Detour</span></button>
           <div class="rail-col-menu" id="railDetourMenu" hidden>
-            <button type="button" data-detour="truck">Truck stop · 1 credit per search</button>
+            <button type="button" data-detour="truck">Truck stop</button>
             <button type="button" data-detour="swift">Swift terminals</button>
             <button type="button" data-detour="cat">Cat scale</button>
             <button type="button" data-detour="loves">Love's</button>
@@ -3493,7 +3493,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     ${directions}
     ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. US, Clear, Ann, Cal, Scot, and North talk when you tap them and keep the song playing.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
-    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit per search" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
+    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>Search here</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
   </section>`;
 }
@@ -3527,7 +3527,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit per search</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press Use this spot. Signed in, that is 1 credit.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot && (!state.signedIn || state.unlimited || state.credits > 0) ? "" : " disabled"}>${state.signedIn ? "Use this spot · 1 credit" : "Use this spot"}</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck">Truck stop</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press Use this spot. Signed in, that is 1 credit.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot && (!state.signedIn || state.unlimited || state.credits > 0) ? "" : " disabled"}>${state.signedIn ? "Use this spot · 1 credit" : "Use this spot"}</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -3954,30 +3954,12 @@ async function searchPickPlace(place) {
     if (fresh) chooseHere = { lat: fresh.lat, lon: fresh.lon };
   }
   try {
-    let hits = [];
-    let chargedNote = "";
-    if (place === "truck") {
-      if (!state.signedIn) throw new Error("Sign in to search for a truck stop.");
-      if (!state.unlimited && state.credits === 0) throw new Error("You need a credit to search.");
-      const center = mapPickMap.getCenter();
-      const shift = 1 / 69;
-      const data = await nextTruckStop(
-        [[center.lat - shift, center.lng], [center.lat + shift, center.lng]],
-        "truck",
-      );
-      if (data.credits != null) state.credits = data.credits;
-      const calc = document.getElementById("calculate");
-      if (calc) calc.innerHTML = calculateButtonLabel();
-      hits = [placeAsMapHit(data)];
-      if (Number(data.charged) > 1) chargedNote = `Used ${data.charged} credits. `;
-    } else {
-      hits = (await localPlacesInView(place, mapPickMap)).map(placeAsMapHit);
-    }
-    hits = hits.filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && item.label);
+    const hits = (await localPlacesInView(place, mapPickMap)).map(placeAsMapHit)
+      .filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && item.label);
     mapSearchHits = hits.map(stampHereDistance);
     paintMapSearchPins();
     mapSearchNote = hits.length
-      ? `${chargedNote}${hits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop."}`
+      ? (hits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.")
       : `No ${word} in this part of the map.`;
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
@@ -6812,7 +6794,7 @@ function paintPlaceList() {
     fillPlaceChoices(routeList, true);
     if (!routeFull) routeList.hidden = true;
   }
-  const searchLabel = placeSeek === "truck" ? "Search here · 1 credit per search" : "Search here";
+  const searchLabel = "Search here";
   const soughtHere = Boolean(placeSeek) && routeFull === placeSeekFull;
   const mapSearch = document.getElementById("routePlaceSearch");
   if (mapSearch) {
@@ -7115,7 +7097,7 @@ function placeSearchButtons() {
     .filter(Boolean);
 }
 
-// Love's, Walmart, Cat scale, and Swift terminals stay on this phone. Truck stop still asks HERE.
+// Love's, Walmart, Cat scale, Swift terminals, and truck stops stay on this phone.
 const PLACE_OFF_METERS = 8047;
 let placeListsPromise = null;
 let placeGrids = null;
@@ -7123,14 +7105,14 @@ let placeGrids = null;
 function loadPlaceLists() {
   if (placeGrids) return Promise.resolve(placeGrids);
   if (!placeListsPromise) {
-    placeListsPromise = fetch("./data/places.json?v=2")
+    placeListsPromise = fetch("./data/places.json?v=3")
       .then((res) => {
         if (!res.ok) throw new Error("The place list did not load.");
         return res.json();
       })
       .then((data) => {
         const grids = {};
-        for (const place of ["loves", "walmart", "cat", "swift"]) {
+        for (const place of ["loves", "walmart", "cat", "swift", "truck"]) {
           const grid = new Map();
           const rows = Array.isArray(data?.[place]) ? data[place] : [];
           for (const row of rows) {
@@ -7230,6 +7212,7 @@ function nextLocalPlace(points, place, options = {}) {
         walmart: "No Walmart within 5 miles of the route line.",
         cat: "No Cat Scale within 5 miles of the route line.",
         swift: "No Swift terminal within 5 miles of the route line.",
+        truck: "No truck stop within 5 miles of the route line.",
       };
       throw new Error(miss[place] || "No place within 5 miles of the route line.");
     }
@@ -7312,52 +7295,6 @@ async function searchPlacesHere() {
   const note = document.getElementById("nextTruckNote");
   placeHereNote = "";
   paintPlaceList();
-  if (place === "truck") {
-    if (!state.unlimited && state.credits === 0) {
-      placeHereNote = creditEmptyMessage();
-      paintPlaceList();
-      return;
-    }
-    const center = routeMap.getCenter();
-    const shift = 1 / 69;
-    const points = [[center.lat - shift, center.lng], [center.lat + shift, center.lng]];
-    const buttons = placeSearchButtons();
-    for (const button of buttons) button.disabled = true;
-    try {
-      const data = await nextTruckStop(points, place);
-      if (data.credits != null) state.credits = data.credits;
-      const lat = Number(data.lat);
-      const lon = Number(data.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`No ${word} in this part of the map.`);
-      const along = routeAheadPoints();
-      const spot = along.length >= 2 ? nearestOnPath(lat, lon, along) : null;
-      showTruckHits([{
-        name: data.name,
-        city: data.city,
-        state: data.state,
-        label: data.label,
-        lat,
-        lon,
-        milesAhead: spot ? Math.round((spot.along / 1609.344) * 10) / 10 : data.milesAhead,
-        milesOff: spot ? Math.round((spot.dist / 1609.344) * 10) / 10 : data.milesOff,
-        place,
-      }], false);
-      placeMapMoved = false;
-      placeHereNote = Number(data.charged) > 1 ? `Used ${data.charged} credits.` : "";
-    } catch (error) {
-      if (error.credits != null) state.credits = error.credits;
-      const said = String(error.message || "");
-      placeHereNote = /route line/i.test(said) ? `No ${word} in this part of the map.` : (said || `No ${word} in this part of the map.`);
-      if (note) {
-        note.hidden = false;
-        note.textContent = placeHereNote;
-      }
-    } finally {
-      syncRouteChrome();
-      paintPlaceList();
-    }
-    return;
-  }
   try {
     const hits = (await localPlacesInView(place)).map((hit) => ({ ...hit, place }));
     if (!hits.length) {
@@ -7422,26 +7359,7 @@ async function findNextTruckStop(options = {}) {
     const points = routeAheadPoints();
     if (points.length < 2) throw new Error("Calculate the trip first.");
     let hits;
-    let truckCredits = 0;
-    if (place === "truck") {
-      const data = await nextTruckStop(points, place);
-      if (data.credits != null) state.credits = data.credits;
-      truckCredits = Number(data.charged) || 0;
-      const lat = Number(data.lat);
-      const lon = Number(data.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(`That ${word} has no map point.`);
-      hits = [{
-        name: data.name,
-        city: data.city,
-        state: data.state,
-        label: data.label,
-        lat,
-        lon,
-        milesAhead: data.milesAhead,
-        milesOff: data.milesOff,
-        place,
-      }];
-    } else if (place === "swift") {
+    if (place === "swift") {
       // Same view search as the choose map, plus terminals within 5 miles of the route.
       const along = await nextLocalPlace(points, place, { allowEmpty: true });
       let viewed = [];
@@ -7459,8 +7377,8 @@ async function findNextTruckStop(options = {}) {
     }
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
-    placeHereNote = truckCredits > 1 ? `Used ${truckCredits} credits.` : "";
-    showTruckHits(hits, place !== "truck");
+    placeHereNote = "";
+    showTruckHits(hits, true);
     framed = Boolean(options.frame);
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
