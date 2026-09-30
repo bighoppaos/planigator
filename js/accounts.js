@@ -281,15 +281,21 @@ const DEFAULT_HERO = [
   "And it's cooler",
 ];
 
+function fitHeroLine(input) {
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+
 function heroRow(value) {
   const row = document.createElement("div");
   row.className = "hero-edit";
-  const input = document.createElement("input");
-  input.type = "text";
+  const input = document.createElement("textarea");
+  input.rows = 1;
   input.maxLength = 140;
   input.value = value;
   input.autocomplete = "off";
   input.setAttribute("aria-label", "Hero bullet");
+  input.addEventListener("input", () => fitHeroLine(input));
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "hero-remove";
@@ -298,12 +304,14 @@ function heroRow(value) {
     const box = document.getElementById("heroLines");
     if (box.children.length <= 1) {
       input.value = "";
+      fitHeroLine(input);
       input.focus();
       return;
     }
     row.remove();
   });
   row.append(input, remove);
+  queueMicrotask(() => fitHeroLine(input));
   return row;
 }
 
@@ -354,13 +362,13 @@ try {
     }
     const row = heroRow("");
     box.append(row);
-    row.querySelector("input")?.focus();
+    row.querySelector("textarea")?.focus();
     note.textContent = "";
   });
   document.getElementById("heroForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const note = document.getElementById("heroNote");
-    const lines = [...document.querySelectorAll("#heroLines input")]
+    const lines = [...document.querySelectorAll("#heroLines textarea")]
       .map((input) => input.value.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .slice(0, HERO_MAX);

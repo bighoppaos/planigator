@@ -13,17 +13,23 @@
   <link rel="icon" href="./favicon.png?v=77" type="image/png" sizes="128x128">
   <link rel="stylesheet" href="./styles.css?v=90">
   <style>
-    .hero-edit { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-    .hero-edit input {
+    .hero-edit { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+    .hero-edit textarea {
       flex: 1;
       min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
       font: inherit;
       font-size: 16px;
+      line-height: 1.35;
       padding: 8px 10px;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--bg);
       color: inherit;
+      resize: none;
+      overflow: hidden;
+      field-sizing: content;
     }
     .hero-remove {
       border: 0;
@@ -110,6 +116,6 @@
       </table>
     </div>
   </main>
-  <script type="module" src="./js/accounts.js?v=12"></script>
+  <script type="module" src="./js/accounts.js?v=13"></script>
 </body>
 </html>
