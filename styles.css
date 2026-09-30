@@ -1742,6 +1742,7 @@ html.route-full body > :not(#routeStage) {
   visibility: hidden;
 }
 .route-map .maplibregl-canvas-container { z-index: 0; }
+.route-map .maplibregl-marker { z-index: 2; }
 .route-map .route-rail,
 .route-stage > .route-rail { z-index: 6; }
 .route-rail {
@@ -2096,6 +2097,9 @@ html.route-full body > :not(#routeStage) {
   border-radius: 50%;
   background: #2f6fed;
   box-shadow: 0 0 0 6px rgb(47 111 237 / 0.28);
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
 }
 @keyframes start-nav-colors {
   0%, 19.99% { background: #1f8a62; border-color: #1f8a62; color: #fff; }

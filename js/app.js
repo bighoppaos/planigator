@@ -3782,6 +3782,9 @@ function applyBasemap() {
     }
     ensureRouteLayers(map);
     restoreRouteLine();
+    addRoutePins();
+    if (navOn && navFix) placeNavDot(navFix[0], navFix[1]);
+    if (navOn && turnShownAlong != null) placeTurnPin(turnShownAlong);
     paintBasemapButtons();
   });
 }
@@ -4383,7 +4386,11 @@ function addRoutePins(bounds) {
 function clearRouteMap() {
   pendingTurn = null;
   routeMapReady = false;
+  if (navYou) {
+    try { navYou.remove(); } catch {}
+  }
   navYou = null;
+  navShown = null;
   clearRoutePins();
   if (turnMarker) {
     turnMarker.remove();
@@ -5497,6 +5504,20 @@ function setRouteFull(on) {
   requestAnimationFrame(() => {
     if (routeFull) fitRouteCover();
     routeMap?.resize();
+    // Page and fullscreen use different slot heights. Reframe after resize
+    // or Turn zoom keeps the old wide camera on the tall screen.
+    if (navOn && navFix && routeMap) {
+      if (tripFit === "nextTurn") {
+        clearTurnFrame();
+        frameNextTurn();
+      } else if (navFollowing && tripFit === "off") {
+        const camera = { center: [navFix[1], navFix[0]], zoom: navZoom };
+        const bearing = followBearing();
+        if (bearing != null) camera.bearing = bearing;
+        routeMap.jumpTo(camera);
+      }
+      placeNavDot(navFix[0], navFix[1]);
+    }
   });
   if (!routeFull && routePageStale) {
     routePageStale = false;
@@ -6089,14 +6110,17 @@ function placeTurnPin(turnAlong) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || turnAlong == null) {
     if (turnMarker) {
-      turnMarker.remove();
+      try { turnMarker.remove(); } catch {}
       turnMarker = null;
     }
     return;
   }
   const at = pointAlong(navLine, turnAlong);
   if (!at) return;
-  if (!turnMarker) {
+  const el = typeof turnMarker?.getElement === "function" ? turnMarker.getElement() : null;
+  const orphan = !turnMarker || !el?.isConnected || (routeMap.getContainer?.() && !routeMap.getContainer().contains(el));
+  if (orphan) {
+    try { turnMarker?.remove(); } catch {}
     const pin = document.createElement("span");
     pin.className = "turn-pin";
     turnMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(routeMap);
@@ -6202,10 +6226,10 @@ function zoomForCenterToTop(meters, lat, height) {
 }
 
 function zoomForPixelSpan(meters, pixels, lat) {
-  const mpp = Math.max(30, meters) / Math.max(48, pixels);
+  const mpp = Math.max(16, meters) / Math.max(48, pixels);
   const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
   const zoom = Math.log2((156543.03392 * cos) / mpp);
-  return Math.max(3, Math.min(18, zoom));
+  return Math.max(3, Math.min(18.5, zoom));
 }
 
 function pointAhead(lat, lon, bearingDeg, meters) {
@@ -6242,13 +6266,16 @@ function noHandsSlots() {
     const box = recalc.getBoundingClientRect();
     if (box.height > 10) buttonH = box.height;
   }
-  // Next turn: fullscreen = two button-heights below the top; page = compass.
-  let turnY = Math.max(8, Math.round(safeTopPad() + buttonH * 2));
+  // Map can extend above the visible screen in fullscreen (notch pad).
+  // Slot Y values are in map pixels; keep the turn in the visible band.
+  const visibleTop = mapBox && mapBox.top < 0 ? Math.round(-mapBox.top) : 0;
+  // Next turn: fullscreen = two button-heights below the visible top; page = compass.
+  let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2));
   if (!routeFull && compass && mapBox && mapBox.height > 10) {
     const box = compass.getBoundingClientRect();
     if (box.height > 10) turnY = box.top + box.height / 2 - mapBox.top;
   }
-  turnY = Math.max(8, Math.min(height * 0.45, turnY));
+  turnY = Math.max(visibleTop + 8, Math.min(height * 0.42, turnY));
   // You: Recalculate height — never under the place chips / ETA stack.
   let userY = height - Math.max(pad.bottom, 24) - 12;
   if (recalc && mapBox && mapBox.height > 10) {
@@ -6298,21 +6325,23 @@ function frameNextTurn() {
   const pixels = Math.max(72, slots.userY - slots.turnY);
   // Lock you and the turn on those screen slots. Zoom to fit the real
   // distance (a floor keeps a close turn from burying the pavement).
-  const floor = routeFull ? 70 : 110;
+  // Fullscreen map is tall, so use a tighter floor / higher cap than the page.
+  const floor = routeFull ? 36 : 110;
   const span = Math.max(floor, ahead ? dist : Math.max(dist, floor));
   let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
-  zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
+  zoom = Math.min(zoom, routeFull ? 18 : 16.4);
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
   const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
   placeTurnPin(target);
   turnShownAlong = target;
+  placeNavDot(navFix[0], navFix[1]);
   routeMap.stop();
   routeMap.easeTo({
     center: [center[1], center[0]],
     zoom,
     bearing,
-    duration: 450,
+    duration: routeFull ? 280 : 450,
     easing: (x) => x,
   });
 }
@@ -7712,10 +7741,22 @@ function stopNavMotion() {
   navTravel = null;
 }
 
+function navDotOrphaned() {
+  if (!navYou || !routeMap) return true;
+  const el = typeof navYou.getElement === "function" ? navYou.getElement() : null;
+  if (!el?.isConnected) return true;
+  const root = routeMap.getContainer?.();
+  if (root && !root.contains(el)) return true;
+  if (navYou._map && navYou._map !== routeMap) return true;
+  return false;
+}
+
 function placeNavDot(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre) return;
-  if (!navYou) {
+  if (navDotOrphaned()) {
+    try { navYou?.remove(); } catch {}
+    navYou = null;
     const dot = document.createElement("span");
     dot.className = "route-you";
     navYou = new maplibre.Marker({ element: dot, anchor: "center" }).setLngLat([lon, lat]).addTo(routeMap);
@@ -7746,11 +7787,15 @@ function paintNavMotion(now) {
     navMotion = 0;
     return;
   }
+  if (routeMapReady && navDotOrphaned() && navFix) {
+    placeNavDot(navFix[0], navFix[1]);
+  }
   if (navAim && navYou && routeMapReady) {
+    if (navDotOrphaned()) placeNavDot(navAim.lat, navAim.lon);
     const u = Math.min(1, (now - navAim.start) / navAim.dur);
     const lat = navAim.fromLat + (navAim.lat - navAim.fromLat) * u;
     const lon = navAim.fromLon + (navAim.lon - navAim.fromLon) * u;
-    navYou.setLngLat([lon, lat]);
+    if (navYou) navYou.setLngLat([lon, lat]);
     navShown = { lat, lon };
   }
   if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && routeMapReady && navShown && Date.now() >= navZoomHold) {
@@ -8230,17 +8275,35 @@ function beginRouteNav() {
   placeAt = null;
   paintPlace("");
   sayNav("Finding you…", "Allow location to move along this trip.", "");
-  if (navWatch == null && navigator.geolocation) {
-    navWatch = navigator.geolocation.watchPosition(
-      (pos) => onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude),
-      () => sayNav("Allow location", "Planigator needs location to show you on this trip.", ""),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
-    );
-  } else if (navFix) {
-    onNavFix(navFix[0], navFix[1]);
-  }
+  startNavWatch();
+  if (navFix) onNavFix(navFix[0], navFix[1]);
   enableNavCompass();
   startNavMotion();
+}
+
+function startNavWatch() {
+  if (!navigator.geolocation) {
+    sayNav("Allow location", "Planigator needs location to show you on this trip.", "");
+    return;
+  }
+  if (navWatch != null) return;
+  navWatch = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (!navOn) return;
+      onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude);
+    },
+    (err) => {
+      if (!navOn) return;
+      // Timeout / temporary GPS gaps should not strip the blue dot. Only a
+      // real permission denial needs the allow-location message.
+      if (err && err.code === 1) {
+        sayNav("Allow location", "Planigator needs location to show you on this trip.", "");
+      }
+    },
+    // No timeout on watch — a timeout fires errors while the bike is moving
+    // under trees / between buildings and can stall updates.
+    { enableHighAccuracy: true, maximumAge: 1000 },
+  );
 }
 
 function applyTurnZoom(map, focus) {
@@ -8360,7 +8423,10 @@ function paintLiveRoute() {
     const button = box.querySelector("[data-dir-stop]");
     if (button) focusDirectionWindow(button.getAttribute("data-dir-stop"), Number(button.getAttribute("data-dir-index")));
   }
-  if (navOn && navFix && routeMap) onNavFix(navFix[0], navFix[1]);
+  if (navOn && navFix && routeMap) {
+    placeNavDot(navFix[0], navFix[1]);
+    onNavFix(navFix[0], navFix[1]);
+  }
 }
 
 function paintLiveDirections() {
