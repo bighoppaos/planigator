@@ -7779,22 +7779,13 @@ function stopNavMotion() {
   navTravel = null;
 }
 
-function navDotOrphaned() {
-  if (!navYou || !routeMap) return true;
-  const el = typeof navYou.getElement === "function" ? navYou.getElement() : null;
-  if (!el?.isConnected) return true;
-  const root = routeMap.getContainer?.();
-  if (root && !root.contains(el)) return true;
-  if (navYou._map && navYou._map !== routeMap) return true;
-  return false;
-}
-
 function placeNavDot(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre) return;
-  if (navDotOrphaned()) {
+  const el = typeof navYou?.getElement === "function" ? navYou.getElement() : null;
+  // Only rebuild when the marker is actually gone from the page.
+  if (!navYou || !el || !el.isConnected) {
     try { navYou?.remove(); } catch {}
-    navYou = null;
     const dot = document.createElement("span");
     dot.className = "route-you";
     navYou = new maplibre.Marker({ element: dot, anchor: "center" }).setLngLat([lon, lat]).addTo(routeMap);
@@ -7825,16 +7816,15 @@ function paintNavMotion(now) {
     navMotion = 0;
     return;
   }
-  if (routeMapReady && navDotOrphaned() && navFix) {
-    placeNavDot(navFix[0], navFix[1]);
-  }
-  if (navAim && navYou && routeMapReady) {
-    if (navDotOrphaned()) placeNavDot(navAim.lat, navAim.lon);
-    const u = Math.min(1, (now - navAim.start) / navAim.dur);
-    const lat = navAim.fromLat + (navAim.lat - navAim.fromLat) * u;
-    const lon = navAim.fromLon + (navAim.lon - navAim.fromLon) * u;
-    if (navYou) navYou.setLngLat([lon, lat]);
-    navShown = { lat, lon };
+  if (navAim && routeMapReady) {
+    if (!navYou) placeNavDot(navAim.fromLat, navAim.fromLon);
+    if (navYou) {
+      const u = Math.min(1, (now - navAim.start) / navAim.dur);
+      const lat = navAim.fromLat + (navAim.lat - navAim.fromLat) * u;
+      const lon = navAim.fromLon + (navAim.lon - navAim.fromLon) * u;
+      navYou.setLngLat([lon, lat]);
+      navShown = { lat, lon };
+    }
   }
   if (!navMapTouch && navFollowing && tripFit !== "nextTurn" && routeMap && routeMapReady && navShown && Date.now() >= navZoomHold) {
     const camera = { center: [navShown.lon, navShown.lat], zoom: navZoom };
@@ -7853,7 +7843,9 @@ function startNavMotion() {
 function onNavFix(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
-  aimNavDot(lat, lon);
+  // Always keep the blue circle on the map when GPS updates.
+  if (!navYou) placeNavDot(lat, lon);
+  else aimNavDot(lat, lon);
   startNavMotion();
   let travel = null;
   if (navFix && metersBetween(navFix, [lat, lon]) > 8) travel = navBearing(navFix, [lat, lon]);
