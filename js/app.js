@@ -3606,6 +3606,7 @@ function lookupMapPreview(stop) {
 
 let chooseMap = false;
 let mapSpot = null;
+let mapChosenHit = null;
 let mapQuery = "";
 let mapSearchHits = [];
 let mapSearchNote = "";
@@ -3621,7 +3622,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck">Truck stop</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press Use this spot. Signed in, that is 1 credit.</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot && (!state.signedIn || state.unlimited || state.credits > 0) ? "" : " disabled"}>${state.signedIn ? "Use this spot · 1 credit" : "Use this spot"}</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck">Truck stop</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin or press Use this address. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press Use this spot. Signed in, that is 1 credit.</p><button type="button" class="flag-box" id="useMapSpot"${useMapButtonEnabled() ? "" : " disabled"}>${escapeAttr(useMapButtonLabel())}</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -3886,6 +3887,41 @@ function applePinButton(item) {
   return button;
 }
 
+function firstMapHit() {
+  return mapSearchHits.find((item) => Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lon))) || null;
+}
+
+function useMapButtonEnabled() {
+  if (mapChosenHit) return true;
+  if (!mapSpot) return false;
+  return !state.signedIn || state.unlimited || state.credits > 0;
+}
+
+function useMapButtonLabel() {
+  if (mapChosenHit) return "Use this address";
+  return state.signedIn ? "Use this spot · 1 credit" : "Use this spot";
+}
+
+function syncUseMapButton() {
+  const button = document.getElementById("useMapSpot");
+  if (!button) return;
+  button.disabled = !useMapButtonEnabled();
+  button.textContent = useMapButtonLabel();
+}
+
+function chooseMapHit(item) {
+  const lat = Number(item?.lat);
+  const lon = Number(item?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  mapChosenHit = item;
+  mapSpot = null;
+  if (mapPickMarker) {
+    mapPickMarker.remove();
+    mapPickMarker = null;
+  }
+  syncUseMapButton();
+}
+
 function paintMapSearchPins() {
   const maplibre = window.maplibregl;
   clearMapSearchMarkers();
@@ -3902,8 +3938,10 @@ function paintMapSearchPins() {
     bounds.extend([lon, lat]);
   }
   if (!mapSearchMarkers.length) return;
+  if (!mapChosenHit) chooseMapHit(firstMapHit());
+  else syncUseMapButton();
   if (mapSearchMarkers.length === 1) {
-    const only = mapSearchHits.find((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)));
+    const only = firstMapHit();
     if (only) mapPickMap.flyTo({ center: [Number(only.lon), Number(only.lat)], zoom: 15, duration: 500 });
     return;
   }
@@ -3935,6 +3973,7 @@ function applyMapHit(item) {
   state.openLookupStopId = "";
   chooseMap = false;
   mapSpot = null;
+  mapChosenHit = null;
   mapQuery = "";
   mapSearchHits = [];
   mapSearchNote = "";
@@ -3985,14 +4024,19 @@ async function searchMapPlaces(raw) {
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
     mapSearchHits = Array.isArray(data.items) ? data.items : [];
+    mapChosenHit = null;
     paintMapSearchPins();
-    mapSearchNote = mapSearchHits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.";
+    mapSearchNote = mapSearchHits.length === 1
+      ? "Tap the pin or press Use this address."
+      : "Tap a pin or press Use this address for the selected place.";
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
     mapSearchHits = [];
+    mapChosenHit = null;
     clearMapSearchMarkers();
+    syncUseMapButton();
     mapSearchNote = error.message || "Nothing matched that search.";
   }
   mapSearching = false;
@@ -4051,15 +4095,19 @@ async function searchPickPlace(place) {
     const hits = (await localPlacesInView(place, mapPickMap)).map(placeAsMapHit)
       .filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && item.label);
     mapSearchHits = hits.map(stampHereDistance);
+    mapChosenHit = null;
     paintMapSearchPins();
     mapSearchNote = hits.length
-      ? (hits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.")
+      ? (hits.length === 1 ? "Tap the pin or press Use this address." : "Tap a pin or press Use this address for the selected place.")
       : `No ${word} in this part of the map.`;
+    if (!hits.length) syncUseMapButton();
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const said = String(error.message || "");
     mapSearchHits = [];
+    mapChosenHit = null;
     clearMapSearchMarkers();
+    syncUseMapButton();
     mapSearchNote = /route line/i.test(said) ? `No ${word} in this part of the map.` : (said || `No ${word} in this part of the map.`);
   }
   if (note) note.textContent = mapSearchNote;
@@ -4154,6 +4202,7 @@ async function openChooseMap(id) {
   }
   chooseMap = true;
   mapSpot = null;
+  mapChosenHit = null;
   mapQuery = "";
   mapSearchHits = [];
   mapSearchNote = "";
@@ -4174,14 +4223,14 @@ function markMapSpot(map, lngLat) {
   const lon = Number(lngLat?.lng);
   if (!map || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
   mapSpot = { lat, lon };
+  mapChosenHit = null;
   const maplibre = window.maplibregl;
   if (!maplibre) return;
   if (mapPickMarker) mapPickMarker.remove();
   const pin = document.createElement("span");
   pin.className = "map-spot";
   mapPickMarker = new maplibre.Marker({ element: pin, anchor: "center" }).setLngLat([lon, lat]).addTo(map);
-  const button = document.getElementById("useMapSpot");
-  if (button) button.disabled = false;
+  syncUseMapButton();
 }
 
 function bindMapPick(map) {
@@ -4208,6 +4257,10 @@ function bindMapPick(map) {
 }
 
 async function useChosenSpot() {
+  if (mapChosenHit) {
+    applyMapHit(mapChosenHit);
+    return;
+  }
   const id = state.openLookupStopId;
   const spot = mapSpot;
   const stop = state.stops.find((item) => item.id === id);
@@ -4242,6 +4295,7 @@ async function useChosenSpot() {
   state.openLookupStopId = "";
   chooseMap = false;
   mapSpot = null;
+  mapChosenHit = null;
   if (mapPickMarker) {
     mapPickMarker.remove();
     mapPickMarker = null;
@@ -4269,6 +4323,7 @@ let routeLivePaint = false;
 let routePinMarkers = [];
 let navOn = false;
 let navFollowing = true;
+let followPinned = false;
 let navMapTouch = false;
 let navZoom = 15;
 let navZoomHold = 0;
@@ -5673,6 +5728,7 @@ function aimNavAtStop(stopId, confirmed) {
     beginRouteNav();
     return;
   }
+  followPinned = false;
   tripFit = "nextTurn";
   navFollowing = false;
   navZoomHold = 0;
@@ -5692,7 +5748,7 @@ let tripFit = "off";
 
 function tripFitLines() {
   if (tripFit === "remaining") return ["Left", "zoom"];
-  if (tripFit === "nextTurn") return ["No-hands", "zoom"];
+  if (tripFit === "nextTurn") return ["Turn", "zoom"];
   if (tripFit === "nextStop") return ["Stop", "zoom"];
   return ["Trip", "zoom"];
 }
@@ -6203,8 +6259,7 @@ function frameNextTurn() {
   if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
   const dist = metersBetween(navFix, [at.lat, at.lon]);
   const pixels = Math.max(72, slots.userY - slots.turnY);
-  // Close turns were crushing into max zoom (8:29 / 8:46). Keep a wider span
-  // so the view matches the zoomed-out 8:30 / 8:47 placement.
+  // Turn zoom only. Follow me stays the separate close view on you.
   const minSpan = routeFull ? 170 : 240;
   const span = Math.max(minSpan, ahead ? dist : Math.max(dist, 180));
   let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
@@ -6284,6 +6339,7 @@ function holdUserZoom(event) {
 function cycleTripFit() {
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
+  followPinned = false;
   navFollowing = false;
   syncRouteChrome();
   if (tripFit === "off" || tripFit === "nextStop") tripFit = "full";
@@ -7017,8 +7073,11 @@ function paintPlaceList() {
 
 function resumeTurnZoom() {
   if (!navOn) return;
+  // User picked Follow me on purpose. Do not yank them into Turn zoom.
+  if (followPinned && navFollowing && tripFit === "off") return;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
+  followPinned = false;
   navFollowing = false;
   navZoomHold = 0;
   tripFit = "nextTurn";
@@ -7881,6 +7940,7 @@ function pauseFollowForDirection() {
 
 function endRouteNav() {
   navOn = false;
+  followPinned = false;
   navAimStopId = "";
   clearDirectionPin();
   railMenu = "";
@@ -8113,6 +8173,7 @@ function beginRouteNav() {
   void keepNavSignedIn();
   navAlongLock = null;
   navLineKey = routeProgressKey(routePoints());
+  followPinned = false;
   navFollowing = false;
   tripFit = "nextTurn";
   clearTurnFrame();
@@ -9870,9 +9931,10 @@ function bind() {
     state.openLookupStopId = "";
     chooseMap = false;
     mapSpot = null;
+    mapChosenHit = null;
     render();
   });
-  document.getElementById("useMapSpot")?.addEventListener("click", () => useChosenSpot());
+  document.getElementById("useMapSpot")?.addEventListener("click", () => { void useChosenSpot(); });
   document.getElementById("mapSearch")?.addEventListener("submit", (event) => {
     event.preventDefault();
     searchMapPlaces(document.getElementById("mapSearchQuery")?.value || "");
@@ -9959,7 +10021,11 @@ function bind() {
   $("#routeFollow")?.addEventListener("click", async () => {
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;
+    // Follow me is only the close view on you. Turn zoom stays separate.
+    stopTurnZoomOut();
+    clearTurnFrame();
     tripFit = "off";
+    followPinned = true;
     syncTripFitButton();
     await enableNavCompass();
     navFollowing = true;
