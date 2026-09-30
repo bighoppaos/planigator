@@ -30,7 +30,8 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
+import { loadTowns, townAt } from "./town.js?v=1";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
@@ -4847,9 +4848,6 @@ function speakNavProgress(leg, found, hereAlong) {
 
 let placeAt = null;
 let placeText = "";
-let placeBusy = false;
-let placeLookedAt = 0;
-let placePending = null;
 
 function paintPlace(text) {
   const chip = document.getElementById("routePlace");
@@ -4880,34 +4878,27 @@ function paintDrive(alongMeters) {
   chip.textContent = text;
 }
 
-function refreshPlace(lat, lon, force = false) {
+function refreshPlace(lat, lon) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-  const moved = placeAt != null && metersBetween(placeAt, [lat, lon]) >= 8000;
-  const aged = !placeLookedAt || Date.now() - placeLookedAt >= 60000;
-  if (!force && !aged && !moved) {
-    if (placeText) paintPlace(placeText);
+  if (placeAt && placeText && metersBetween(placeAt, [lat, lon]) < 300) {
+    paintPlace(placeText);
     return;
   }
-  if (placeBusy) return;
-  placeBusy = true;
-  placeLookedAt = Date.now();
-  whereCity(lat, lon).then((data) => {
-    const city = String(data?.city || "").trim();
-    const stateName = String(data?.state || "").trim();
-    const text = [city, stateName].filter(Boolean).join(", ");
-    if (!text) return;
+  loadTowns().then(() => {
+    const hit = townAt(lat, lon);
+    if (!hit) return;
+    const text = `${hit.name}, ${hit.state}`;
     placeAt = [lat, lon];
+    if (text === placeText) return;
     placeText = text;
     paintPlace(text);
-  }).catch(() => {}).finally(() => {
-    placeBusy = false;
-  });
+  }).catch(() => {});
 }
 
 function armPlaceClock() {
   window.setInterval(() => {
     if (!navOn || !navFix) return;
-    refreshPlace(navFix[0], navFix[1], true);
+    refreshPlace(navFix[0], navFix[1]);
   }, 60000);
 }
 
@@ -8007,7 +7998,6 @@ function beginRouteNav() {
   document.getElementById("routeStage")?.scrollIntoView({ block: "nearest" });
   placeText = "";
   placeAt = null;
-  placeLookedAt = 0;
   paintPlace("");
   sayNav("Finding you…", "Allow location to move along this trip.", "");
   if (navWatch == null && navigator.geolocation) {
