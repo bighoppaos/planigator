@@ -715,7 +715,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .call-log li { margin: 8px 0; }
 .call-log span { color: var(--muted); }
 
-.directions { margin-top: 12px; }
+.directions { margin-top: 22px; }
+.route-stage.is-full .directions { margin-top: 0; }
 .directions ol {
   margin: 10px 0 0;
   padding-left: 1.2em;
