@@ -4740,40 +4740,8 @@ function previewChosenVoice() {
 }
 
 let phoneUtter = null;
-let phoneVoice = null;
 let speakChain = Promise.resolve();
 let speakGen = 0;
-
-function pickPhoneVoice() {
-  const synth = window.speechSynthesis;
-  if (!synth) return null;
-  const voices = synth.getVoices() || [];
-  if (phoneVoice && voices.includes(phoneVoice)) return phoneVoice;
-  const english = voices.filter((voice) => /^en(-|_|$)/i.test(voice.lang || ""));
-  phoneVoice = english.find((voice) => /en-US/i.test(voice.lang || "") && voice.localService)
-    || english.find((voice) => voice.localService)
-    || english.find((voice) => /en-US/i.test(voice.lang || ""))
-    || english[0]
-    || null;
-  return phoneVoice;
-}
-
-function whenPhoneVoicesReady() {
-  const synth = window.speechSynthesis;
-  if (!synth) return Promise.resolve();
-  if ((synth.getVoices() || []).length) return Promise.resolve();
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      synth.removeEventListener("voiceschanged", finish);
-      resolve();
-    };
-    synth.addEventListener("voiceschanged", finish);
-    window.setTimeout(finish, 700);
-  });
-}
 
 function speakPhone(text, gen) {
   const synth = window.speechSynthesis;
@@ -4781,19 +4749,16 @@ function speakPhone(text, gen) {
     showStopNote("This phone has no voice for that.", 4000);
     return Promise.resolve();
   }
-  return whenPhoneVoicesReady().then(() => new Promise((resolve) => {
+  return new Promise((resolve) => {
     if (gen != null && gen !== speakGen) {
       resolve();
       return;
     }
     const utter = new SpeechSynthesisUtterance(text);
     phoneUtter = utter;
-    utter.lang = "en-US";
-    const voice = pickPhoneVoice();
-    if (voice) {
-      utter.voice = voice;
-      if (voice.lang) utter.lang = voice.lang;
-    }
+    // Do not set utter.voice. Leaving it alone uses the voice from iPhone
+    // Settings, including a premium voice. Picking a localService voice
+    // overrides that and sounds like a different person.
     const done = () => {
       if (phoneUtter === utter) phoneUtter = null;
       resolve();
@@ -4806,7 +4771,7 @@ function speakPhone(text, gen) {
     } catch {
       done();
     }
-  }));
+  });
 }
 
 function playChosenVoice(text, { barge = true } = {}) {
