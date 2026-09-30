@@ -29,7 +29,7 @@ import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=1";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
-import SamJs from "./sam.js?v=1";
+import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
 
 const STORAGE = "planigator.web.v1";
@@ -3436,8 +3436,6 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
         <button type="button" id="routeExit" hidden>Exit</button>
-        <button type="button" id="routeElev" hidden aria-label="Elevation"><span>Elev</span><span>—</span></button>
-        <button type="button" id="routeWind" hidden aria-label="Wind speed"><span>Wind</span><span>—</span></button>
         <button type="button" id="routeCompass" aria-label="Lock map to true north" aria-pressed="false">
           <span class="compass-rose" aria-hidden="true"><span class="compass-n">N</span><span class="compass-e">E</span><span class="compass-s">S</span><span class="compass-w">W</span></span>
           <svg class="compass-needle compass-fill" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>
@@ -3465,7 +3463,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
-    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. These talk right away and keep the song playing. They are already in the page.</p>` : ""}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. US, Clear, Ann, Cal, Scot, and North talk when you tap them and keep the song playing.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
@@ -4421,17 +4419,14 @@ const spokenMiles = new Set();
 
 let mixCtx = null;
 let navVoiceNode = null;
-const NAV_VOICE_TONE = {
-  robot: { speed: 72, pitch: 64, mouth: 128, throat: 128 },
-  pip: { speed: 56, pitch: 16, mouth: 190, throat: 80 },
-  mae: { speed: 68, pitch: 36, mouth: 170, throat: 100 },
-  sue: { speed: 64, pitch: 28, mouth: 150, throat: 110 },
-  rex: { speed: 78, pitch: 92, mouth: 80, throat: 150 },
-  hank: { speed: 88, pitch: 112, mouth: 90, throat: 170 },
-  gus: { speed: 102, pitch: 132, mouth: 70, throat: 190 },
-  tess: { speed: 60, pitch: 48, mouth: 200, throat: 90 },
+const PAGE_VOICE = {
+  us: { voice: "en/en-us", speed: 150, pitch: 50 },
+  clear: { voice: "en/en-rp", speed: 138, pitch: 46 },
+  ann: { voice: "en/en-us", variant: "f2", speed: 156, pitch: 64 },
+  cal: { voice: "en/en-us", variant: "m3", speed: 146, pitch: 38 },
+  scot: { voice: "en/en-sc", speed: 150, pitch: 48 },
+  north: { voice: "en/en-n", speed: 148, pitch: 44 },
 };
-const samById = new Map();
 
 function preferMix() {
   try {
@@ -4487,23 +4482,8 @@ function playSamples(samples, rate) {
   source.start();
 }
 
-function samFor(id) {
-  const tone = NAV_VOICE_TONE[id] || NAV_VOICE_TONE.robot;
-  let voice = samById.get(id);
-  if (!voice) {
-    voice = new SamJs(tone);
-    samById.set(id, voice);
-  }
-  return voice;
-}
-
 function playNavSpeech(text) {
-  const said = spokenAloud(text);
-  if (!said) return;
-  let samples = false;
-  try { samples = samFor(navVoiceId()).buf32(said); } catch { samples = false; }
-  if (!samples || !samples.length) return;
-  playSamples(samples, 22050);
+  playChosenVoice(text);
 }
 
 let voiceJob = 0;
@@ -4554,11 +4534,18 @@ function previewChosenVoice() {
 }
 
 function playChosenVoice(text) {
-  if (!text) return;
+  const said = spokenAloud(text);
+  if (!said) return;
   unlockMix();
-  ++voiceJob;
-  clearVoiceLoad();
-  playNavSpeech(text);
+  const token = ++voiceJob;
+  const spec = PAGE_VOICE[navVoiceId()] || PAGE_VOICE.us;
+  pageSpeech(said, spec).then((clip) => {
+    if (token !== voiceJob) return;
+    playSamples(clip.samples, clip.rate);
+  }).catch(() => {
+    if (token !== voiceJob) return;
+    showStopNote("That voice did not talk. Try the next one.", 4000);
+  });
 }
 
 function stepNavVoice(dir) {
@@ -4583,25 +4570,23 @@ function stopMixNavVoice() {
 }
 
 const NAV_VOICES = [
-  ["robot", "Robot"],
-  ["pip", "Pip"],
-  ["mae", "Mae"],
-  ["sue", "Sue"],
-  ["tess", "Tess"],
-  ["rex", "Rex"],
-  ["hank", "Hank"],
-  ["gus", "Gus"],
+  ["us", "US"],
+  ["clear", "Clear"],
+  ["ann", "Ann"],
+  ["cal", "Cal"],
+  ["scot", "Scot"],
+  ["north", "North"],
 ];
 
 function navVoiceId() {
   const id = state.settings.navVoice;
   if (NAV_VOICES.some(([value]) => value === id)) return id;
-  return "robot";
+  return "us";
 }
 
 function navVoiceLabel() {
   const id = navVoiceId();
-  return NAV_VOICES.find(([value]) => value === id)?.[1] || "Robot";
+  return NAV_VOICES.find(([value]) => value === id)?.[1] || "US";
 }
 
 function unlockNavVoice() {
@@ -4953,7 +4938,7 @@ function syncRouteChrome() {
   syncTripFitButton();
   paintStopNote();
   paintCompassRose();
-  paintElevWind();
+  if (state.plan) warmPageVoices();
   if (navOn) freezeTyping(true);
   requestAnimationFrame(seatRails);
 }
@@ -5295,18 +5280,7 @@ function setRouteFull(on) {
     exit?.call(document)?.catch(() => {});
   }
   routeFull = next;
-  if (routeFull) {
-    scheduleTypingUndoClear();
-    if (navFix) void refreshWind(navFix[0], navFix[1], true);
-    else if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        if (!routeFull) return;
-        if (Number.isFinite(pos.coords.altitude)) noteAltitude(pos.coords.altitude);
-        void refreshWind(pos.coords.latitude, pos.coords.longitude, true);
-        paintElevWind();
-      }, () => {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 8000 });
-    }
-  }
+  if (routeFull) scheduleTypingUndoClear();
   placeRouteStage();
   syncRouteChrome();
   paintPlaceList();
@@ -7457,9 +7431,7 @@ function startNavMotion() {
   navMotion = requestAnimationFrame(paintNavMotion);
 }
 
-function onNavFix(lat, lon, alt) {
-  if (Number.isFinite(alt)) noteAltitude(alt);
-  if (routeFull) void refreshWind(lat, lon);
+function onNavFix(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
   aimNavDot(lat, lon);
@@ -9704,9 +9676,6 @@ function bind() {
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
   $("#routeFull")?.addEventListener("click", () => setRouteFull(true));
   $("#routeExit")?.addEventListener("click", () => setRouteFull(false));
-  $("#routeWind")?.addEventListener("click", () => {
-    if (navFix) void refreshWind(navFix[0], navFix[1], true);
-  });
   $("#routeCompass")?.addEventListener("click", () => { void toggleNorthLock(); });
   $("#routeBasemap")?.addEventListener("click", () => selectBasemap(basemap === "satellite" ? "vector" : "satellite"));
   $("#routeFollow")?.addEventListener("click", async () => {
