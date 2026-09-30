@@ -282,8 +282,10 @@ const DEFAULT_HERO = [
 ];
 
 function fitHeroLine(input) {
+  if (!input.isConnected) return;
   input.style.height = "auto";
-  input.style.height = `${input.scrollHeight}px`;
+  const next = input.scrollHeight;
+  if (next > 0) input.style.height = `${next}px`;
 }
 
 function heroRow(value) {
@@ -348,11 +350,11 @@ function loadHeroEditor() {
   if (heroEditorPromise) return heroEditorPromise;
   const box = document.getElementById("hero");
   heroEditorPromise = api("/v1/hero").then((data) => {
+    box.hidden = false;
     fillHero(data.lines);
-    box.hidden = false;
   }).catch((error) => {
-    fillHero(DEFAULT_HERO);
     box.hidden = false;
+    fillHero(DEFAULT_HERO);
     document.getElementById("heroNote").textContent = error.message || "Could not load the bullets.";
   });
   return heroEditorPromise;
