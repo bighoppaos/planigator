@@ -6226,10 +6226,10 @@ function zoomForCenterToTop(meters, lat, height) {
 }
 
 function zoomForPixelSpan(meters, pixels, lat) {
-  const mpp = Math.max(16, meters) / Math.max(48, pixels);
+  const mpp = Math.max(30, meters) / Math.max(48, pixels);
   const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
   const zoom = Math.log2((156543.03392 * cos) / mpp);
-  return Math.max(3, Math.min(18.5, zoom));
+  return Math.max(3, Math.min(18, zoom));
 }
 
 function pointAhead(lat, lon, bearingDeg, meters) {
@@ -6325,11 +6325,10 @@ function frameNextTurn() {
   const pixels = Math.max(72, slots.userY - slots.turnY);
   // Lock you and the turn on those screen slots. Zoom to fit the real
   // distance (a floor keeps a close turn from burying the pavement).
-  // Fullscreen map is tall, so use a tighter floor / higher cap than the page.
-  const floor = routeFull ? 36 : 110;
+  const floor = routeFull ? 70 : 110;
   const span = Math.max(floor, ahead ? dist : Math.max(dist, floor));
   let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
-  zoom = Math.min(zoom, routeFull ? 18 : 16.4);
+  zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
   const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
@@ -6341,7 +6340,7 @@ function frameNextTurn() {
     center: [center[1], center[0]],
     zoom,
     bearing,
-    duration: routeFull ? 280 : 450,
+    duration: 450,
     easing: (x) => x,
   });
 }
