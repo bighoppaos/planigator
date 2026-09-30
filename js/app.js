@@ -5234,7 +5234,10 @@ function seatRails() {
     return;
   }
   const map = document.getElementById("routeMap");
-  const box = document.getElementById("routeDirections");
+  // Lift above the whole bottom stack (ETA chip + directions + place), not
+  // only the directions list. The ETA sits above the list in fullscreen.
+  const stack = document.querySelector("#routeStage .route-bottom");
+  const box = stack || document.getElementById("routeDirections");
   if (!map || !box) {
     requestAnimationFrame(placeOpenRailMenus);
     return;
@@ -5833,16 +5836,25 @@ function turnViewPadding() {
   const pad = { top: 72, right: 64, bottom: 110, left: 64 };
   if (!map) return pad;
   const mapBox = map.getBoundingClientRect();
+  if (mapBox.height < 2) return pad;
   const stack = document.querySelector("#routeStage .route-bottom");
   const block = stack && stack.getBoundingClientRect().height > 2 ? stack : sheet;
   if (block && !block.hidden) {
     const box = block.getBoundingClientRect();
     if (box.height > 2 && box.top < mapBox.bottom) {
-      pad.bottom = Math.round(mapBox.bottom - box.top + 36);
+      // Clear the ETA chip and directions, with a little air above them.
+      pad.bottom = Math.round(mapBox.bottom - box.top + 16);
     }
   }
-  const room = Math.max(120, Math.round(mapBox.height * 0.34));
-  pad.bottom = Math.max(90, Math.min(pad.bottom, Math.max(90, mapBox.height - room)));
+  // Leave room for the next turn two button-heights below the top.
+  const buttonH = document.getElementById("routeRecalc")?.getBoundingClientRect().height || 60;
+  pad.top = Math.max(pad.top, Math.round(safeTopPad() + buttonH * 2 + 8));
+  // Keep a usable middle band, but never shrink below the real chrome.
+  const minOpen = Math.max(160, Math.round(mapBox.height * 0.28));
+  const maxBottom = Math.max(90, mapBox.height - minOpen);
+  if (pad.bottom > maxBottom) pad.bottom = maxBottom;
+  pad.bottom = Math.max(90, pad.bottom);
+  pad.top = Math.min(pad.top, Math.max(48, mapBox.height - pad.bottom - 120));
   return pad;
 }
 
@@ -6208,33 +6220,41 @@ function travelBearing(along) {
 }
 
 function noHandsSlots() {
-  const map = routeMap?.getContainer();
+  const map = routeMap?.getContainer() || document.getElementById("routeMap");
   const height = map?.clientHeight || 640;
   const width = map?.clientWidth || 360;
   const mapBox = map?.getBoundingClientRect();
   const pad = turnViewPadding();
-  // Keep points in the open map, not under the directions drawer.
-  const clearTop = Math.max(8, Math.min(pad.top, height * 0.2));
-  const clearBottom = Math.max(clearTop + 140, height - Math.max(pad.bottom, 24));
   const recalc = document.getElementById("routeRecalc");
-  let userY = clearTop + (clearBottom - clearTop) * 0.78;
-  let buttonH = 48;
+  let buttonH = 60;
+  if (recalc) {
+    const box = recalc.getBoundingClientRect();
+    if (box.height > 10) buttonH = box.height;
+  }
+  // Next turn: top center, two button-heights below the top (under the notch).
+  const turnY = Math.max(8, Math.round(safeTopPad() + buttonH * 2));
+  // You: bottom center at the Recalculate button height — and never under the
+  // ETA chip, directions, or side buttons.
+  let userY = height - Math.max(pad.bottom, 24) - 12;
   if (recalc && mapBox && mapBox.height > 10) {
     const box = recalc.getBoundingClientRect();
     if (box.height > 10) {
-      buttonH = box.height;
       userY = box.top + box.height / 2 - mapBox.top;
     }
   }
-  userY = Math.max(clearTop + buttonH * 1.6, Math.min(clearBottom - 10, userY));
-  const turnY = Math.min(userY - buttonH * 2.1, clearTop + Math.max(10, buttonH * 0.45));
-  return { width, height, userY, turnY: Math.max(clearTop + 8, turnY) };
+  const clearBottom = height - Math.max(pad.bottom, 24) - 12;
+  // If Recalculate still overlaps the bottom stack, sit just above the stack.
+  userY = Math.min(userY, clearBottom);
+  userY = Math.max(turnY + buttonH * 2.2, userY);
+  return { width, height, userY, turnY, buttonH };
 }
 
 function frameNextTurn() {
   if (!routeMap) return;
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
+  // Seat rails above the live ETA / directions stack before reading slots.
+  if (routeFull) seatRails();
   const along = turnGuideAlong();
   const mile = 1609.344;
   if (turnLockAlong == null) turnLockAlong = currentDirectionEnd(along);
@@ -6255,15 +6275,21 @@ function frameNextTurn() {
   if (!at) return;
   const slots = noHandsSlots();
   const ahead = target >= along - 15;
-  let bearing = northLock ? 0 : (ahead ? navBearing(navFix, [at.lat, at.lon]) : travelBearing(along));
+  // Keep the map pointed down the road under you. Aiming at a side turn
+  // would swing the locked slots off center.
+  let bearing = northLock ? 0 : travelBearing(along);
+  if (!Number.isFinite(bearing)) {
+    bearing = ahead ? navBearing(navFix, [at.lat, at.lon]) : (routeMap.getBearing() || 0);
+  }
   if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
   const dist = metersBetween(navFix, [at.lat, at.lon]);
   const pixels = Math.max(72, slots.userY - slots.turnY);
-  // Turn zoom only. Follow me stays the separate close view on you.
-  const minSpan = routeFull ? 170 : 240;
-  const span = Math.max(minSpan, ahead ? dist : Math.max(dist, 180));
+  // Lock you and the turn on those screen slots. Zoom to fit the real
+  // distance (a floor keeps a close turn from burying the pavement).
+  const floor = routeFull ? 70 : 110;
+  const span = Math.max(floor, ahead ? dist : Math.max(dist, floor));
   let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
-  zoom = Math.min(zoom, routeFull ? 16.25 : 15.7);
+  zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
   const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
