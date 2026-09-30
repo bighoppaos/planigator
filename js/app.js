@@ -3424,6 +3424,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
           <button type="button" id="routeDetour" aria-expanded="false" aria-label="Detour"><span>Detour</span></button>
           <div class="rail-col-menu" id="railDetourMenu" hidden>
             <button type="button" data-detour="truck">Truck stop · 1 credit</button>
+            <button type="button" data-detour="swift">Swift terminals</button>
             <button type="button" data-detour="cat">Cat scale</button>
             <button type="button" data-detour="loves">Love's</button>
             <button type="button" data-detour="walmart">Walmart</button>
@@ -7021,7 +7022,7 @@ function placeSearchButtons() {
     .filter(Boolean);
 }
 
-// Love's, Walmart, and Cat scale stay on this phone. Truck stop still asks HERE.
+// Love's, Walmart, Cat scale, and Swift terminals stay on this phone. Truck stop still asks HERE.
 const PLACE_OFF_METERS = 8047;
 let placeListsPromise = null;
 let placeGrids = null;
@@ -7029,14 +7030,14 @@ let placeGrids = null;
 function loadPlaceLists() {
   if (placeGrids) return Promise.resolve(placeGrids);
   if (!placeListsPromise) {
-    placeListsPromise = fetch("./data/places.json?v=1")
+    placeListsPromise = fetch("./data/places.json?v=2")
       .then((res) => {
         if (!res.ok) throw new Error("The place list did not load.");
         return res.json();
       })
       .then((data) => {
         const grids = {};
-        for (const place of ["loves", "walmart", "cat"]) {
+        for (const place of ["loves", "walmart", "cat", "swift"]) {
           const grid = new Map();
           const rows = Array.isArray(data?.[place]) ? data[place] : [];
           for (const row of rows) {
@@ -7127,12 +7128,13 @@ function nextLocalPlace(points, place) {
       });
     }
     found.sort((a, b) => a.milesAhead - b.milesAhead || a.milesOff - b.milesOff);
-    const chosen = found.slice(0, 5);
+    const chosen = place === "swift" ? found : found.slice(0, 5);
     if (!chosen.length) {
       const miss = {
         loves: "No Love's within 5 miles of the route line.",
         walmart: "No Walmart within 5 miles of the route line.",
         cat: "No Cat Scale within 5 miles of the route line.",
+        swift: "No Swift terminal within 5 miles of the route line.",
       };
       throw new Error(miss[place] || "No place within 5 miles of the route line.");
     }
@@ -7144,6 +7146,7 @@ function placeWord(place) {
   if (place === "loves") return "Love's";
   if (place === "walmart") return "Walmart";
   if (place === "cat") return "Cat Scale";
+  if (place === "swift") return "Swift terminal";
   return "truck stop";
 }
 
@@ -7202,6 +7205,7 @@ function localPlacesInView(place, map = routeMap) {
       }
     }
     found.sort((a, b) => a.milesFromCenter - b.milesFromCenter);
+    if (place === "swift") return found;
     return found.slice(0, 5);
   });
 }
@@ -7286,12 +7290,12 @@ async function searchPlacesHere() {
 
 async function findNextTruckStop(options = {}) {
   if (!navOn || state.estimating) return;
-  const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" ? options.place : "truck";
+  const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" || options.place === "swift" ? options.place : "truck";
   placeSeek = place;
   placeSeekFull = routeFull;
   placeMapMoved = false;
   placeHereNote = "";
-  const word = place === "loves" ? "Love's" : place === "walmart" ? "Walmart" : place === "cat" ? "Cat Scale" : "truck stop";
+  const word = placeWord(place);
   const buttons = placeSearchButtons();
   const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
