@@ -44,14 +44,14 @@ function drawVisits() {
   const [name, span, size] = FRAMES[frameIndex];
   const now = Date.now();
   const first = bucketStart(now, span, size);
-  const bars = [];
-  for (let start = first; start < now; start += size) {
-    const end = start + size;
-    const count = visitHits.filter((item) => {
-      const stamp = visitStamp(item);
-      return stamp >= start && stamp < end && stamp >= now - span;
-    }).length;
-    bars.push({ start, count });
+  const windowStart = now - span;
+  const count = Math.max(1, Math.ceil((now - first) / size));
+  const bars = Array.from({ length: count }, (_, index) => ({ start: first + index * size, count: 0 }));
+  for (const item of visitHits) {
+    const stamp = visitStamp(item);
+    if (stamp < windowStart || stamp >= now) continue;
+    const index = Math.floor((stamp - first) / size);
+    if (index >= 0 && index < bars.length) bars[index].count += 1;
   }
   const peak = Math.max(1, ...bars.map((bar) => bar.count));
   const total = bars.reduce((sum, bar) => sum + bar.count, 0);
@@ -245,19 +245,31 @@ async function load() {
       if (document.visibilityState === "visible") noteVisit(false);
     }, 30000);
   }
-  await loadHeroEditor();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  await Promise.all([
+    loadHeroEditor(),
+    loadAccounts(zone),
+    loadVisits(),
+    loadGifts(),
+  ]);
+}
+
+async function loadAccounts(zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") {
   const data = await api(`/v1/admin/accounts?tz=${encodeURIComponent(zone)}`);
-  const traffic = await api("/v1/admin/visits");
+  renderDays(data.days);
+  render(Array.isArray(data.accounts) ? data.accounts : []);
+  if (data.scanDone === false) setTimeout(() => { void loadAccounts(zone); }, 4000);
+}
+
+async function loadVisits(hereOnly = false) {
+  const traffic = await api(hereOnly ? "/v1/admin/visits?here=1" : "/v1/admin/visits");
   visits.hidden = false;
   const onPage = Number(traffic.here) || 0;
   hereLine.textContent = onPage === 1 ? "1 person is on the page." : `${onPage} people are on the page.`;
+  if (hereOnly) return;
   visitHits = Array.isArray(traffic.hits) ? traffic.hits : [];
   drawRanges();
   drawVisits();
-  renderDays(data.days);
-  render(Array.isArray(data.accounts) ? data.accounts : []);
-  await loadGifts();
 }
 
 const HERO_MAX = 6;
@@ -366,7 +378,11 @@ try {
     }
   });
   await load();
-  setInterval(load, 30000);
+  setInterval(() => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    void loadAccounts(zone);
+    void loadVisits(true);
+  }, 30000);
   document.getElementById("giftForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const note = document.getElementById("giftNote");
