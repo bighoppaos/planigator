@@ -311,7 +311,7 @@ function heroRow(value) {
     row.remove();
   });
   row.append(input, remove);
-  queueMicrotask(() => fitHeroLine(input));
+  requestAnimationFrame(() => fitHeroLine(input));
   return row;
 }
 
