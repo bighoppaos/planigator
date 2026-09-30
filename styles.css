@@ -2412,6 +2412,7 @@ button.lookup.lookup-flash {
 button.lookup,
 button[data-act="paste"],
 #addStop,
+button[data-before],
 button[data-after],
 #shareTrip,
 #shareNav,

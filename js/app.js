@@ -1813,6 +1813,32 @@ function addStop(afterId) {
   render();
 }
 
+function addStopBefore(beforeId) {
+  const next = defaultStop();
+  const index = state.stops.findIndex((stop) => stop.id === beforeId);
+  const at = index < 0 ? 0 : index;
+  const following = state.stops[at];
+  if (following && Number.isFinite(Number(following.start))) {
+    next.end = following.start;
+    next.start = following.start - 4 * 3600 * 1000;
+    const offset = clockOffset(following.startOffset);
+    next.startOffset = offset;
+    next.endOffset = offset;
+  }
+  state.stops.splice(at, 0, next);
+  if (isOriginStop(state.stops, at)) {
+    const later = state.stops.slice(at + 1).filter((stop) => !stop.useCurrentLocation && !stop.skipRoute && !stop.done);
+    if (later.length && later.every((stop) => stopHasSavedLeg(stop))) {
+      later[0].miles = "";
+      later[0].hours = "";
+      state.plan = null;
+    }
+  }
+  clearDriveProgress();
+  persist();
+  render();
+}
+
 function stopCanRemove(index) {
   if (isOriginStop(state.stops, index)) return false;
   const addressCount = state.stops.filter((stop) => !stop.useCurrentLocation).length;
@@ -3500,7 +3526,7 @@ function lookupMapSheet() {
       <strong>${chooseMap ? "search/choose from map" : "Choose a stop"}</strong>
       <button type="button" class="secondary" id="closeLookupMap">Close</button>
     </div>
-    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, and Cat scale use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
+    ${chooseMap ? `<form class="map-search" id="mapSearch"><label class="sr" for="mapSearchQuery">Search the map</label><input id="mapSearchQuery" type="search" enterkeyhint="search" placeholder="Search for a place" autocomplete="off" value="${escapeAttr(mapQuery)}"><button type="submit" class="flag-box" id="mapSearchGo"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>${mapSearching ? "Searching…" : state.signedIn ? "Search · 1 credit" : "Search"}</button></form><div class="map-place-row"><button type="button" class="flag-box" id="mapLoves">Love's</button><button type="button" class="flag-box" id="mapWalmart">Walmart</button><button type="button" class="flag-box" id="mapCat">Cat scale</button><button type="button" class="flag-box" id="mapSwift">Swift terminals</button><button type="button" class="flag-box" id="mapTruck"${!state.unlimited && state.credits === 0 ? " disabled" : ""}>Truck stop · 1 credit</button></div><p class="fine map-search-note" id="mapSearchNote">${escapeAttr(mapSearchNote || "Search, then tap a pin to add it as this stop. Love's, Walmart, Cat scale, and Swift terminals use the map you are looking at.")}</p><div class="map-pick-steps"><p class="fine">Or long-press the map and then press "Use this spot"</p><button type="button" class="flag-box" id="useMapSpot"${mapSpot ? "" : " disabled"}>Use this spot</button></div>` : `<p class="fine">Move around, then tap a pin.</p>`}
     <div class="lookup-map is-live" data-lookup-map="${escapeAttr(stop.id)}" data-live="1"${chooseMap ? ` data-map-pick="1"` : ""}></div>
   </div>`;
 }
@@ -8500,7 +8526,12 @@ function stopCard(stop, index, showPlan = true) {
   const lookupFlash = typedAddress && typedAddress !== (stop.verifiedLabel || "").trim();
   const canRemove = stopCanRemove(index);
   const locked = stop.done && !originStop;
+  const firstAddress = state.stops.findIndex((item) => !item.useCurrentLocation) === index;
+  const beforeButton = firstAddress
+    ? `<button type="button" class="flag-box" data-before="${stop.id}">Add a stop before ${escapeAttr(title)}</button>`
+    : "";
   return `
+    ${beforeButton}
     <article class="stop-card${locked ? " is-done" : ""}" style="background:${cssRGB(rgb)};color:${ink.color}" data-stop="${stop.id}"${locked ? ` aria-label="${escapeAttr(title)} done"` : ""}>
       <div class="stop-head">
         <label${locked ? " inert" : ""}>
@@ -9608,6 +9639,7 @@ function bind() {
   document.getElementById("mapLoves")?.addEventListener("click", () => searchPickPlace("loves"));
   document.getElementById("mapWalmart")?.addEventListener("click", () => searchPickPlace("walmart"));
   document.getElementById("mapCat")?.addEventListener("click", () => searchPickPlace("cat"));
+  document.getElementById("mapSwift")?.addEventListener("click", () => searchPickPlace("swift"));
   document.getElementById("mapTruck")?.addEventListener("click", () => searchPickPlace("truck"));
   document.getElementById("mapSearchQuery")?.addEventListener("input", (event) => {
     mapQuery = event.target.value;
@@ -9781,6 +9813,9 @@ function bind() {
     card.querySelectorAll("[data-suggest]").forEach((button) => {
       button.addEventListener("click", () => chooseSuggestion(id, Number(button.getAttribute("data-suggest"))));
     });
+  });
+  document.querySelectorAll("[data-before]").forEach((button) => {
+    button.addEventListener("click", () => addStopBefore(button.getAttribute("data-before")));
   });
   document.querySelectorAll("[data-after]").forEach((button) => {
     button.addEventListener("click", () => addStop(button.getAttribute("data-after")));
