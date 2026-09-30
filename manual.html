@@ -215,7 +215,7 @@
         <span class="flag-box on">Recalculate from Stop 1 · 1 credit</span>
       </div>
       <p>Fast mode picks the least time. Short mode picks the least distance. The green one is the one that will be used. Fast mode is the start.</p>
-      <p>Calculate asks HERE<sup>©</sup> for a truck route: a 53-ft trailer, 80,000 lb, 13 ft 6 in high. Truck only. Not car, bike, or walk. Each leg is 1 credit. A leg is the drive from one stop to the next. The start is not a leg.</p>
+      <p>Calculate asks HERE<sup>©</sup> for a truck route: a 53-ft trailer, 80,000 lb, 13 ft 6 in high. Truck only. Not car, bike, or walk. Each HERE answer is 1 credit. A leg is the drive from one stop to the next. The start is not a leg. Short mode can ask a second time, and that answer is another credit.</p>
       <p>After a route exists, a new stop added at the end calculates only from the last stop that already has miles. The button then says Recalculate from that stop, and only the new leg uses a credit. A stop inserted in the middle recalculates the trip, and each leg that has to be routed uses a credit. Stops you have already reached are skipped.</p>
 
       <h3>Step 6. The plan</h3>
@@ -248,11 +248,11 @@
       <p>One stop is 2 credits: 1 to look up the address, and 1 to calculate the leg. Ten stops are 20.</p>
       <ul>
         <li>Looking up a start address adds 1 credit. A one-stop trip is then 3.</li>
-        <li>Use this spot is 1 credit. It asks HERE for the address. If that address does not load, the credit comes back and the point stays. Calculate is still 1 more credit for that leg.</li>
-        <li>Search on the map is 1 credit and takes the place of Look up this address. Calculate is still 1 credit for the leg.</li>
-        <li>A lookup that finds nothing is refunded.</li>
+        <li>Use this spot is 1 credit. It asks HERE for the address. If HERE answers, that credit stays, even when no address comes back. The point stays. Calculate is still 1 more credit for that leg.</li>
+        <li>Search on the map is 1 credit and takes the place of Look up this address. If HERE answers and nothing matches, that credit stays. Calculate is still 1 credit for the leg.</li>
+        <li>A credit comes back only when HERE does not answer. An answer that finds nothing still uses the credit.</li>
         <li>Navigation, the compass, zoom, elevation, and wind do not use credits. Moving the clocks when you change a time, or when Leave now ticks forward, does not use a credit.</li>
-        <li>Finding the next Love's, Walmart, or Cat scale does not use a credit. Next truck stop is 1 credit. Adding any of them onto the route is 2 more: one leg to that place, and one leg from there to the stop you were already driving toward.</li>
+        <li>Finding the next Love's, Walmart, or Cat scale does not use a credit. Truck stop is 1 credit for each HERE search along the road, up to 16. Adding a place onto the route is 1 credit for each truck route HERE answers.</li>
       </ul>
       <p>Google sign-in gives 40 credits. The first time a debit or credit card is saved, that account gets 40 more, once. A prepaid card does not get that extra 40. Removing the card and adding another one does not give another 40. The saved card is not charged when the free credits run out. Extra packs are 124 credits for $1.49, and that button shows only when a card is already on file.</p>
     </div>
@@ -271,7 +271,7 @@
       <ul>
         <li>The stop name is at most 8 characters.</li>
         <li>Paste fills the address. If the pasted text has times, those can fill too. You still look up the address. Lookup is 1 credit. Tap one of the suggestions. Choosing the suggestion does not cost another credit.</li>
-        <li>search/choose from map opens a map. Search · 1 credit finds places and drops red pins. Love's, Walmart, Cat scale, and Swift terminals search the part of the map you are looking at and do not use a credit. Truck stop on that map uses 1 credit. Each of those pins shows how far the place is from the current location. Tap a pin to use it. Or long-press the map and then press Use this spot. Signed in, that is 1 credit. If the address does not load, the credit comes back.</li>
+        <li>search/choose from map opens a map. Search · 1 credit finds places and drops red pins. Love's, Walmart, Cat scale, and Swift terminals search the part of the map you are looking at and do not use a credit. Truck stop on that map uses 1 credit for each HERE search. Each of those pins shows how far the place is from the current location. Tap a pin to use it. Or long-press the map and then press Use this spot. Signed in, that is 1 credit. If HERE answers, that credit stays.</li>
         <li>Anytime means no appointment clock. Window shows Opens and Closes. Without Window, the clock is Be there by.</li>
         <li>The up and down arrows move the stop. The minus removes it. Tap the minus again when it says Remove. That stop’s directions come off the list, including while navigation is running.</li>
         <li>Add a stop before the first one sits above that card. Add a stop after this one sits under the card, so you can still add a stop after one you have already reached.</li>
@@ -404,9 +404,9 @@
         <span class="flag-box">Add as next stop</span>
         <span class="flag-box">Add and recalculate</span>
       </div>
-      <p>The four Next buttons sit under the directions. They do nothing until Start navigation. Love's, Walmart, and Cat scale are searched from lists stored with this site, in this browser, and do not use a credit. Love's and Walmart locations are from OpenStreetMap contributors. Cat scale locations are from the public CAT Scale list. A brand-new store can be missing until that list is updated. Next truck stop still asks HERE<sup>©</sup> and uses 1 credit. The place has to be within about 5 miles of the route ahead.</p>
+      <p>The four Next buttons sit under the directions. They do nothing until Start navigation. Love's, Walmart, and Cat scale are searched from lists stored with this site, in this browser, and do not use a credit. Love's and Walmart locations are from OpenStreetMap contributors. Cat scale locations are from the public CAT Scale list. A brand-new store can be missing until that list is updated. Truck stop still asks HERE<sup>©</sup>. Each search along the road is 1 credit. The place has to be within about 5 miles of the route ahead.</p>
       <p>Detour also has Swift terminals. It does not use a credit. Every terminal within about 5 miles of the route ahead is pinned. Move the map and Search here shows the terminals in that view, including ones off the route.</p>
-      <p>Next Love's, Next Walmart, and Next Cat scale show up to five places ahead. The nearest one is selected. Tap another line, or another pin, to choose it. On the map each pin shows the name, town, miles ahead, and miles off the route. Add and recalculate is on the pin you chose. Clear takes the pins off the map and returns to Turn zoom. After Love's, Walmart, Cat scale, or a truck stop, Search here looks in the part of the map you are looking at, including places that are not on the route. On the full-screen map, Search here and Clear sit together at the top after you press one of those buttons. Clear stays there after you choose a stop. Search here for a truck stop still uses 1 credit. Add as next stop uses the one you chose. Next truck stop still shows one.</p>
+      <p>Next Love's, Next Walmart, and Next Cat scale show up to five places ahead. The nearest one is selected. Tap another line, or another pin, to choose it. On the map each pin shows the name, town, miles ahead, and miles off the route. Add and recalculate is on the pin you chose. Clear takes the pins off the map and returns to Turn zoom. After Love's, Walmart, Cat scale, or a truck stop, Search here looks in the part of the map you are looking at, including places that are not on the route. On the full-screen map, Search here and Clear sit together at the top after you press one of those buttons. Clear stays there after you choose a stop. Search here for a truck stop uses 1 credit for each HERE search. Add as next stop uses the one you chose. Next truck stop still shows one.</p>
       <p>Add as next stop puts that place on the stop list. You still Calculate to put it on the road.</p>
       <p>In full screen the same four places are round buttons on the left. After one is selected, Add and recalculate on that pin routes it in as the next stop and returns the map to Turn zoom. That uses 2 credits: from where you are to that place, then from that place to the stop you were driving toward. You need 2 credits left. The new stop is Anytime. Clear removes the pins if you do not want them.</p>
     </div>
