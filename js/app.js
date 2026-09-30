@@ -3491,7 +3491,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
-    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. US, Clear, Ann, Cal, Scot, and North talk when you tap them and keep the song playing.</p>` : ""}
+    ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. Phone is the voice on this phone and pauses the song. US, Clear, Ann, Cal, Scot, and North talk when you tap them and keep the song playing.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
     ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>Search here</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
@@ -4582,11 +4582,38 @@ function previewChosenVoice() {
   playChosenVoice(`This is ${label}.`);
 }
 
+let phoneUtter = null;
+
+function speakPhone(text) {
+  const synth = window.speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance !== "function") {
+    showStopNote("This phone has no voice for that.", 4000);
+    return;
+  }
+  stopNavUtterance();
+  const utter = new SpeechSynthesisUtterance(text);
+  phoneUtter = utter;
+  utter.lang = "en-US";
+  const voices = synth.getVoices();
+  const english = voices.filter((voice) => /^en/i.test(voice.lang || ""));
+  const local = english.find((voice) => voice.localService) || english[0];
+  if (local) utter.voice = local;
+  utter.onend = () => {
+    if (phoneUtter === utter) phoneUtter = null;
+  };
+  synth.speak(utter);
+  synth.resume();
+}
+
 function playChosenVoice(text) {
   const said = spokenAloud(text);
   if (!said) return;
-  unlockMix();
   const token = ++voiceJob;
+  if (navVoiceId() === "phone") {
+    speakPhone(said);
+    return;
+  }
+  unlockMix();
   const spec = PAGE_VOICE[navVoiceId()] || PAGE_VOICE.us;
   pageSpeech(said, spec).then((clip) => {
     if (token !== voiceJob) return;
@@ -4619,6 +4646,7 @@ function stopMixNavVoice() {
 }
 
 const NAV_VOICES = [
+  ["phone", "Phone"],
   ["us", "US"],
   ["clear", "Clear"],
   ["ann", "Ann"],
