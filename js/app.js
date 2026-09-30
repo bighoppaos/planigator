@@ -5838,18 +5838,27 @@ function turnViewPadding() {
   const mapBox = map.getBoundingClientRect();
   if (mapBox.height < 2) return pad;
   const stack = document.querySelector("#routeStage .route-bottom");
-  const block = stack && stack.getBoundingClientRect().height > 2 ? stack : sheet;
+  // On the page, directions live below the map. Only clear chips that sit
+  // on the map (ETA / place). In fullscreen the directions are in the stack.
+  const block = routeFull
+    ? (stack && stack.getBoundingClientRect().height > 2 ? stack : sheet)
+    : stack;
   if (block && !block.hidden) {
     const box = block.getBoundingClientRect();
-    if (box.height > 2 && box.top < mapBox.bottom) {
-      // Clear the ETA chip and directions, with a little air above them.
+    if (box.height > 2 && box.top < mapBox.bottom && box.top > mapBox.top) {
       pad.bottom = Math.round(mapBox.bottom - box.top + 16);
     }
   }
-  // Leave room for the next turn two button-heights below the top.
   const buttonH = document.getElementById("routeRecalc")?.getBoundingClientRect().height || 60;
-  pad.top = Math.max(pad.top, Math.round(safeTopPad() + buttonH * 2 + 8));
-  // Keep a usable middle band, but never shrink below the real chrome.
+  const compass = document.getElementById("routeCompass");
+  if (routeFull) {
+    // Fullscreen: next turn two button-heights below the top (under the notch).
+    pad.top = Math.max(pad.top, Math.round(safeTopPad() + buttonH * 2 + 8));
+  } else if (compass) {
+    // Page: next turn at compass height.
+    const box = compass.getBoundingClientRect();
+    if (box.height > 10) pad.top = Math.max(48, Math.round(box.top + box.height / 2 - mapBox.top));
+  }
   const minOpen = Math.max(160, Math.round(mapBox.height * 0.28));
   const maxBottom = Math.max(90, mapBox.height - minOpen);
   if (pad.bottom > maxBottom) pad.bottom = maxBottom;
@@ -6226,26 +6235,28 @@ function noHandsSlots() {
   const mapBox = map?.getBoundingClientRect();
   const pad = turnViewPadding();
   const recalc = document.getElementById("routeRecalc");
+  const compass = document.getElementById("routeCompass");
   let buttonH = 60;
   if (recalc) {
     const box = recalc.getBoundingClientRect();
     if (box.height > 10) buttonH = box.height;
   }
-  // Next turn: top center, two button-heights below the top (under the notch).
-  const turnY = Math.max(8, Math.round(safeTopPad() + buttonH * 2));
-  // You: bottom center at the Recalculate button height — and never under the
-  // ETA chip, directions, or side buttons.
+  // Next turn: fullscreen = two button-heights below the top; page = compass.
+  let turnY = Math.max(8, Math.round(safeTopPad() + buttonH * 2));
+  if (!routeFull && compass && mapBox && mapBox.height > 10) {
+    const box = compass.getBoundingClientRect();
+    if (box.height > 10) turnY = box.top + box.height / 2 - mapBox.top;
+  }
+  turnY = Math.max(8, Math.min(height * 0.45, turnY));
+  // You: Recalculate height — never under the place chips / ETA stack.
   let userY = height - Math.max(pad.bottom, 24) - 12;
   if (recalc && mapBox && mapBox.height > 10) {
     const box = recalc.getBoundingClientRect();
-    if (box.height > 10) {
-      userY = box.top + box.height / 2 - mapBox.top;
-    }
+    if (box.height > 10) userY = box.top + box.height / 2 - mapBox.top;
   }
   const clearBottom = height - Math.max(pad.bottom, 24) - 12;
-  // If Recalculate still overlaps the bottom stack, sit just above the stack.
   userY = Math.min(userY, clearBottom);
-  userY = Math.max(turnY + buttonH * 2.2, userY);
+  userY = Math.max(turnY + buttonH * 1.8, userY);
   return { width, height, userY, turnY, buttonH };
 }
 
