@@ -848,12 +848,10 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
         gapEnd = departure;
       }
     } else if (!stops[index].anytime) {
+      // Last stop: spare time runs to the window close / be-there-by, not only
+      // to the end of that driving day. The trip is already there.
       const close = latestArrive(stops[index]);
-      const open = notBefore(stops[index]);
-      const arrivedInside = open == null || block.end + 60 * 1000 >= open;
-      gapEnd = arrivedInside && !isAnytimeEnd(endMinutes)
-        ? Math.min(close, nextDailyEnd(endMinutes, block.end, stops[index].timeZone || ""))
-        : Math.max(block.end, close);
+      gapEnd = Math.max(block.end, close);
     } else {
       gapEnd = block.end;
     }
