@@ -3475,7 +3475,10 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       </aside>
       </div>
       <div class="route-bottom">
-      <button type="button" class="route-switch" id="routeSwitch" hidden></button>
+      <div class="route-ask" id="routeSwitchRow" hidden>
+        <button type="button" class="route-switch" id="routeSwitch"></button>
+        <button type="button" class="route-switch route-switch-no" id="routeSwitchNo">No</button>
+      </div>
       <p class="route-stop-miles" id="routeStopMiles" hidden></p>
       <div class="route-place-row" id="routePlaceRow">
         <p class="route-drive" id="routeDrive" hidden></p>
@@ -4335,20 +4338,12 @@ function setStopChip(meters, name) {
     return;
   }
   const hours = hoursForMeters(meters);
-  const lines = [`${navMiles(meters)} to ${name}`];
-  if (hours > 0) {
-    lines.push(etaLabel(Date.now() + hours * 3600 * 1000));
-    lines.push(`${hoursLabel(hours)} to ${name}`);
-  }
-  if (lines.length !== stopChipLines.length) stopChipIndex = 0;
-  stopChipLines = lines;
+  const eta = etaLabel(Date.now() + hours * 3600 * 1000);
+  stopChipLines = [`${eta} · ${navMiles(meters)} · ${hoursLabel(hours)}`];
+  stopChipIndex = 0;
   paintStopChip();
-  if (stopChipTimer || lines.length < 2) return;
-  stopChipTimer = window.setInterval(() => {
-    if (stopChipLines.length < 2) return;
-    stopChipIndex = (stopChipIndex + 1) % stopChipLines.length;
-    paintStopChip();
-  }, 3000);
+  if (stopChipTimer) window.clearInterval(stopChipTimer);
+  stopChipTimer = 0;
 }
 
 function navMiles(meters) {
@@ -5548,10 +5543,28 @@ function toggleRailMenu(which) {
   paintRailMenus();
 }
 
-function aimNavAtStop(stopId) {
+function aimNavAtStop(stopId, confirmed) {
   const dests = navDestList();
   const pos = dests.findIndex((item) => item.stop.id === stopId);
   if (pos < 0) return;
+  if (!confirmed && navOn) {
+    const held = activeNavLeg();
+    if (held?.stop && held.stop.id !== stopId && !held.stop.done) {
+      pendingAimId = stopId;
+      railMenu = "";
+      paintRailMenus();
+      const name = navStopTitle(held.stop);
+      const yes = document.getElementById("routeSwitch");
+      const row = document.getElementById("routeSwitchRow");
+      if (yes) yes.textContent = `Is ${name} done?`;
+      if (row) row.hidden = false;
+      speakNav(`Is ${name} done?`);
+      return;
+    }
+  }
+  pendingAimId = "";
+  const row = document.getElementById("routeSwitchRow");
+  if (row) row.hidden = true;
   railMenu = "";
   paintRailMenus();
   navStopCursor = pos;
@@ -5580,6 +5593,7 @@ function aimNavAtStop(stopId) {
 
 let navStopTapAt = 0;
 let navAimStopId = "";
+let pendingAimId = "";
 let railMenu = "";
 let dirPinned = null;
 let dirPinTimer = 0;
@@ -5587,7 +5601,7 @@ let tripFit = "off";
 
 function tripFitLines() {
   if (tripFit === "remaining") return ["Left", "zoom"];
-  if (tripFit === "nextTurn") return ["Turn", "zoom"];
+  if (tripFit === "nextTurn") return ["No-hands", "zoom"];
   if (tripFit === "nextStop") return ["Stop", "zoom"];
   return ["Trip", "zoom"];
 }
@@ -5991,54 +6005,93 @@ function zoomForCenterToTop(meters, lat, height) {
   return Math.max(3, Math.min(17.5, zoom));
 }
 
+function zoomForPixelSpan(meters, pixels, lat) {
+  const mpp = Math.max(30, meters) / Math.max(48, pixels);
+  const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
+  const zoom = Math.log2((156543.03392 * cos) / mpp);
+  return Math.max(3, Math.min(18, zoom));
+}
+
+function pointAhead(lat, lon, bearingDeg, meters) {
+  const delta = meters / 6378137;
+  const theta = bearingDeg * Math.PI / 180;
+  const phi1 = lat * Math.PI / 180;
+  const lambda1 = lon * Math.PI / 180;
+  const phi2 = Math.asin(Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta));
+  const lambda2 = lambda1 + Math.atan2(
+    Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
+    Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2),
+  );
+  return [phi2 * 180 / Math.PI, ((lambda2 * 180 / Math.PI + 540) % 360) - 180];
+}
+
+function travelBearing(along) {
+  const here = pointAlong(navLine, along);
+  const ahead = pointAlong(navLine, along + 50);
+  if (here && ahead) return navBearing([here.lat, here.lon], [ahead.lat, ahead.lon]);
+  if (typeof navTravel === "number") return navTravel;
+  return routeMap?.getBearing() || 0;
+}
+
+function noHandsSlots() {
+  const map = routeMap?.getContainer();
+  const height = map?.clientHeight || 640;
+  const width = map?.clientWidth || 360;
+  const recalc = document.getElementById("routeRecalc");
+  const mapBox = map?.getBoundingClientRect();
+  let userY = height * 0.72;
+  let buttonH = 48;
+  if (recalc && mapBox && mapBox.height > 10) {
+    const box = recalc.getBoundingClientRect();
+    if (box.height > 10) {
+      buttonH = box.height;
+      userY = box.top + box.height / 2 - mapBox.top;
+    }
+  }
+  userY = Math.max(buttonH * 3, Math.min(height - 24, userY));
+  const turnY = Math.min(userY - 80, buttonH * 2);
+  return { width, height, userY, turnY: Math.max(12, turnY) };
+}
+
 function frameNextTurn() {
   if (!routeMap) return;
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
-  if (turnZoomOut) stopTurnZoomOut();
   const along = turnGuideAlong();
-  const halfMile = 804.672;
   const mile = 1609.344;
-  if (turnPhase !== "widen" && (turnLockAlong == null || turnLockAlong < along + 25)) {
-    turnLockAlong = currentDirectionEnd(along);
-    turnPhase = "approach";
+  if (turnLockAlong == null) turnLockAlong = currentDirectionEnd(along);
+  if (turnLockAlong != null && along >= turnLockAlong - 12) {
+    const next = currentDirectionEnd(turnLockAlong + 35);
+    const gap = next == null ? Infinity : next - turnLockAlong;
+    if (gap < mile || along >= turnLockAlong + mile) {
+      const jumped = next != null && next > along + 20 ? next : currentDirectionEnd(along + 20);
+      if (jumped != null) turnLockAlong = jumped;
+    }
+  } else if (turnLockAlong != null) {
+    const sooner = currentDirectionEnd(along);
+    if (sooner != null && sooner + 30 < turnLockAlong) turnLockAlong = sooner;
   }
-  let target = turnLockAlong;
+  const target = turnLockAlong;
   if (target == null) return;
-  let dist = Math.max(0, target - along);
-  let span = dist;
-  if (turnPhase === "widen") {
-    const t = Math.min(1, (Date.now() - turnWidenAt) / 7000);
-    span = halfMile + (mile - halfMile) * t;
-    if (t >= 1) {
-      const upcoming = currentDirectionEnd(Math.max(along, target) + 30);
-      turnLockAlong = upcoming != null && upcoming > along + 40 ? upcoming : currentDirectionEnd(along);
-      turnPhase = "approach";
-      target = turnLockAlong;
-      if (target == null) return;
-      dist = Math.max(0, target - along);
-      span = Math.max(halfMile, dist);
-    }
-  } else {
-    span = Math.max(halfMile, dist);
-    if (dist <= halfMile + 25) {
-      turnPhase = "widen";
-      turnWidenAt = Date.now();
-      span = halfMile;
-    }
-  }
   const at = pointAlong(navLine, target);
   if (!at) return;
-  const bearing = northLock ? 0 : navBearing(navFix, [at.lat, at.lon]);
-  const height = routeMap.getContainer()?.clientHeight || 640;
-  const zoom = zoomForCenterToTop(span, navFix[0], height);
+  const slots = noHandsSlots();
+  const ahead = target >= along - 15;
+  let bearing = northLock ? 0 : (ahead ? navBearing(navFix, [at.lat, at.lon]) : travelBearing(along));
+  if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
+  const dist = metersBetween(navFix, [at.lat, at.lon]);
+  const pixels = Math.max(48, slots.userY - slots.turnY);
+  const zoom = zoomForPixelSpan(ahead ? dist : Math.max(dist, 180), pixels, navFix[0]);
+  const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
+  const mpp = (156543.03392 * cos) / (2 ** zoom);
+  const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
   placeTurnPin(target);
   turnShownAlong = target;
   routeMap.stop();
   routeMap.easeTo({
-    center: [navFix[1], navFix[0]],
+    center: [center[1], center[0]],
     zoom,
-    bearing: Number.isFinite(bearing) ? bearing : routeMap.getBearing(),
+    bearing,
     duration: 450,
     easing: (x) => x,
   });
@@ -6449,41 +6502,34 @@ function nextRoutedLeg(after) {
 
 let switchSpokenFor = "";
 
-function paintSwitchOffer(hit) {
-  const button = document.getElementById("routeSwitch");
-  if (!button) return;
-  const held = activeNavLeg();
-  const next = held ? nextRoutedLeg(held) : null;
-  const remaining = held && hit ? held.end - hit.along : Infinity;
-  const show = Boolean(navOn && held && next && remaining <= STOP_NEAR_M);
-  button.hidden = !show;
-  if (!show) {
-    if (!held || !next || remaining > STOP_NEAR_M + 400) switchSpokenFor = "";
-    return;
-  }
-  const name = navStopTitle(next.stop);
-  const label = `Switch to ${name}?`;
-  if (button.textContent !== label) button.textContent = label;
-  if (switchSpokenFor !== held.stop.id) {
-    switchSpokenFor = held.stop.id;
-    speakNav(label);
-  }
+function paintSwitchOffer() {
+  if (pendingAimId) return;
+  const row = document.getElementById("routeSwitchRow");
+  if (row) row.hidden = true;
 }
 
 function confirmStopSwitch() {
-  rebuildNavLegs();
+  const nextId = pendingAimId;
   const held = activeNavLeg();
-  if (!held?.stop || !nextRoutedLeg(held)) return;
-  held.stop.done = true;
-  held.stop.switched = true;
-  paintDoneStop(held.stop.id);
-  switchSpokenFor = "";
-  persist();
-  const calc = document.getElementById("calculate");
-  if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
-  if (routeFull) routePageStale = true;
-  const button = document.getElementById("routeSwitch");
-  if (button) button.hidden = true;
+  pendingAimId = "";
+  const row = document.getElementById("routeSwitchRow");
+  if (row) row.hidden = true;
+  if (held?.stop && !held.stop.done) {
+    held.stop.done = true;
+    held.stop.switched = true;
+    paintDoneStop(held.stop.id);
+    persist();
+    const calc = document.getElementById("calculate");
+    if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
+    if (routeFull) routePageStale = true;
+  }
+  if (nextId) aimNavAtStop(nextId, true);
+}
+
+function declineStopSwitch() {
+  pendingAimId = "";
+  const row = document.getElementById("routeSwitchRow");
+  if (row) row.hidden = true;
   if (navFix) onNavFix(navFix[0], navFix[1]);
 }
 
@@ -6601,6 +6647,7 @@ async function recalculateFromHere() {
       { lat: here.lat, lon: here.lon },
       { lat: Number(target.lat), lon: Number(target.lon) },
       typeof heading === "number" ? heading : undefined,
+      { avoidUTurns: true },
     );
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
@@ -6629,12 +6676,13 @@ function stopPoint(stop) {
   return { lat, lon };
 }
 
-function routeTruckLeg(from, to, course) {
+function routeTruckLeg(from, to, course, options = {}) {
   const mode = state.settings.routeMode === "short" ? "short" : "fast";
   const run = (routingMode) => truckRoute(from, to, {
     speedCapMph: state.settings.governed ? mph() : null,
     departAt: leaveAtNow(),
     ...(typeof course === "number" ? { course } : {}),
+    ...(options.avoidUTurns ? { avoidUTurns: true } : {}),
     routingMode,
   });
   if (mode !== "short") return run(mode);
@@ -7086,8 +7134,8 @@ async function addPlaceAsNextStop(hit) {
   state.stops.splice(towardIndex, 0, next);
   const course = typeof navCompass === "number" ? navCompass : (typeof navTravel === "number" ? navTravel : here.heading);
   try {
-    const into = await routeTruckLeg({ lat: here.lat, lon: here.lon }, { lat, lon }, course);
-    const onward = await routeTruckLeg({ lat, lon }, towardPoint);
+    const into = await routeTruckLeg({ lat: here.lat, lon: here.lon }, { lat, lon }, course, { avoidUTurns: true });
+    const onward = await routeTruckLeg({ lat, lon }, towardPoint, undefined, { avoidUTurns: true });
     writeRoutedLeg(next, into);
     writeRoutedLeg(toward, onward);
   } catch (error) {
@@ -7728,8 +7776,9 @@ function endRouteNav() {
   directionsAutoKey = "";
   setStopChip(-1, "");
   switchSpokenFor = "";
-  const switchButton = document.getElementById("routeSwitch");
-  if (switchButton) switchButton.hidden = true;
+  pendingAimId = "";
+  const switchRow = document.getElementById("routeSwitchRow");
+  if (switchRow) switchRow.hidden = true;
   stopNavMotion();
   resetNavVoice();
   stopMixNavVoice();
@@ -9723,6 +9772,7 @@ function bind() {
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
   $("#routeSwitch")?.addEventListener("click", () => confirmStopSwitch());
+  $("#routeSwitchNo")?.addEventListener("click", () => declineStopSwitch());
   $("#routeRecalc")?.addEventListener("click", () => {
     // Let the tap finish before the map is rebuilt. Changing the rail under
     // the finger makes iOS swallow Exit and zoom until a force close.

@@ -1938,17 +1938,31 @@ html.route-full body > :not(#routeStage) {
   text-align: center;
 }
 .route-switch:not([hidden]) { display: block; }
+.route-ask {
+  display: flex;
+  gap: 6px;
+  width: min(100%, 420px);
+  pointer-events: auto;
+}
+.route-ask[hidden] { display: none; }
+.route-ask .route-switch { display: block; flex: 1; }
+.route-switch-no {
+  flex: 0 0 auto;
+  background: #243246;
+  color: #fff;
+}
 .route-stop-miles {
   display: none;
   margin: 0;
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: rgb(7 21 37 / 0.92);
   color: #fffdf8;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.25;
   text-align: center;
+  max-width: min(100% - 16px, 440px);
 }
 .route-stage.is-full .route-stop-miles:not([hidden]) { display: block; }
 .route-stage.is-full .directions {
@@ -1984,6 +1998,8 @@ html.route-full body > :not(#routeStage) {
   max-height: 22vh;
   overflow-y: auto;
 }
+#routeWhole { font-size: 8px; }
+.route-stage.is-full #routeWhole { font-size: 10px; }
 .route-stage.is-full .route-rail button {
   width: 60px;
   max-width: 60px;

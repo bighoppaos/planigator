@@ -125,6 +125,7 @@ export function truckRoute(from, to, options = {}) {
       departAt: options.departAt,
       ...(typeof options.course === "number" ? { course: options.course } : {}),
       ...(options.routingMode === "short" || options.routingMode === "fast" ? { routingMode: options.routingMode } : {}),
+      ...(options.avoidUTurns ? { avoidUTurns: true } : {}),
     }),
   });
 }
