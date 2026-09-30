@@ -332,6 +332,7 @@ export class TruckerHOSClock {
       const take = Math.min(left, driveLeft, dutyLeft);
       this.now += take;
       this.drivenToday += take / 3600 / 1000;
+      this.drivenSinceBreak += take / 3600 / 1000;
       this.onDutyToday += take / 3600 / 1000;
       left -= take;
     }

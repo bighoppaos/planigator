@@ -609,10 +609,16 @@ function applyDrivePieceDelays(stop, events, before, cap) {
       // out of the 10. The morning stays put until the rest would be under 10 hours.
       if (askedMs >= 60 * 1000 && events[i + 1]?.kind === "rest") {
         carry += askedMs;
-      } else if (delayMs >= 60 * 1000 && laterWouldPassDayEnd(events, i + 1, carry + delayMs, dayEnd)) {
-        // Keep the 30-minute break in the day. The delay then moves the
-        // drives under that break. Drives that would pass the day end are
-        // laid out again after the reset.
+      } else if (
+        askedMs >= 60 * 1000
+        && (
+          events[i + 1]?.kind === "thirty"
+          || (delayMs >= 60 * 1000 && laterWouldPassDayEnd(events, i + 1, carry + delayMs, dayEnd))
+        )
+      ) {
+        // Keep the 30-minute break where the driving clock put it. Possible
+        // delay then moves the drives after that break, so the break still
+        // lands before 8 hours of on-duty / the chosen hours-into-driving.
         let nextIndex = i + 1;
         if (events[nextIndex]?.kind === "thirty") {
           const brk = events[nextIndex];
@@ -625,8 +631,10 @@ function applyDrivePieceDelays(stop, events, before, cap) {
           nextIndex += 1;
         }
         const fitted = delayThatFitsBeforeDayEnd(sim, askedMs);
+        let spentRests = [];
         if (fitted >= 60 * 1000) {
           const spent = sim.spendDriveTime(fitted, cap);
+          spentRests = spent.rests;
           carry += fitted;
           spent.rests.forEach((rest, restIndex) => {
             carry += rest.end - rest.start;
@@ -638,11 +646,14 @@ function applyDrivePieceDelays(stop, events, before, cap) {
             });
           });
         }
-        if (laterWouldPassDayEnd(events, nextIndex, carry, dayEndAt(sim))) {
-          // Delay past the end of the day comes out of the 10-hour rest.
+        const untilRest = routeHoursUntilRest(events, nextIndex);
+        const room = cap - sim.drivenToday;
+        const overDay = laterWouldPassDayEnd(events, nextIndex, carry, dayEndAt(sim));
+        if (spentRests.length || untilRest > room + 0.02 || overDay) {
+          // Delay past the day or the 11 comes out of the 10-hour rest.
           // The morning start stays put until that rest would be under 10 hours.
           const overflow = Math.max(0, askedMs - fitted);
-          if (overflow >= 60 * 1000) sim.now += overflow;
+          if (overflow >= 60 * 1000 && !spentRests.length) sim.now += overflow;
           const leftover = routeHoursAfter(events, nextIndex);
           if (leftover > 0.01) {
             const replayed = delayReplayedDrives(
@@ -915,7 +926,9 @@ export function timeline({
         const pauses = prev.pausesAfter || [];
         const afterEnd = pauses.length ? pauses[pauses.length - 1].end : prev.end;
         const gap = piece.start - afterEnd;
-        if (gap >= 60 * 1000) {
+        // A gap right after a 30 is possible delay on the drive before it, not spare time.
+        const afterThirty = pauses.length > 0 && pauses[pauses.length - 1].kind === "thirty";
+        if (gap >= 60 * 1000 && !afterThirty) {
           events.push({
             id: `leeway-gap-${stops[index].id}-${pieceIndex}`,
             kind: "leeway",
