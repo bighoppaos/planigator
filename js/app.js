@@ -3757,7 +3757,15 @@ function applePinButton(item) {
   button.className = "apple-pin";
   const name = document.createElement("span");
   name.className = "apple-pin-name";
-  name.textContent = pinLabel(item.title || item.label);
+  const title = document.createElement("span");
+  title.textContent = pinLabel(item.title || item.label);
+  name.append(title);
+  if (item.hereLabel) {
+    const dist = document.createElement("span");
+    dist.className = "apple-pin-dist";
+    dist.textContent = item.hereLabel;
+    name.append(dist);
+  }
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 32 42");
   svg.setAttribute("width", "28");
@@ -3911,6 +3919,25 @@ function placeAsMapHit(hit) {
   };
 }
 
+function distanceFromHere(lat, lon) {
+  if (!chooseHere) return "";
+  const meters = metersBetween([chooseHere.lat, chooseHere.lon], [Number(lat), Number(lon)]);
+  if (!Number.isFinite(meters)) return "";
+  const miles = meters / 1609.344;
+  if (state.settings.kilometers) {
+    const km = meters / 1000;
+    if (km < 0.1) return `${Math.max(1, Math.round(meters))} m`;
+    return `${km.toFixed(1)} km`;
+  }
+  if (miles < 0.1) return `${Math.max(1, Math.round(meters * 3.28084))} ft`;
+  return `${miles.toFixed(1)} miles`;
+}
+
+function stampHereDistance(item) {
+  const hereLabel = distanceFromHere(item?.lat, item?.lon);
+  return hereLabel ? { ...item, hereLabel } : item;
+}
+
 async function searchPickPlace(place) {
   const note = document.getElementById("mapSearchNote");
   const word = placeWord(place);
@@ -3921,6 +3948,10 @@ async function searchPickPlace(place) {
   }
   mapSearchNote = `Looking for ${word}…`;
   if (note) note.textContent = mapSearchNote;
+  if (!chooseHere) {
+    const fresh = await currentFix();
+    if (fresh) chooseHere = { lat: fresh.lat, lon: fresh.lon };
+  }
   try {
     let hits = [];
     if (place === "truck") {
@@ -3940,7 +3971,7 @@ async function searchPickPlace(place) {
       hits = (await localPlacesInView(place, mapPickMap)).map(placeAsMapHit);
     }
     hits = hits.filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && item.label);
-    mapSearchHits = hits;
+    mapSearchHits = hits.map(stampHereDistance);
     paintMapSearchPins();
     mapSearchNote = hits.length
       ? (hits.length === 1 ? "Tap the pin to add it as this stop." : "Tap a pin to add it as this stop.")
@@ -4557,7 +4588,7 @@ function previewChosenVoice() {
     mixCtx.resume();
   }
   const label = navVoiceLabel();
-  playChosenVoice(navVoiceId() === "robot" ? "This is the robot." : `This is ${label}.`);
+  playChosenVoice(`This is ${label}.`);
 }
 
 function playChosenVoice(text) {
@@ -5055,11 +5086,15 @@ function seatRails() {
     railSeatObserver?.disconnect();
     railSeatObserver = null;
     railSeatBox = null;
+    requestAnimationFrame(placeOpenRailMenus);
     return;
   }
   const map = document.getElementById("routeMap");
   const box = document.getElementById("routeDirections");
-  if (!map || !box) return;
+  if (!map || !box) {
+    requestAnimationFrame(placeOpenRailMenus);
+    return;
+  }
   const mapBox = map.getBoundingClientRect();
   if (wide) {
     let left = 8;
@@ -5089,6 +5124,7 @@ function seatRails() {
       rail.style.bottom = bottom;
     });
   }
+  requestAnimationFrame(placeOpenRailMenus);
   if (typeof ResizeObserver === "undefined" || railSeatBox === box) return;
   railSeatObserver?.disconnect();
   railSeatBox = box;
@@ -5459,6 +5495,26 @@ function paintStopButton() {
   if (button) button.setAttribute("aria-label", navStopTitle(shown?.stop));
 }
 
+function placeRailMenu(menu) {
+  if (!menu || menu.hidden) return;
+  const pop = menu.parentElement;
+  const stage = menu.closest(".route-stage");
+  if (!pop || !stage) return;
+  menu.style.top = "0px";
+  const limit = stage.getBoundingClientRect();
+  const popBox = pop.getBoundingClientRect();
+  const height = menu.getBoundingClientRect().height;
+  let top = 0;
+  if (popBox.top + height > limit.bottom - 8) top = (limit.bottom - 8) - height - popBox.top;
+  if (popBox.top + top < limit.top + 8) top = (limit.top + 8) - popBox.top;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function placeOpenRailMenus() {
+  if (railMenu === "detour") placeRailMenu(document.getElementById("railDetourMenu"));
+  if (railMenu === "stops") placeRailMenu(document.getElementById("railStopsMenu"));
+}
+
 function paintRailMenus() {
   const stopsBtn = document.getElementById("routeStops");
   const detourBtn = document.getElementById("routeDetour");
@@ -5475,11 +5531,13 @@ function paintRailMenus() {
   if (detourMenu) detourMenu.hidden = railMenu !== "detour";
   if (!stopsMenu) return;
   stopsMenu.hidden = railMenu !== "stops";
-  if (railMenu !== "stops") return;
-  const dests = navDestList();
-  stopsMenu.innerHTML = dests.length
-    ? dests.map(({ stop }) => `<button type="button" data-aim-stop="${escapeAttr(stop.id)}">${escapeAttr(navStopTitle(stop))}</button>`).join("")
-    : `<button type="button" disabled>No stops</button>`;
+  if (railMenu === "stops") {
+    const dests = navDestList();
+    stopsMenu.innerHTML = dests.length
+      ? dests.map(({ stop }) => `<button type="button" data-aim-stop="${escapeAttr(stop.id)}">${escapeAttr(navStopTitle(stop))}</button>`).join("")
+      : `<button type="button" disabled>No stops</button>`;
+  }
+  if (railMenu) requestAnimationFrame(placeOpenRailMenus);
 }
 
 function toggleRailMenu(which) {
@@ -6748,6 +6806,9 @@ function paintPlaceList() {
   if (note && many) {
     note.hidden = true;
     note.textContent = "";
+  } else if (note && placeHereNote) {
+    note.hidden = false;
+    note.textContent = placeHereNote;
   } else if (note) {
     note.hidden = !truckHit;
     note.textContent = truckHit ? truckNoteText(truckHit) : "";
@@ -6755,8 +6816,8 @@ function paintPlaceList() {
   fillPlaceChoices(document.getElementById("nextPlaceList"), false);
   const routeList = document.getElementById("routePlaceList");
   if (routeList) {
-    routeList.replaceChildren();
-    routeList.hidden = true;
+    fillPlaceChoices(routeList, true);
+    if (!routeFull) routeList.hidden = true;
   }
   const searchLabel = placeSeek === "truck" ? "Search here · 1 credit" : "Search here";
   const soughtHere = Boolean(placeSeek) && routeFull === placeSeekFull;
@@ -6833,23 +6894,36 @@ function forgetTruckChoice() {
 function frameTruckStop() {
   const maplibre = window.maplibregl;
   const hits = truckHits.filter((hit) => Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon)));
-  if (!routeMap || !maplibre || !navFix || !hits.length) return;
+  if (!routeMap || !maplibre || !hits.length) return;
   navFollowing = false;
   tripFit = "off";
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
   syncRouteChrome();
   paintTruckPins();
-  const coordinates = [[navFix[1], navFix[0]]];
+  const coordinates = [];
+  if (navFix) coordinates.push([navFix[1], navFix[0]]);
   for (const hit of hits) coordinates.push([Number(hit.lon), Number(hit.lat)]);
+  routeMap.stop();
+  if (coordinates.length === 1) {
+    routeMap.flyTo({ center: coordinates[0], zoom: 14, bearing: 0, duration: 600 });
+    return;
+  }
   const bounds = coordinates.reduce(
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coordinates[0], coordinates[0]),
   );
-  routeMap.stop();
-  const pad = hits.length > 1 ? 150 : 120;
+  const canvas = routeMap.getCanvas();
+  const width = canvas?.clientWidth || 0;
+  const height = canvas?.clientHeight || 0;
+  // A 280px navigate map cannot take 150px of padding on both sides.
+  // MapLibre then skips the move, and the pins stay off the turn view.
+  const roomY = Math.max(16, Math.floor(height / 2) - 16);
+  const roomX = Math.max(16, Math.floor(width / 2) - 16);
+  const padY = Math.min(hits.length > 1 ? 150 : 120, roomY);
+  const padX = Math.min(88, roomX);
   routeMap.fitBounds(bounds, {
-    padding: { top: pad, bottom: pad, left: 88, right: 88 },
+    padding: { top: padY, bottom: padY, left: padX, right: padX },
     maxZoom: hits.length > 1 ? 12 : 15,
     bearing: 0,
     duration: 600,
@@ -7088,7 +7162,8 @@ function loadPlaceLists() {
   return placeListsPromise;
 }
 
-function nextLocalPlace(points, place) {
+function nextLocalPlace(points, place, options = {}) {
+  const allowEmpty = options.allowEmpty === true;
   return loadPlaceLists().then((grids) => {
     const grid = grids[place];
     if (!grid || !grid.size) throw new Error("The place list did not load.");
@@ -7156,6 +7231,7 @@ function nextLocalPlace(points, place) {
     found.sort((a, b) => a.milesAhead - b.milesAhead || a.milesOff - b.milesOff);
     const chosen = place === "swift" ? found : found.slice(0, 5);
     if (!chosen.length) {
+      if (allowEmpty) return [];
       const miss = {
         loves: "No Love's within 5 miles of the route line.",
         walmart: "No Walmart within 5 miles of the route line.",
@@ -7314,6 +7390,20 @@ async function searchPlacesHere() {
   }
 }
 
+function samePlaceSpot(a, b) {
+  return Math.abs(Number(a?.lat) - Number(b?.lat)) < 0.00015
+    && Math.abs(Number(a?.lon) - Number(b?.lon)) < 0.00015;
+}
+
+function mergePlaceHits(first, second) {
+  const merged = [];
+  for (const hit of [...first, ...second]) {
+    if (!hit || merged.some((item) => samePlaceSpot(item, hit))) continue;
+    merged.push(hit);
+  }
+  return merged;
+}
+
 async function findNextTruckStop(options = {}) {
   if (!navOn || state.estimating) return;
   const place = options.place === "loves" || options.place === "walmart" || options.place === "cat" || options.place === "swift" ? options.place : "truck";
@@ -7323,16 +7413,14 @@ async function findNextTruckStop(options = {}) {
   placeHereNote = "";
   const word = placeWord(place);
   const buttons = placeSearchButtons();
-  const note = document.getElementById("nextTruckNote");
   const add = document.getElementById("addTruckStop");
   for (const button of buttons) button.disabled = true;
   if (add) add.hidden = true;
   forgetTruckChoice();
   syncTruckAdd();
-  if (note) {
-    note.hidden = false;
-    note.textContent = `Looking for the next ${word}…`;
-  }
+  placeHereNote = `Looking for the next ${word}…`;
+  paintPlaceList();
+  let framed = false;
   try {
     if (!navFix) {
       const here = await currentFix();
@@ -7358,28 +7446,39 @@ async function findNextTruckStop(options = {}) {
         milesOff: data.milesOff,
         place,
       }];
+    } else if (place === "swift") {
+      // Same view search as the choose map, plus terminals within 5 miles of the route.
+      const along = await nextLocalPlace(points, place, { allowEmpty: true });
+      let viewed = [];
+      try {
+        viewed = await localPlacesInView(place);
+      } catch (error) {
+        if (!along.length) throw error;
+      }
+      const merged = mergePlaceHits(viewed, along);
+      if (!merged.length) throw new Error(`No ${word} in this part of the map or within 5 miles of the route line.`);
+      hits = merged.map((hit) => ({ ...hit, place }));
     } else {
       hits = (await nextLocalPlace(points, place)).map((hit) => ({ ...hit, place }));
       if (!hits.length) throw new Error(`No ${word} within 5 miles of the route line.`);
     }
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
+    placeHereNote = "";
     showTruckHits(hits, place !== "truck");
-    if (options.frame) frameTruckStop();
+    framed = Boolean(options.frame);
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     const calc = document.getElementById("calculate");
     if (calc) calc.innerHTML = calculateButtonLabel();
+    placeHereNote = error.message || `No ${word} within 5 miles of the route line.`;
     forgetTruckChoice();
     if (add) add.hidden = true;
     syncTruckAdd();
-    if (note) {
-      note.hidden = false;
-      note.textContent = error.message || `No ${word} within 5 miles of the route line.`;
-    }
   } finally {
     syncRouteChrome();
   }
+  if (framed) frameTruckStop();
 }
 
 function showWholeTrip() {
