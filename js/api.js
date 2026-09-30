@@ -59,7 +59,12 @@ export async function api(path, options = {}) {
   const nonce = localStorage.getItem(AUTH_KEY);
   if (nonce) headers["X-Planigator-Auth"] = nonce;
   headers["X-Planigator-Device"] = deviceId();
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new Error("Load failed. Check the signal and try again.");
+  }
   let data = {};
   try {
     data = await response.json();

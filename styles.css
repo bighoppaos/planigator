@@ -1785,6 +1785,8 @@ html.route-full body > :not(#routeStage) {
   z-index: 1;
 }
 #routeStop,
+#routeStops.on,
+#routeDetour.on,
 #routeFollow.on,
 #routeWhole.on,
 #routeBasemap.on,
@@ -1834,6 +1836,37 @@ html.route-full body > :not(#routeStage) {
 #routeCompass .compass-line { display: none; }
 #routeCompass.on .compass-fill { display: none; }
 #routeCompass.on .compass-line { display: block; }
+.rail-pop {
+  position: relative;
+  display: flex;
+  pointer-events: none;
+}
+.rail-col-menu {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: auto;
+}
+.rail-col-menu[hidden] { display: none; }
+.route-rail .rail-col-menu button,
+.route-stage.is-full .route-rail .rail-col-menu button {
+  width: max-content;
+  min-width: 108px;
+  max-width: 190px;
+  height: auto;
+  min-height: 40px;
+  flex: none;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
 .route-rail-left {
   left: 8px;
   right: auto;

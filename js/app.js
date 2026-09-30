@@ -32,7 +32,7 @@ import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-mat
 import SamJs from "./sam.js?v=1";
 import { kittenSpeech, releaseKitten } from "./kitten-voice.js?v=4";
 import { kokoroSpeech, releaseKokoro } from "./kokoro-voice.js?v=2";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=4";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, whereCity, spotAddress, nextTruckStop, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=5";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
@@ -2735,12 +2735,7 @@ async function fillHereLegs() {
     if (!routedPoints[i - 1] || !routedPoints[i]) continue;
     const heading = state.origin?.heading;
     const course = routed[i - 1]?.useCurrentLocation && typeof heading === "number" ? heading : undefined;
-    const leg = await truckRoute(routedPoints[i - 1], routedPoints[i], {
-      speedCapMph,
-      departAt,
-      course,
-      routingMode: state.settings.routeMode === "short" ? "short" : "fast",
-    });
+    const leg = await routeTruckLeg(routedPoints[i - 1], routedPoints[i], course);
     routed[i].miles = String(Math.round(leg.miles * 10) / 10);
     routed[i].hours = String(Math.round(leg.hours * 100) / 100);
     routed[i].path = Array.isArray(leg.points) ? leg.points : [];
@@ -3423,21 +3418,18 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     <div class="route-stage" id="routeStage">
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
-        <div class="truck-slot">
-          <button type="button" class="route-add" id="routeLovesAdd" hidden>Add and recalculate</button>
-          <button type="button" id="routeLoves" hidden aria-label="Next Love's"><span>Love's</span></button>
+        <div class="rail-pop" id="railStopsPop">
+          <button type="button" id="routeStops" aria-expanded="false" aria-label="Stops"><span>Stop</span></button>
+          <div class="rail-col-menu" id="railStopsMenu" hidden></div>
         </div>
-        <div class="truck-slot">
-          <button type="button" class="route-add" id="routeWalmartAdd" hidden>Add and recalculate</button>
-          <button type="button" id="routeWalmart" hidden aria-label="Next Walmart"><span>Wal</span><span>mart</span></button>
-        </div>
-        <div class="truck-slot">
-          <button type="button" class="route-add" id="routeTruckAdd" hidden>Add and recalculate</button>
-          <button type="button" id="routeTruck" hidden aria-label="Next truck stop"><span>Truck</span><span>stop</span></button>
-        </div>
-        <div class="truck-slot">
-          <button type="button" class="route-add" id="routeCatAdd" hidden>Add and recalculate</button>
-          <button type="button" id="routeCat" hidden aria-label="Next Cat Scale"><span>Cat</span><span>scale</span></button>
+        <div class="rail-pop" id="railDetourPop">
+          <button type="button" id="routeDetour" aria-expanded="false" aria-label="Detour"><span>Detour</span></button>
+          <div class="rail-col-menu" id="railDetourMenu" hidden>
+            <button type="button" data-detour="truck">Truck stop · 1 credit</button>
+            <button type="button" data-detour="cat">Cat scale</button>
+            <button type="button" data-detour="loves">Love's</button>
+            <button type="button" data-detour="walmart">Walmart</button>
+          </div>
         </div>
         <button type="button" id="routeBasemap" class="on" aria-pressed="true" aria-label="${basemap === "satellite" ? "Satellite" : "Street map"}">${basemap === "satellite" ? "<span>Satel</span><span>lite</span>" : "<span>Street</span><span>map</span>"}</button>
         <button type="button" id="routeZoomIn" aria-label="Zoom in"><span>Zoom</span><span>in</span></button>
@@ -3477,7 +3469,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     ${directions}
     ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. The circle is the download. These keep the song playing. Robot is the small one.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
-    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box" id="nextTruck" ${!navOn || state.estimating || (!state.unlimited && state.credits === 0) ? "disabled" : ""}>Next truck stop · 1 credit</button><button type="button" class="flag-box" id="nextCat" ${!navOn || state.estimating ? "disabled" : ""}>Next Cat scale</button><button type="button" class="flag-box" id="nextLoves" ${!navOn || state.estimating ? "disabled" : ""}>Next Love's</button><button type="button" class="flag-box" id="nextWalmart" ${!navOn || state.estimating ? "disabled" : ""}>Next Walmart</button><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
+    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>${placeSeek === "truck" ? "Search here · 1 credit" : "Search here"}</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
   </section>`;
 }
@@ -4443,6 +4435,23 @@ function preferMix() {
   }
 }
 
+function unlockMix() {
+  preferMix();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!mixCtx) mixCtx = new AudioCtx();
+  if (mixCtx.state === "suspended") mixCtx.resume();
+  try {
+    const buf = mixCtx.createBuffer(1, 1, 22050);
+    const src = mixCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(mixCtx.destination);
+    src.start();
+  } catch {
+    // The next spoken line still uses this same mixer.
+  }
+}
+
 function stopNavUtterance() {
   if (navVoiceNode) {
     try { navVoiceNode.stop(); } catch { /* already stopped */ }
@@ -4529,6 +4538,7 @@ function previewChosenVoice() {
 function playChosenVoice(text) {
   const said = spokenAloud(text);
   if (!said) return;
+  unlockMix();
   const token = ++voiceJob;
   const voice = navVoiceId();
   if (voice === "robot") {
@@ -4974,6 +4984,7 @@ function syncRouteChrome() {
     follow.classList.toggle("on", navOn && navFollowing);
   }
   paintStopButton();
+  paintRailMenus();
   placeDirections(routeFull);
   syncTruckAdd();
   const start = document.getElementById("startNav");
@@ -5489,7 +5500,69 @@ function paintStopButton() {
   if (button) button.setAttribute("aria-label", navStopTitle(shown?.stop));
 }
 
+function paintRailMenus() {
+  const stopsBtn = document.getElementById("routeStops");
+  const detourBtn = document.getElementById("routeDetour");
+  const stopsMenu = document.getElementById("railStopsMenu");
+  const detourMenu = document.getElementById("railDetourMenu");
+  if (stopsBtn) {
+    stopsBtn.classList.toggle("on", railMenu === "stops");
+    stopsBtn.setAttribute("aria-expanded", railMenu === "stops" ? "true" : "false");
+  }
+  if (detourBtn) {
+    detourBtn.classList.toggle("on", railMenu === "detour");
+    detourBtn.setAttribute("aria-expanded", railMenu === "detour" ? "true" : "false");
+  }
+  if (detourMenu) detourMenu.hidden = railMenu !== "detour";
+  if (!stopsMenu) return;
+  stopsMenu.hidden = railMenu !== "stops";
+  if (railMenu !== "stops") return;
+  const dests = navDestList();
+  stopsMenu.innerHTML = dests.length
+    ? dests.map(({ stop }) => `<button type="button" data-aim-stop="${escapeAttr(stop.id)}">${escapeAttr(navStopTitle(stop))}</button>`).join("")
+    : `<button type="button" disabled>No stops</button>`;
+}
+
+function toggleRailMenu(which) {
+  railMenu = railMenu === which ? "" : which;
+  paintRailMenus();
+}
+
+function aimNavAtStop(stopId) {
+  const dests = navDestList();
+  const pos = dests.findIndex((item) => item.stop.id === stopId);
+  if (pos < 0) return;
+  railMenu = "";
+  paintRailMenus();
+  navStopCursor = pos;
+  navAimStopId = stopId;
+  navStopPicked = true;
+  navGuideFromId = "";
+  navStopAwaitNear = false;
+  navStopAnnounce = false;
+  clearDirectionPin();
+  clearTurnFrame();
+  const name = navStopTitle(dests[pos].stop);
+  showStopNote(`Head to ${name}`, 4000);
+  if (!navOn) {
+    unlockMix();
+    beginRouteNav();
+    return;
+  }
+  tripFit = "nextTurn";
+  navFollowing = false;
+  navZoomHold = 0;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+  if (navFix) onNavFix(navFix[0], navFix[1]);
+  syncRouteChrome();
+}
+
 let navStopTapAt = 0;
+let navAimStopId = "";
+let railMenu = "";
+let dirPinned = null;
+let dirPinTimer = 0;
 let tripFit = "off";
 
 function tripFitLines() {
@@ -5526,6 +5599,9 @@ let turnShownAlong = null;
 let turnOpenAlong = null;
 let turnBehind = null;
 let turnKeepAlong = null;
+let turnLockAlong = null;
+let turnPhase = "approach";
+let turnWidenAt = 0;
 let turnZoomOut = null;
 let turnZoomOutTimer = 0;
 let stopFrameAt = null;
@@ -5616,6 +5692,9 @@ function clearTurnFrame() {
   turnShownKey = "";
   turnShownAlong = null;
   turnKeepAlong = null;
+  turnLockAlong = null;
+  turnPhase = "approach";
+  turnWidenAt = 0;
   stopTurnZoomOut();
 }
 
@@ -5884,57 +5963,65 @@ function moveTurnZoomOut(t) {
   return { farAlong: span.farAlong, bearing };
 }
 
+function zoomForCenterToTop(meters, lat, height) {
+  const pixels = Math.max(80, height / 2);
+  const mpp = Math.max(8, meters) / pixels;
+  const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
+  const zoom = Math.log2((156543.03392 * cos) / mpp);
+  return Math.max(3, Math.min(17.5, zoom));
+}
+
 function frameNextTurn() {
-  const maplibre = window.maplibregl;
-  if (!routeMap || !maplibre) return;
+  if (!routeMap) return;
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
-  const along = turnGuideAlong();
-  const span = turnSpan(along);
-  if (!span.far) return;
-  const stepKey = turnStepKey(along);
   if (turnZoomOut) stopTurnZoomOut();
-  let bearingDelta = 0;
-  if (turnFrameBearing != null) {
-    bearingDelta = Math.abs(span.bearing - turnFrameBearing) % 360;
-    if (bearingDelta > 180) bearingDelta = 360 - bearingDelta;
+  const along = turnGuideAlong();
+  const halfMile = 804.672;
+  const mile = 1609.344;
+  if (turnPhase !== "widen" && (turnLockAlong == null || turnLockAlong < along + 25)) {
+    turnLockAlong = currentDirectionEnd(along);
+    turnPhase = "approach";
   }
-  const sameView = turnFrameAt && turnFrameTarget != null
-    && Math.abs(turnFrameTarget - span.farAlong) < 40
-    && Math.abs((span.fromAlong || along) - (turnFrameAt.along || along)) < 40
-    && metersBetween(turnFrameAt, navFix) < 80
-    && bearingDelta < 12;
-  if (sameView) return;
-  const bounds = boundsForTurn(span.fromAlong, span.farAlong);
-  if (!bounds) return;
-  const fit = fitTurnCamera(bounds, span.bearing, span.deeper);
-  if (fit.camera) {
-    fit.camera.zoom = aimTurnZoom(fit.camera.zoom, Math.max(span.ahead, span.farAlong - span.fromAlong));
-  }
-  turnFrameAt = [navFix[0], navFix[1]];
-  turnFrameAt.along = span.fromAlong;
-  turnFrameTarget = span.farAlong;
-  turnFrameBearing = span.bearing;
-  turnShownKey = stepKey;
-  turnShownAlong = span.turnAlong;
-  placeTurnPin(turnBehind && along - turnBehind.along < 1609.344 ? turnBehind.along : span.turnAlong);
-  navZoomHold = Date.now() + 800;
-  routeMap.stop();
-  if (fit.camera) {
-    routeMap.easeTo({
-      center: fit.camera.center,
-      zoom: fit.camera.zoom,
-      bearing: fit.camera.bearing,
-      duration: 650,
-    });
+  let target = turnLockAlong;
+  if (target == null) return;
+  let dist = Math.max(0, target - along);
+  let span = dist;
+  if (turnPhase === "widen") {
+    const t = Math.min(1, (Date.now() - turnWidenAt) / 7000);
+    span = halfMile + (mile - halfMile) * t;
+    if (t >= 1) {
+      const upcoming = currentDirectionEnd(Math.max(along, target) + 30);
+      turnLockAlong = upcoming != null && upcoming > along + 40 ? upcoming : currentDirectionEnd(along);
+      turnPhase = "approach";
+      target = turnLockAlong;
+      if (target == null) return;
+      dist = Math.max(0, target - along);
+      span = Math.max(halfMile, dist);
+    }
   } else {
-    routeMap.fitBounds(bounds, {
-      padding: fit.padding,
-      bearing: span.bearing,
-      maxZoom: 18,
-      duration: 650,
-    });
+    span = Math.max(halfMile, dist);
+    if (dist <= halfMile + 25) {
+      turnPhase = "widen";
+      turnWidenAt = Date.now();
+      span = halfMile;
+    }
   }
+  const at = pointAlong(navLine, target);
+  if (!at) return;
+  const bearing = northLock ? 0 : navBearing(navFix, [at.lat, at.lon]);
+  const height = routeMap.getContainer()?.clientHeight || 640;
+  const zoom = zoomForCenterToTop(span, navFix[0], height);
+  placeTurnPin(target);
+  turnShownAlong = target;
+  routeMap.stop();
+  routeMap.easeTo({
+    center: [navFix[1], navFix[0]],
+    zoom,
+    bearing: Number.isFinite(bearing) ? bearing : routeMap.getBearing(),
+    duration: 450,
+    easing: (x) => x,
+  });
 }
 
 function frameNextStop() {
@@ -6318,6 +6405,10 @@ function currentFix() {
 
 function activeNavLeg() {
   if (!navLegs.length) return null;
+  if (navAimStopId) {
+    const aimed = navLegs.find((leg) => leg.stop?.id === navAimStopId && leg.stop && !leg.stop.skipRoute && !leg.stop.done);
+    if (aimed) return aimed;
+  }
   for (const leg of navLegs) {
     const stop = leg.stop;
     if (!stop || stop.skipRoute || stop.done || stop.useCurrentLocation) continue;
@@ -6486,15 +6577,10 @@ async function recalculateFromHere() {
   let leg;
   try {
     const heading = here.heading;
-    leg = await truckRoute(
+    leg = await routeTruckLeg(
       { lat: here.lat, lon: here.lon },
       { lat: Number(target.lat), lon: Number(target.lon) },
-      {
-        speedCapMph: state.settings.governed ? mph() : null,
-        departAt: leaveAtNow(),
-        course: typeof heading === "number" ? heading : undefined,
-        routingMode: state.settings.routeMode === "short" ? "short" : "fast",
-      },
+      typeof heading === "number" ? heading : undefined,
     );
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
@@ -6524,11 +6610,20 @@ function stopPoint(stop) {
 }
 
 function routeTruckLeg(from, to, course) {
-  return truckRoute(from, to, {
+  const mode = state.settings.routeMode === "short" ? "short" : "fast";
+  const run = (routingMode) => truckRoute(from, to, {
     speedCapMph: state.settings.governed ? mph() : null,
     departAt: leaveAtNow(),
     ...(typeof course === "number" ? { course } : {}),
-    routingMode: state.settings.routeMode === "short" ? "short" : "fast",
+    routingMode,
+  });
+  if (mode !== "short") return run(mode);
+  return run("short").then((leg) => {
+    if (leg?.routingMode === "fast") state.notice = "Short mode did not load. Showing the fast road.";
+    return leg;
+  }).catch(() => {
+    state.notice = "Short mode did not load. Showing the fast road.";
+    return run("fast");
   });
 }
 
@@ -7611,24 +7706,15 @@ function pauseFollowForDirection() {
   navFollowing = false;
   syncRouteChrome();
   window.clearTimeout(navReturnTimer);
-  const resumeTurn = tripFit === "nextTurn";
-  if (resumeTurn) navZoomHold = Date.now() + 5200;
-  navReturnTimer = window.setTimeout(() => {
-    navReturnTimer = 0;
-    if (!navOn) return;
-    if (tripFit === "nextTurn") {
-      clearTurnFrame();
-      frameNextTurn();
-      return;
-    }
-    navFollowing = true;
-    syncRouteChrome();
-    if (navFix) onNavFix(navFix[0], navFix[1]);
-  }, 5000);
+  navReturnTimer = 0;
+  navZoomHold = Date.now() + 12000;
 }
 
 function endRouteNav() {
   navOn = false;
+  navAimStopId = "";
+  clearDirectionPin();
+  railMenu = "";
   northLock = false;
   compassAim = false;
   navAlongLock = null;
@@ -7753,6 +7839,11 @@ function focusDirectionWindow(stopId, index) {
   const scrolling = document.querySelector("#routeDirections .dir-scroll");
   const box = document.getElementById("routeDirections");
   if (!scrolling) return;
+  if (dirPinned) {
+    box?.classList.remove("dir-three");
+    scrolling.querySelectorAll("li.dir-far").forEach((li) => li.classList.remove("dir-far"));
+    return;
+  }
   const browsing = Boolean(box?.classList.contains("dir-browse"));
   const hide = navOn && Number.isFinite(index) && !browsing;
   box?.classList.toggle("dir-three", Boolean(navOn && Number.isFinite(index)));
@@ -7923,8 +8014,11 @@ function bindDirectionSteps(root) {
     if (button.dataset.dirBound === "1") return;
     button.dataset.dirBound = "1";
     button.addEventListener("click", () => {
+      const stopId = button.getAttribute("data-dir-stop");
+      const index = Number(button.getAttribute("data-dir-index"));
+      pinDirection(stopId, index);
       pauseFollowForDirection();
-      zoomToDirection(button.getAttribute("data-dir-stop"), button.getAttribute("data-dir-index"));
+      zoomToDirection(stopId, index);
     });
   });
 }
@@ -8015,7 +8109,29 @@ function paintLiveDirections() {
   paintSwitchOffer(hit);
 }
 
-function markDirection(stopId, index) {
+function clearDirectionPin() {
+  dirPinned = null;
+  window.clearTimeout(dirPinTimer);
+  dirPinTimer = 0;
+}
+
+function pinDirection(stopId, index) {
+  dirPinned = { stopId, index: Number(index) };
+  window.clearTimeout(dirPinTimer);
+  dirPinTimer = window.setTimeout(() => {
+    dirPinned = null;
+    dirPinTimer = 0;
+  }, 12000);
+  navZoomHold = Date.now() + 12000;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
+}
+
+function markDirection(stopId, index, fromUser = false) {
+  if (dirPinned && !fromUser) {
+    stopId = dirPinned.stopId;
+    index = dirPinned.index;
+  }
   document.querySelectorAll(".dir-step.on").forEach((button) => {
     button.classList.remove("on");
     button.removeAttribute("aria-pressed");
@@ -8026,6 +8142,7 @@ function markDirection(stopId, index) {
   if (!button) return null;
   button.classList.add("on");
   button.setAttribute("aria-pressed", "true");
+  if (dirPinned && !fromUser) return button;
   focusDirectionWindow(stopId, index);
   revealDirection(button);
   return button;
@@ -8048,7 +8165,7 @@ function zoomToDirection(stopId, index) {
   const stop = state.stops.find((item) => item.id === stopId);
   const focus = directionFocus(stop, Number(index));
   if (!focus) return;
-  markDirection(stopId, index);
+  markDirection(stopId, index, true);
   const button = [...document.querySelectorAll("[data-dir-stop]")].find((item) => (
     item.getAttribute("data-dir-stop") === stopId && item.getAttribute("data-dir-index") === String(index)
   ));
@@ -9605,6 +9722,25 @@ function bind() {
     // Let the tap finish before the map is rebuilt. Changing the rail under
     // the finger makes iOS swallow Exit and zoom until a force close.
     window.setTimeout(() => { void recalculateFromHere(); }, 0);
+  });
+  $("#routeStops")?.addEventListener("click", () => toggleRailMenu("stops"));
+  $("#routeDetour")?.addEventListener("click", () => toggleRailMenu("detour"));
+  $("#railStopsMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-aim-stop]");
+    if (!button) return;
+    aimNavAtStop(button.getAttribute("data-aim-stop"));
+  });
+  $("#railDetourMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-detour]");
+    if (!button) return;
+    railMenu = "";
+    paintRailMenus();
+    if (!navOn) {
+      showStopNote("Start navigation first.", 4000);
+      return;
+    }
+    const place = button.getAttribute("data-detour");
+    findNextTruckStop({ place: place === "truck" ? undefined : place, frame: true });
   });
   $("#routeZoomIn")?.addEventListener("click", () => changeMapZoom(1));
   $("#routeZoomOut")?.addEventListener("click", () => changeMapZoom(-1));
