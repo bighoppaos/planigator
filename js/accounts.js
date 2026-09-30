@@ -315,9 +315,31 @@ function heroRow(value) {
   return row;
 }
 
+const OLD_HERO = [
+  [
+    "Know how much time you have to spare",
+    "Truck legal GPS navigation on this same page. No app required.",
+    "It's not expensive",
+    "And it's cooler",
+  ],
+  [
+    "Know how much time you have to spare",
+    "Truck legal GPS navigation on this same page. No app required.",
+    "It's not expensive",
+    "And it's cooler",
+    "Made by a driver that still drives",
+  ],
+];
+
 function fillHero(lines) {
-  const next = (Array.isArray(lines) && lines.length ? lines : DEFAULT_HERO).slice(0, HERO_MAX);
-  document.getElementById("heroLines").replaceChildren(...next.map((line) => heroRow(String(line))));
+  const cleaned = (Array.isArray(lines) ? lines : []).map((line) => String(line ?? "").trim()).filter(Boolean);
+  const saved = cleaned.join("\n");
+  const next = (OLD_HERO.some((set) => set.join("\n") === saved) || !cleaned.length ? DEFAULT_HERO : cleaned).slice(0, HERO_MAX);
+  const box = document.getElementById("heroLines");
+  box.replaceChildren(...next.map((line) => heroRow(String(line))));
+  requestAnimationFrame(() => {
+    box.querySelectorAll("textarea").forEach(fitHeroLine);
+  });
 }
 
 let heroEditorPromise = null;
