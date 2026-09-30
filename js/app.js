@@ -5747,7 +5747,8 @@ let pendingAimId = "";
 let railMenu = "";
 let dirPinned = null;
 let dirPinTimer = 0;
-let tripFit = "off";
+// Trip zoom before navigation. Turn zoom when navigation starts.
+let tripFit = "full";
 
 function tripFitLines() {
   if (tripFit === "remaining") return ["Left", "zoom"];
@@ -8001,7 +8002,8 @@ function endRouteNav() {
   resetNavVoice();
   stopMixNavVoice();
   navFollowing = false;
-  tripFit = "off";
+  followPinned = false;
+  tripFit = "full";
   clearTurnFrame();
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
@@ -8019,7 +8021,11 @@ function endRouteNav() {
   if (source) {
     source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });
   }
-  if (routeMap) routeMap.easeTo({ bearing: 0, duration: 400 });
+  syncTripFitButton();
+  if (routeMap) {
+    routeMap.easeTo({ bearing: 0, duration: 400 });
+    showWholeTrip();
+  }
   window.clearTimeout(dirBrowseTimer);
   dirBrowseTimer = 0;
   document.getElementById("routeDirections")?.classList.remove("dir-browse");
@@ -8556,7 +8562,10 @@ function mountMap() {
         map.jumpTo(camera);
       }
     } else if (pendingTurn) applyTurnZoom(map, pendingTurn);
-    else map.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 8, animate: false });
+    else if (tripFit === "full" || !navOn) {
+      map.fitBounds(bounds, { padding: tripViewPadding(), maxZoom: 14, animate: false });
+    } else map.fitBounds(bounds, { padding: routeFull ? 80 : 48, maxZoom: 8, animate: false });
+    syncTripFitButton();
     paintCompassRose();
     if (truckHits.length) paintTruckPins();
   });
