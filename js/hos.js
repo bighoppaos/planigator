@@ -490,6 +490,30 @@ export class TruckerHOSClock {
         this.sit(chunk);
         remainingSit -= chunk;
       }
+      // Possible delay left on this piece still counts as driving. Spend what
+      // fits before the day ends, then push the rest start by any leftover so
+      // the morning stay put until that rest would drop under 10 hours.
+      if (remainingDelay > 0.001) {
+        const fit = Math.min(
+          remainingDelay,
+          Math.max(0, cap - this.drivenToday),
+          Math.max(0, onDutyCap - this.onDutyToday),
+          Math.max(0, hoursUntilEnd()),
+        );
+        if (fit > 0.01) {
+          this.now += fit * 3600 * 1000;
+          this.drivenToday += fit;
+          this.drivenSinceBreak += fit;
+          this.onDutyToday += fit;
+          driveHours += fit;
+          drivenSinceRest += fit;
+          remainingDelay -= fit;
+        }
+        if (remainingDelay > 0.001) {
+          this.now += remainingDelay * 3600 * 1000;
+          remainingDelay = 0;
+        }
+      }
       const leftoverSit = remainingSit;
       remainingSit = 0;
       remainingDelay = 0;
@@ -512,6 +536,7 @@ export class TruckerHOSClock {
 
     const parkForThirty = () => {
       const leftoverSit = remainingSit;
+      const leftoverDelay = remainingDelay;
       remainingSit = 0;
       remainingDelay = 0;
       flushDrive();
@@ -525,6 +550,8 @@ export class TruckerHOSClock {
       piece += 1;
       loadPiece(piece);
       remainingSit += leftoverSit;
+      // Delay that did not fit before the 30 rides with the next drive piece.
+      remainingDelay += leftoverDelay;
     };
 
     const waitForDailyStartIfNeeded = () => {

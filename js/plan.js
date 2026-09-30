@@ -260,16 +260,37 @@ export function schedules({
       if (arriveLatest) clock.holdToArriveBy(open, drive, cap);
       else clock.holdForArrival(open, drive, cap);
     }
-    const beforeDrive = clock.clone();
-    const chipClock = clock.clone();
-    const chipEvents = chipClock.driveReporting(drive, cap, [0], [0]);
-    const chipRouteHours = chipEvents
+    // Possible delay on chips before a 30/10 sits in the driving pool so
+    // those chips shrink and the break still lands on the chosen mark. Delay
+    // on the last chip still lands after arrival (next leave moves; this
+    // stop's arrive stamp stays put when another stop follows).
+    const nextStop = stops[index + 1];
+    const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute && !nextStop.done;
+    const laterVisible = stops.slice(index + 1).some((item, offset) => (
+      !isOriginStop(stops, index + 1 + offset) && !item.skipRoute && !item.done
+    ));
+    const probed = clock.clone().driveReporting(drive, cap, [0], [0]);
+    const probedDrives = probed.filter((event) => event.kind === "drive").length;
+    const poolDelays = laterPieceDelayHours(stop, 0);
+    let tailDelayMinutes = 0;
+    if (probedDrives > 0 && (nextVisible || !laterVisible)) {
+      const lastIdx = probedDrives - 1;
+      const lastHours = poolDelays[lastIdx] || 0;
+      if (lastHours > 0) {
+        tailDelayMinutes = Math.round(lastHours * 60);
+        poolDelays[lastIdx] = 0;
+        while (poolDelays.length && poolDelays[poolDelays.length - 1] === 0) poolDelays.pop();
+      }
+    }
+    const events = clock.driveReporting(drive, cap, [0], poolDelays);
+    const chipRouteHours = events
       .filter((event) => event.kind === "drive")
       .map((event) => event.routeHours);
-    const reported = clock.driveReporting(drive, cap, [0], [0]);
-    const laid = applyDrivePieceDelays(stop, reported, beforeDrive, cap);
-    copyClock(clock, laid.sim);
-    const events = laid.events;
+    const laid = {
+      events,
+      sim: clock,
+      tailIndex: events.filter((event) => event.kind === "drive").length - 1,
+    };
     const leading = [];
     const pieces = [];
     let pending = null;
@@ -332,20 +353,6 @@ export function schedules({
         pausesAfter: [],
       });
     }
-    // A delay on this drive sits before the window wait, so spare time until
-    // the window absorbs it. The next drive still leaves when the window
-    // opens. On the last drive there is no next leave, so the arrival itself
-    // moves and the leeway below opens then. The minutes also come out of the
-    // daily drive limit. They stop at the end of the driving day. The 10-hour
-    // reset still starts then. Delay that does not fit waits until after it.
-    const tailDelayMinutes = stop.skipRoute || laid.tailIndex < 0
-      ? 0
-      : pieceDelayMinutes(stop, laid.tailIndex);
-    const nextStop = stops[index + 1];
-    const nextVisible = Boolean(nextStop) && !isOriginStop(stops, index + 1) && !nextStop.skipRoute && !nextStop.done;
-    const laterVisible = stops.slice(index + 1).some((item, offset) => (
-      !isOriginStop(stops, index + 1 + offset) && !item.skipRoute && !item.done
-    ));
     const applyTail = tailDelayMinutes >= 1 && (nextVisible || !laterVisible);
     const inDay = !isAnytimeEnd(clock.endMinutes)
       && isInsideDriveWindow(clock.now, clock.startMinutes, clock.endMinutes, clock.timeZone);
@@ -478,7 +485,9 @@ function leewayPhrase() {
 }
 
 function laterPieceDelayHours(stop, fromPiece) {
-  const list = Array.isArray(stop?.driveDelays) ? stop.driveDelays : [];
+  const list = Array.isArray(stop?.driveDelays)
+    ? stop.driveDelays
+    : (Math.max(0, Number(stop?.delayMinutes) || 0) > 0 ? [stop.delayMinutes] : []);
   const hours = [];
   for (let index = Math.max(0, fromPiece); index < list.length; index += 1) {
     hours.push(Math.max(0, Number(list[index]) || 0) / 60);
@@ -560,7 +569,38 @@ function routeHoursAfter(events, fromIndex) {
   return hours;
 }
 
-function applyDrivePieceDelays(stop, events, before, cap) {
+function applyDrivePieceDelays(stop, events, before, cap, opts = {}) {
+  // When driveReporting already ate the piece delays, just replay the clock
+  // from those events so callers still get sim + tailIndex.
+  if (opts.delaysApplied) {
+    const sim = before.clone();
+    let kept = 0;
+    for (const event of events) {
+      if (event.kind === "drive") {
+        sim.now = Math.max(sim.now, event.end);
+        const hours = Math.max(0, Number(event.hours) || 0);
+        sim.drivenToday += hours;
+        sim.drivenSinceBreak += hours;
+        sim.onDutyToday += hours;
+        kept += 1;
+      } else if (event.kind === "thirty") {
+        sim.now = Math.max(sim.now, event.end);
+        sim.onDutyToday += 0.5;
+        sim.breakCount += 1;
+        sim.drivenSinceBreak = 0;
+      } else if (event.kind === "rest") {
+        const tenEnd = event.start + 10 * 3600 * 1000;
+        const resume = resumeAfterRest(sim.startMinutes, sim.endMinutes, tenEnd, sim.timeZone || "");
+        const end = Math.max(event.end, resume);
+        sim.now = end;
+        sim.drivenSinceBreak = 0;
+        sim.drivenToday = 0;
+        sim.onDutyToday = 0;
+        sim.restCount += 1;
+      }
+    }
+    return { events: events.map((event) => ({ ...event })), sim, tailIndex: kept - 1 };
+  }
   const sim = before.clone();
   const driveCount = events.filter((event) => event.kind === "drive").length;
   let carry = 0;

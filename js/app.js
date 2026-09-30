@@ -10,7 +10,7 @@ import {
   shortStamp,
   resolvedLeaveAt,
   msInZone,
-} from "./hos.js?v=134";
+} from "./hos.js?v=135";
 import {
   newId,
   cardTitle,
@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=165";
+} from "./plan.js?v=166";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8697,14 +8697,27 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
   if (state.estimating) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
+  // iPhone Safari zooms when a control under the finger is replaced mid-tap.
+  // Blur and keep the scroll put so a fast stepper mash does not jump/zoom.
+  const active = document.activeElement;
+  if (active && active !== document.body && active.blur) active.blur();
+  const scrollX = window.scrollX || window.pageXOffset || 0;
+  const scrollY = window.scrollY || window.pageYOffset || 0;
+  const restoreScroll = () => {
+    window.scrollTo(scrollX, scrollY);
+    requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  };
   if (finish) {
     const current = Math.max(0, Math.round(Number(stop.finishDelayMinutes) || 0));
     const next = Math.max(0, Math.min(24 * 60, current + delta));
     if (next === current) return;
     stop.finishDelayMinutes = next;
     persist();
-    if (state.plan) calculate({ silent: true });
-    else render();
+    if (state.plan) calculate({ silent: true }).finally(restoreScroll);
+    else {
+      render();
+      restoreScroll();
+    }
     return;
   }
   const piece = Math.max(0, Number(pieceIndex) || 0);
@@ -8719,8 +8732,11 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
   stop.driveDelays[piece] = next;
   stop.delayMinutes = stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
   persist();
-  if (state.plan) calculate({ silent: true });
-  else render();
+  if (state.plan) calculate({ silent: true }).finally(restoreScroll);
+  else {
+    render();
+    restoreScroll();
+  }
 }
 
 function stopCard(stop, index, showPlan = true) {

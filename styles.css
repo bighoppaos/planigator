@@ -270,6 +270,7 @@ button {
   border-radius: 12px;
   padding: 12px 16px;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 button.primary {
@@ -1182,14 +1183,16 @@ input.compact {
   border-radius: 6px;
   background: var(--card);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.05;
   text-align: center;
+  touch-action: manipulation;
 }
 .delay-name {
   flex: 0 0 auto;
   max-width: 100%;
+  font-size: 11px;
 }
 .delay-controls {
   display: flex;
@@ -1213,8 +1216,12 @@ input.compact {
   background: var(--bg);
   color: var(--ink);
   font: inherit;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .delay-read {
   flex: 1 1 auto;
@@ -1223,6 +1230,7 @@ input.compact {
   align-items: center;
   justify-content: center;
   text-align: center;
+  font-size: 12px;
   line-height: 1.05;
 }
 
