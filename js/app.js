@@ -4657,33 +4657,42 @@ function stopNavUtterance() {
     try { navVoiceNode.stop(); } catch { /* already stopped */ }
     navVoiceNode = null;
   }
+  phoneUtter = null;
   window.speechSynthesis?.cancel();
 }
 
 function playSamples(samples, rate) {
-  preferMix();
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx || !samples?.length) return;
-  if (!mixCtx) mixCtx = new AudioCtx();
-  if (mixCtx.state === "suspended") mixCtx.resume();
-  stopNavUtterance();
-  const buffer = mixCtx.createBuffer(1, samples.length, rate);
-  buffer.getChannelData(0).set(samples);
-  const source = mixCtx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(mixCtx.destination);
-  navVoiceNode = source;
-  source.onended = () => {
-    if (navVoiceNode === source) navVoiceNode = null;
-  };
-  source.start();
+  return new Promise((resolve) => {
+    preferMix();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx || !samples?.length) {
+      resolve();
+      return;
+    }
+    if (!mixCtx) mixCtx = new AudioCtx();
+    if (mixCtx.state === "suspended") mixCtx.resume();
+    const buffer = mixCtx.createBuffer(1, samples.length, rate);
+    buffer.getChannelData(0).set(samples);
+    const source = mixCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(mixCtx.destination);
+    navVoiceNode = source;
+    const done = () => {
+      if (navVoiceNode === source) navVoiceNode = null;
+      resolve();
+    };
+    source.onended = done;
+    try {
+      source.start();
+    } catch {
+      done();
+    }
+  });
 }
 
 function playNavSpeech(text) {
   playChosenVoice(text);
 }
-
-let voiceJob = 0;
 
 let voiceBusy = false;
 let voicePct = -1;
@@ -4731,45 +4740,105 @@ function previewChosenVoice() {
 }
 
 let phoneUtter = null;
+let phoneVoice = null;
+let speakChain = Promise.resolve();
+let speakGen = 0;
 
-function speakPhone(text) {
+function pickPhoneVoice() {
+  const synth = window.speechSynthesis;
+  if (!synth) return null;
+  const voices = synth.getVoices() || [];
+  if (phoneVoice && voices.includes(phoneVoice)) return phoneVoice;
+  const english = voices.filter((voice) => /^en(-|_|$)/i.test(voice.lang || ""));
+  phoneVoice = english.find((voice) => /en-US/i.test(voice.lang || "") && voice.localService)
+    || english.find((voice) => voice.localService)
+    || english.find((voice) => /en-US/i.test(voice.lang || ""))
+    || english[0]
+    || null;
+  return phoneVoice;
+}
+
+function whenPhoneVoicesReady() {
+  const synth = window.speechSynthesis;
+  if (!synth) return Promise.resolve();
+  if ((synth.getVoices() || []).length) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      synth.removeEventListener("voiceschanged", finish);
+      resolve();
+    };
+    synth.addEventListener("voiceschanged", finish);
+    window.setTimeout(finish, 700);
+  });
+}
+
+function speakPhone(text, gen) {
   const synth = window.speechSynthesis;
   if (!synth || typeof SpeechSynthesisUtterance !== "function") {
     showStopNote("This phone has no voice for that.", 4000);
-    return;
+    return Promise.resolve();
   }
-  stopNavUtterance();
-  const utter = new SpeechSynthesisUtterance(text);
-  phoneUtter = utter;
-  utter.lang = "en-US";
-  const voices = synth.getVoices();
-  const english = voices.filter((voice) => /^en/i.test(voice.lang || ""));
-  const local = english.find((voice) => voice.localService) || english[0];
-  if (local) utter.voice = local;
-  utter.onend = () => {
-    if (phoneUtter === utter) phoneUtter = null;
-  };
-  synth.speak(utter);
-  synth.resume();
+  return whenPhoneVoicesReady().then(() => new Promise((resolve) => {
+    if (gen != null && gen !== speakGen) {
+      resolve();
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance(text);
+    phoneUtter = utter;
+    utter.lang = "en-US";
+    const voice = pickPhoneVoice();
+    if (voice) {
+      utter.voice = voice;
+      if (voice.lang) utter.lang = voice.lang;
+    }
+    const done = () => {
+      if (phoneUtter === utter) phoneUtter = null;
+      resolve();
+    };
+    utter.onend = done;
+    utter.onerror = done;
+    try {
+      synth.speak(utter);
+      synth.resume();
+    } catch {
+      done();
+    }
+  }));
 }
 
-function playChosenVoice(text) {
+function playChosenVoice(text, { barge = true } = {}) {
   const said = spokenAloud(text);
-  if (!said) return;
-  const token = ++voiceJob;
-  if (navVoiceId() === "phone") {
-    speakPhone(said);
-    return;
+  if (!said) return Promise.resolve();
+  if (barge) {
+    speakGen += 1;
+    stopNavUtterance();
+    speakChain = Promise.resolve();
   }
-  unlockMix();
-  const spec = PAGE_VOICE[navVoiceId()] || PAGE_VOICE.us;
-  pageSpeech(said, spec).then((clip) => {
-    if (token !== voiceJob) return;
-    playSamples(clip.samples, clip.rate);
-  }).catch(() => {
-    if (token !== voiceJob) return;
-    showStopNote("That voice did not talk. Try the next one.", 4000);
+  const gen = speakGen;
+  const job = speakChain.then(async () => {
+    if (gen !== speakGen) return;
+    if (navVoiceId() === "phone") {
+      await speakPhone(said, gen);
+      return;
+    }
+    unlockMix();
+    try {
+      await warmPageVoices();
+      if (gen !== speakGen) return;
+      const spec = PAGE_VOICE[navVoiceId()] || PAGE_VOICE.us;
+      const clip = await pageSpeech(said, spec);
+      if (gen !== speakGen) return;
+      await playSamples(clip.samples, clip.rate);
+    } catch {
+      if (gen !== speakGen) return;
+      showStopNote("That voice did not talk. Try the next one.", 4000);
+    }
   });
+  speakChain = job.catch(() => {});
+  return job;
 }
 
 function stepNavVoice(dir) {
@@ -4814,8 +4883,16 @@ function navVoiceLabel() {
   return NAV_VOICES.find(([value]) => value === id)?.[1] || "US";
 }
 
+let navVoiceIntroPending = false;
+
 function unlockNavVoice() {
-  playChosenVoice("Navigation on.");
+  // Unlock audio on this tap, then say the line in the chosen voice. The first
+  // direction queues after this so it does not cut in with a different voice.
+  unlockMix();
+  navVoiceIntroPending = true;
+  playChosenVoice("Navigation on.", { barge: true }).finally(() => {
+    navVoiceIntroPending = false;
+  });
 }
 
 const STATE_NAMES = {
@@ -4902,7 +4979,9 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
-  playChosenVoice(text);
+  // Queue behind "Navigation on." so Start does not sound like two people.
+  // Later turn updates still barge in and replace the line.
+  playChosenVoice(text, { barge: !navVoiceIntroPending });
 }
 
 function resetNavVoice() {
@@ -4990,10 +5069,7 @@ function speakNavProgress(leg, found, hereAlong) {
     }
     const next = upcomingDirection(leg, found.index);
     const said = (next && approachPhrase(next, leftMeters)) || (text ? phrase() : "");
-    if (said) {
-      stopNavUtterance();
-      speakNav(said);
-    }
+    if (said) speakNav(said);
   }
   for (const band of bands) {
     if (spokenMiles.has(band) || miles > band) continue;
@@ -5006,7 +5082,6 @@ function speakNavProgress(leg, found, hereAlong) {
     if (!next) break;
     const said = approachPhrase(next, band * 1609.344);
     if (!said) break;
-    stopNavUtterance();
     speakNav(said);
     break;
   }
@@ -6559,8 +6634,7 @@ function refreshStopGuidance() {
 
 function speakStopNote(text) {
   if (!navOn || !text) return;
-  stopNavUtterance();
-  speakNav(text);
+  playChosenVoice(text, { barge: true });
 }
 
 function beginGuideFrom(chosen) {
@@ -8254,7 +8328,7 @@ function keepNavSignedIn() {
   return pulseActivity();
 }
 
-function beginRouteNav() {
+async function beginRouteNav() {
   navOn = true;
   navPulseAt = 0;
   void keepNavSignedIn();
@@ -8276,7 +8350,8 @@ function beginRouteNav() {
   sayNav("Finding you…", "Allow location to move along this trip.", "");
   startNavWatch();
   if (navFix) onNavFix(navFix[0], navFix[1]);
-  enableNavCompass();
+  // Motion permission is only asked here — not again in the Start click handler.
+  await enableNavCompass();
   startNavMotion();
 }
 
@@ -10083,17 +10158,9 @@ function bind() {
   $("#routeLovesAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeCatAdd")?.addEventListener("click", () => addTruckAndRecalculate());
-  $("#startNav")?.addEventListener("click", async () => {
+  $("#startNav")?.addEventListener("click", () => {
     unlockNavVoice();
-    const orientation = window.DeviceOrientationEvent;
-    if (orientation && typeof orientation.requestPermission === "function") {
-      try {
-        await orientation.requestPermission();
-      } catch {
-        // The first tap on the map can ask again.
-      }
-    }
-    beginRouteNav();
+    void beginRouteNav();
   });
   $("#endNav")?.addEventListener("click", () => endRouteNav());
   $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
