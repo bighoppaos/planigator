@@ -8290,7 +8290,7 @@ function pauseFollowForDirection() {
   syncRouteChrome();
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
-  navZoomHold = Date.now() + 12000;
+  navZoomHold = Date.now() + 5000;
 }
 
 function endRouteNav() {
@@ -8832,8 +8832,8 @@ function pinDirection(stopId, index) {
   dirPinTimer = window.setTimeout(() => {
     dirPinned = null;
     dirPinTimer = 0;
-  }, 12000);
-  navZoomHold = Date.now() + 12000;
+  }, 5000);
+  navZoomHold = Date.now() + 5000;
   window.clearTimeout(navReturnTimer);
   navReturnTimer = 0;
 }
