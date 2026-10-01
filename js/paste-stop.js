@@ -76,14 +76,24 @@ function fullYear(year, now) {
 }
 
 function yearFor(monthIndex, day, year, now) {
+  const yNow = now.getFullYear();
+  const today = new Date(yNow, now.getMonth(), now.getDate()).getTime();
+  const pick = (y) => {
+    if (!validDay(y, monthIndex, day)) return null;
+    const candidate = new Date(y, monthIndex, day).getTime();
+    // Earlier years / past calendar days are not used.
+    if (y < yNow || candidate < today) {
+      if (validDay(yNow, monthIndex, day)) {
+        const thisYear = new Date(yNow, monthIndex, day).getTime();
+        if (thisYear >= today) return yNow;
+      }
+      return validDay(yNow + 1, monthIndex, day) ? yNow + 1 : null;
+    }
+    return y;
+  };
   const given = fullYear(year, now);
-  if (given != null) return validDay(given, monthIndex, day) ? given : null;
-  const y = now.getFullYear();
-  if (!validDay(y, monthIndex, day)) return null;
-  const today = new Date(y, now.getMonth(), now.getDate()).getTime();
-  const candidate = new Date(y, monthIndex, day).getTime();
-  if (candidate < today - 7 * 24 * 3600 * 1000) return validDay(y + 1, monthIndex, day) ? y + 1 : null;
-  return y;
+  if (given != null) return pick(given);
+  return pick(yNow);
 }
 
 function parseDateMatch(text, now) {

@@ -2681,8 +2681,18 @@ function pastedInstant(parts, stop, field) {
   const kept = wallParts(field === "end" ? stop.end : stop.start, enteredOffset(stop, field));
   const hour = parts.hour == null ? kept.hour : parts.hour;
   const minute = parts.minute == null ? kept.minute : parts.minute;
+  const now = new Date();
+  const yNow = now.getFullYear();
+  const today = new Date(yNow, now.getMonth(), now.getDate()).getTime();
+  let year = Number(parts.year);
+  if (!Number.isFinite(year) || year < yNow) year = yNow;
+  let dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
+  if (dayMs < today) {
+    year = yNow + 1;
+    dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
+  }
   return {
-    ms: msFromWall(parts.year, parts.monthIndex, parts.day, hour, minute, offset),
+    ms: msFromWall(year, parts.monthIndex, parts.day, hour, minute, offset),
     offset,
   };
 }
@@ -8995,6 +9005,7 @@ function stopCard(stop, index, showPlan = true) {
       <div class="stop-flags">
         <button type="button" class="flag-box${stop.anytime ? " on" : ""}" data-toggle-field="anytime">Anytime</button>
         <button type="button" class="flag-box${stop.window ? " on" : ""}" data-toggle-field="window">Window</button>
+        <button type="button" class="flag-box${state.settings.military ? " on" : ""}" data-toggle-field="military">Military</button>
       </div>
       ${stop.anytime ? "" : `
         ${stop.window ? whenRow("Opens", stop, "start", stop.start) : ""}
@@ -9543,6 +9554,16 @@ function leaveDateValue(ms, offsetMinutes) {
   return `${parts.year}-${pad(parts.month + 1)}-${pad(parts.day)}`;
 }
 
+function todayDateValue(offsetMinutes) {
+  return leaveDateValue(Date.now(), offsetMinutes);
+}
+
+function clampDateValue(value, offsetMinutes) {
+  const min = todayDateValue(offsetMinutes);
+  if (!value || value < min) return min;
+  return value;
+}
+
 function wallMinutes(ms, offsetMinutes) {
   const parts = wallParts(ms, offsetMinutes);
   return parts.hour * 60 + parts.minute;
@@ -9583,7 +9604,12 @@ function pickerSheet() {
       <p class="picker-title">${escapeAttr(title)}</p>
       ${step ? `<p class="fine picker-step">${escapeAttr(step)}</p>` : ""}
       ${id === "leaveAt" || id === "stopDate"
-        ? `<input class="picker-date" type="date" data-part="date" value="${leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, id === "stopDate" ? enteredOffset(pickerStop(), state.pickerTarget?.field) : state.settings.leaveAtOffset)}" aria-label="Date">`
+        ? (() => {
+          const offset = id === "stopDate" ? enteredOffset(pickerStop(), state.pickerTarget?.field) : state.settings.leaveAtOffset;
+          const min = todayDateValue(offset);
+          const value = clampDateValue(leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, offset), offset);
+          return `<input class="picker-date" type="date" data-part="date" min="${min}" value="${value}" aria-label="Date">`;
+        })()
         : `<div class="time-wheels">${wheels}</div>`}
       <button type="button" class="primary" id="pickerDone">${escapeAttr(action)}</button>
     </div>
@@ -9605,7 +9631,8 @@ function minutesFromSheet() {
 }
 
 function readDatedMs(previousMs, offsetMinutes) {
-  const date = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
+  const raw = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
+  const date = clampDateValue(raw, offsetMinutes);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   const prev = wallParts(previousMs, offsetMinutes);
   if (!year || !month || !day) return previousMs;
@@ -9936,7 +9963,13 @@ function applyClock(wrap) {
 }
 
 function applyWhen(wrap) {
-  const date = wrap.querySelector("[data-part=date]")?.value || "";
+  const offsetHint = wrap.getAttribute("data-when") === "leaveAt"
+    ? state.settings.leaveAtOffset
+    : enteredOffset(
+      state.stops.find((item) => item.id === wrap.closest("[data-stop]")?.getAttribute("data-stop")),
+      wrap.getAttribute("data-stop-field"),
+    );
+  const date = clampDateValue(wrap.querySelector("[data-part=date]")?.value || "", offsetHint);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   if (!year || !month || !day) return;
   const minutes = minutesFromWrap(wrap);
@@ -10231,6 +10264,13 @@ function bind() {
             poofBox(opens);
           }
           updateStop(id, open ? { window: true, anytime: false } : { window: false });
+          return;
+        }
+        if (field === "military") {
+          state.settings.military = !state.settings.military;
+          persist();
+          saveActiveTripSettings();
+          render();
         }
       });
     });
