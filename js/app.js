@@ -5403,8 +5403,9 @@ function fitRouteCover() {
   const stage = document.getElementById("routeStage");
   if (!stage || !routeFull) return;
   const view = window.visualViewport;
-  const safeTop = safeTopPad();
   const full = viewportBox();
+  // Stay in the visible screen. Do not pull above the top for the notch —
+  // viewport-fit=cover already paints under the status bar at top:0.
   stage.style.position = "fixed";
   stage.style.margin = "0";
   stage.style.right = "0";
@@ -5412,8 +5413,8 @@ function fitRouteCover() {
   stage.style.zIndex = "80";
   stage.style.left = "0px";
   stage.style.width = `${full.width}px`;
-  stage.style.top = `${Math.round(-safeTop)}px`;
-  stage.style.height = `${Math.round(full.height + safeTop)}px`;
+  stage.style.top = "0px";
+  stage.style.height = `${Math.round(full.height)}px`;
   const box = stage.getBoundingClientRect();
   const topGap = Math.max(0, box.top);
   const leftGap = Math.max(0, box.left);
@@ -5422,10 +5423,10 @@ function fitRouteCover() {
   const bottomGap = Math.max(0, bottomLimit - box.bottom);
   const rightGap = Math.max(0, rightLimit - box.right);
   if (topGap > 1 || leftGap > 1 || bottomGap > 1 || rightGap > 1) {
-    stage.style.top = `${Math.round(-safeTop - topGap)}px`;
+    stage.style.top = `${Math.round(-topGap)}px`;
     stage.style.left = `${Math.round(-leftGap)}px`;
     stage.style.width = `${Math.round(full.width + leftGap + rightGap)}px`;
-    stage.style.height = `${Math.round(full.height + safeTop + topGap + bottomGap)}px`;
+    stage.style.height = `${Math.round(full.height + topGap + bottomGap)}px`;
   }
   seatRails();
   const cover = `${stage.style.width}x${stage.style.height}x${stage.style.top}`;
