@@ -6396,12 +6396,56 @@ function travelBearing(along) {
 }
 
 // Full-screen only. Page Turn zoom never calls this.
-// overlayTop is the map-local Y of the ETA chip (the top of the bottom stack).
-// The upcoming turn has to land above that chip and the directions under it.
-function maneuverYAboveChip(turnY, overlayTop, margin, minY) {
-  if (!Number.isFinite(overlayTop)) return turnY;
-  const limit = overlayTop - margin;
-  return Math.max(minY, Math.min(turnY, limit));
+// Padding keeps you and the next turn above the ETA chip and the directions
+// panel at its current height (collapsed or open), under the top, and off
+// the side buttons.
+function fullscreenTurnPadding(width, height, overlayTop, railLeft, railRight, safeTop) {
+  const margin = 28;
+  const minWindow = 96;
+  let top = Math.max(36, Math.round((Number(safeTop) || 0) + 16));
+  let bottom = !Number.isFinite(overlayTop)
+    ? Math.round(height * 0.28)
+    : Math.round(Math.max(0, height - overlayTop) + margin);
+  let left = Math.max(48, Math.round(railLeft || 72));
+  let right = Math.max(48, Math.round(railRight || 72));
+  const maxX = Math.max(24, Math.floor((width - minWindow) / 2));
+  left = Math.min(left, maxX);
+  right = Math.min(right, maxX);
+  if (top + bottom > height - minWindow) {
+    top = Math.max(12, Math.min(top, Math.max(12, height - bottom - minWindow)));
+    if (top + bottom > height - minWindow) bottom = Math.max(12, height - top - minWindow);
+  }
+  return { top, bottom, left, right };
+}
+
+function fullscreenTurnCamera(at, along, target, bearing) {
+  const maplibre = window.maplibregl;
+  const map = routeMap?.getContainer();
+  if (!maplibre || !map || !navFix || !at) return null;
+  const mapBox = map.getBoundingClientRect();
+  const width = map.clientWidth || mapBox.width || 360;
+  const height = map.clientHeight || mapBox.height || 640;
+  if (width < 80 || height < 80) return null;
+  const overlayTop = fullscreenOverlayTop(mapBox);
+  const clear = railClearance();
+  const padding = fullscreenTurnPadding(width, height, overlayTop, clear.left, clear.right, safeTopPad());
+  const from = Math.min(along, target);
+  const to = Math.max(along, target);
+  const coords = navRemaining(from, to);
+  coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
+  if (coords.length < 2) return null;
+  const bounds = coords.reduce(
+    (box, coord) => box.extend(coord),
+    new maplibre.LngLatBounds(coords[0], coords[0]),
+  );
+  let fitted = null;
+  try {
+    fitted = routeMap.cameraForBounds(bounds, { padding, bearing, maxZoom: 17.2 });
+  } catch {
+    fitted = null;
+  }
+  if (!fitted || fitted.center == null || !Number.isFinite(fitted.zoom)) return null;
+  return { center: fitted.center, zoom: Math.min(17.2, fitted.zoom) };
 }
 
 function fullscreenOverlayTop(mapBox) {
@@ -6523,19 +6567,21 @@ function frameNextTurn() {
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
   // Page Turn zoom locks you on the Recalculate slot. Leave that center alone.
-  let center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
+  const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
+  let cameraCenter = [center[1], center[0]];
   if (routeFull) {
-    const mapBox = routeMap.getContainer()?.getBoundingClientRect();
-    const overlayTop = fullscreenOverlayTop(mapBox);
-    const maneuverY = maneuverYAboveChip(slots.turnY, overlayTop ?? slots.height, 28, Math.max(48, slots.buttonH || 48));
-    center = pointAhead(at.lat, at.lon, bearing, (maneuverY - slots.height / 2) * mpp);
+    const framed = fullscreenTurnCamera(at, along, target, bearing);
+    if (framed) {
+      cameraCenter = framed.center;
+      zoom = framed.zoom;
+    }
   }
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
   routeMap.stop();
   routeMap.easeTo({
-    center: [center[1], center[0]],
+    center: cameraCenter,
     zoom,
     bearing,
     duration: 450,
@@ -8357,6 +8403,10 @@ function bindDirectionBrowse() {
   const scrolling = box?.querySelector(".dir-scroll");
   if (!box || !scrolling || box.dataset.browseBound === "1") return;
   box.dataset.browseBound = "1";
+  box.addEventListener("toggle", () => {
+    if (!routeFull) return;
+    requestAnimationFrame(() => reframeFullscreenTurn());
+  });
   let touchY = null;
   box.addEventListener("touchstart", (event) => {
     touchY = event.touches?.[0]?.clientY ?? null;
