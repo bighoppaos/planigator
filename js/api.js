@@ -1,6 +1,9 @@
+import { claimLanding, markAdCounted, rememberLanding, utmForLogin } from "./ads.js?v=1";
+
 const API_BASE = location.hostname === "planigator.help" || location.hostname === "www.planigator.help"
   ? ""
   : "https://planigator.bighoppaos.workers.dev";
+
 const SESSION_KEY = "planigator.web.session";
 const AUTH_KEY = "planigator.web.auth";
 const DEVICE_KEY = "planigator.web.device";
@@ -35,6 +38,14 @@ export function noteVisit(hit) {
     localStorage.setItem("planigator.web.visitor", id);
   }
   return api("/v1/visit", { method: "POST", body: JSON.stringify({ id, hit: Boolean(hit) }) }).catch(() => {});
+}
+
+export function noteAdLanding() {
+  const claim = claimLanding();
+  if (!claim) return Promise.resolve();
+  return api("/v1/ad", { method: "POST", body: JSON.stringify({ utm: claim.incoming }) })
+    .then(() => rememberLanding(claim.stamp))
+    .catch(() => {});
 }
 
 export function pulseActivity() {
@@ -138,8 +149,13 @@ export function startCardSetup() {
   return api("/v1/setup-card", { method: "POST", body: "{}" });
 }
 
-export function loginWith(provider, idToken, dropSession) {
-  return api("/v1/login", { method: "POST", body: JSON.stringify({ provider, idToken, dropSession: dropSession || "" }) });
+export async function loginWith(provider, idToken, dropSession) {
+  const body = { provider, idToken, dropSession: dropSession || "" };
+  const utm = utmForLogin();
+  if (utm) body.utm = utm;
+  const data = await api("/v1/login", { method: "POST", body: JSON.stringify(body) });
+  if (data.adCounted) markAdCounted();
+  return data;
 }
 
 export async function logoutRemote() {

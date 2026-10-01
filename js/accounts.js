@@ -228,6 +228,7 @@ async function load() {
   if (me.idle || !me.signedIn) {
     list.hidden = true;
     visits.hidden = true;
+    document.getElementById("ads").hidden = true;
     document.getElementById("usage").hidden = true;
     document.getElementById("hero").hidden = true;
     document.getElementById("gifts").hidden = true;
@@ -250,8 +251,50 @@ async function load() {
     loadHeroEditor(),
     loadAccounts(zone),
     loadVisits(),
+    loadAds(),
     loadGifts(),
   ]);
+}
+
+function adText(value) {
+  const text = String(value || "").trim();
+  return text || "—";
+}
+
+async function loadAds() {
+  const box = document.getElementById("ads");
+  const note = document.getElementById("adsNote");
+  const list = document.getElementById("adsList");
+  try {
+    const data = await api("/v1/admin/ads");
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    box.hidden = false;
+    const landings = rows.reduce((sum, row) => sum + (Number(row.landings) || 0), 0);
+    const signups = rows.reduce((sum, row) => sum + (Number(row.signups) || 0), 0);
+    note.textContent = rows.length
+      ? `${landings} landings. ${signups} first sign-ups. Totals only. No names.`
+      : "No ad landings yet.";
+    list.replaceChildren(...rows.map((row) => {
+      const item = document.createElement("li");
+      const where = document.createElement("p");
+      where.className = "ad-where";
+      where.textContent = [row.source, row.medium, row.campaign].map(adText).join(" · ");
+      const detail = document.createElement("p");
+      detail.className = "muted";
+      detail.textContent = `Term ${adText(row.term)}. Content ${adText(row.content)}.`;
+      const counts = document.createElement("p");
+      counts.className = "ad-counts";
+      counts.textContent = `${Number(row.landings) || 0} landings · ${Number(row.signups) || 0} sign-ups`;
+      item.append(counts, where, detail);
+      return item;
+    }));
+  } catch (error) {
+    box.hidden = false;
+    list.replaceChildren();
+    note.textContent = error.status === 404 || error.status === 405
+      ? "Ad counts are not on the server yet."
+      : (error.message || "Could not load ad counts.");
+  }
 }
 
 async function loadAccounts(zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") {
