@@ -1437,7 +1437,7 @@ function clearTripButton() {
 function tripNameRow() {
   return `<div class="trip-name-row">
     <label class="flag-box trip-name">Trip name
-      <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta">${escapeAttr(state.tripName)}</textarea>
+      <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeAttr(state.tripName)}</textarea>
     </label>
     <button type="button" class="flag-box" id="saveTrip"${navOn ? " disabled" : ""}>Save</button>
   </div>${state.saveNote ? `<p class="fine save-note">${escapeAttr(state.saveNote)}</p>` : ""}`;
@@ -8230,40 +8230,98 @@ let undoClearTimer = 0;
 
 function isTypedField(el) {
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return false;
-  if (el.disabled || el.dataset.undoFreeze === "1") return false;
+  if (el.disabled || el.readOnly || el.dataset.undoFreeze === "1") return false;
   const type = (el.type || "text").toLowerCase();
-  if (type === "checkbox" || type === "radio" || type === "range" || type === "file" || type === "button" || type === "submit" || type === "reset" || type === "hidden") {
+  // Native pickers / steppers keep their own UI — do not rewrite those.
+  if (
+    type === "checkbox" || type === "radio" || type === "range" || type === "file"
+    || type === "button" || type === "submit" || type === "reset" || type === "hidden"
+    || type === "datetime-local" || type === "date" || type === "time" || type === "month"
+    || type === "week" || type === "color" || type === "number"
+  ) {
     return false;
   }
   return true;
 }
 
-// iPhone shake-to-undo watches WebKit's typing history. Our fields already
-// save into app state, so that dialog cannot put a stop name back anyway.
-// Drop the history on every keystroke (and on blur) so shake has nothing.
-function scrubFieldUndo(el, { keepFocus = true } = {}) {
-  if (!isTypedField(el) || !el.isConnected) return null;
-  if (el.dataset.undoScrub === "1") return el;
-  const focused = keepFocus && document.activeElement === el;
-  const start = el.selectionStart;
-  const end = el.selectionEnd;
-  const clone = el.cloneNode(true);
-  if ("value" in el) clone.value = el.value;
-  if ("checked" in el) clone.checked = el.checked;
-  clone.disabled = el.disabled;
-  clone.readOnly = el.readOnly;
-  clone.dataset.undoScrub = "1";
-  el.replaceWith(clone);
-  if (clone.matches?.("textarea[data-field=address], textarea[data-field=name]")) fitAddressField(clone);
-  if (focused) {
-    clone.focus({ preventScroll: true });
-    try {
-      if (typeof start === "number" && typeof end === "number") clone.setSelectionRange(start, end);
-    } catch (_) {}
+function fieldMaxLength(el) {
+  const max = Number(el.maxLength);
+  return Number.isFinite(max) && max >= 0 && max < 1000000 ? max : null;
+}
+
+function writeTypedValue(el, value, caret) {
+  const max = fieldMaxLength(el);
+  let next = String(value ?? "");
+  let pos = Math.max(0, caret ?? next.length);
+  if (max != null && next.length > max) {
+    next = next.slice(0, max);
+    pos = Math.min(pos, max);
   }
-  // Allow the next real keystroke to scrub again after this swap settles.
-  window.setTimeout(() => { delete clone.dataset.undoScrub; }, 0);
-  return clone;
+  el.value = next;
+  try { el.setSelectionRange(pos, pos); } catch (_) {}
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true }));
+}
+
+function applyTypedInsert(el, text) {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  const piece = String(text ?? "");
+  writeTypedValue(el, el.value.slice(0, start) + piece + el.value.slice(end), start + piece.length);
+}
+
+function applyTypedDelete(el, forward) {
+  let start = el.selectionStart ?? 0;
+  let end = el.selectionEnd ?? start;
+  if (start === end) {
+    if (forward) end = Math.min(el.value.length, end + 1);
+    else start = Math.max(0, start - 1);
+  }
+  writeTypedValue(el, el.value.slice(0, start) + el.value.slice(end), start);
+}
+
+// iPhone only builds shake-to-undo history from real keyboard edits.
+// Block those, write .value ourselves, and shake has nothing to undo.
+function handleTypedBeforeInput(event) {
+  const type = event.inputType || "";
+  if (type === "historyUndo" || type === "historyRedo") {
+    event.preventDefault();
+    return;
+  }
+  const el = event.target;
+  if (!isTypedField(el)) return;
+  if (type === "insertText" || type === "insertReplacementText" || type === "insertCompositionText" || type === "insertFromComposition") {
+    event.preventDefault();
+    applyTypedInsert(el, event.data ?? "");
+    return;
+  }
+  if (type === "insertFromPaste" || type === "insertFromDrop" || type === "insertFromYank") {
+    event.preventDefault();
+    const pasted = event.dataTransfer?.getData("text/plain") || event.data || "";
+    applyTypedInsert(el, pasted);
+    return;
+  }
+  if (type === "insertLineBreak" || type === "insertParagraph") {
+    event.preventDefault();
+    applyTypedInsert(el, "\n");
+    return;
+  }
+  if (
+    type === "deleteContent" || type === "deleteContentBackward" || type === "deleteByCut"
+    || type === "deleteSoftLineBackward" || type === "deleteHardLineBackward"
+    || type === "deleteWordBackward"
+  ) {
+    event.preventDefault();
+    applyTypedDelete(el, false);
+    return;
+  }
+  if (
+    type === "deleteContentForward" || type === "deleteByDrag"
+    || type === "deleteSoftLineForward" || type === "deleteHardLineForward"
+    || type === "deleteWordForward"
+  ) {
+    event.preventDefault();
+    applyTypedDelete(el, true);
+  }
 }
 
 function scheduleTypingUndoClear() {
@@ -8272,21 +8330,19 @@ function scheduleTypingUndoClear() {
   undoClearTimer = window.setTimeout(clearTypingUndo, 400);
 }
 
-function scheduleActiveTypingUndoClear() {
-  window.clearTimeout(undoClearTimer);
-  // Same turn as the keystroke so a shake right after typing sees an empty stack.
-  undoClearTimer = window.setTimeout(() => {
-    const active = document.activeElement;
-    if (isTypedField(active)) scrubFieldUndo(active, { keepFocus: true });
-  }, 0);
-}
-
 function clearTypingUndo() {
   const active = document.activeElement;
   if (active && active !== document.body && active.blur) active.blur();
   window.getSelection()?.removeAllRanges();
   document.querySelectorAll("input, textarea").forEach((el) => {
-    scrubFieldUndo(el, { keepFocus: false });
+    if (!isTypedField(el) && !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+    if (!el.isConnected) return;
+    const clone = el.cloneNode(true);
+    if ("value" in el) clone.value = el.value;
+    if ("checked" in el) clone.checked = el.checked;
+    clone.disabled = el.disabled;
+    clone.readOnly = el.readOnly;
+    el.replaceWith(clone);
   });
   document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
 }
@@ -8305,22 +8361,7 @@ function freezeTyping(freeze) {
   if (freeze) scheduleTypingUndoClear();
 }
 
-document.addEventListener("beforeinput", (event) => {
-  if (event.inputType !== "historyUndo" && event.inputType !== "historyRedo") return;
-  event.preventDefault();
-}, true);
-
-document.addEventListener("input", (event) => {
-  if (event.isComposing) return;
-  if (isTypedField(event.target)) scheduleActiveTypingUndoClear();
-}, true);
-
-document.addEventListener("blur", (event) => {
-  const el = event.target;
-  if (!isTypedField(el) || !el.isConnected) return;
-  window.clearTimeout(undoClearTimer);
-  scrubFieldUndo(el, { keepFocus: false });
-}, true);
+document.addEventListener("beforeinput", handleTypedBeforeInput, true);
 
 function routeProgressKey(line) {
   const mid = line[Math.floor(line.length / 2)] || [];
@@ -9028,7 +9069,7 @@ function stopCard(stop, index, showPlan = true) {
       <div class="stop-head">
         <label${locked ? " inert" : ""}>
           <span class="sr">Stop name</span>
-          <textarea class="plain" data-field="name" rows="1" maxlength="8" placeholder="${escapeAttr(title)}" aria-label="Stop name">${escapeAttr(stop.name)}</textarea>
+          <textarea class="plain" data-field="name" rows="1" maxlength="8" placeholder="${escapeAttr(title)}" aria-label="Stop name" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">${escapeAttr(stop.name)}</textarea>
         </label>
         <div class="icon-row">
           <button type="button" class="ghost" data-act="up" ${originStop || destIndex <= 0 || locked ? "disabled" : ""} aria-label="Move stop up">↑</button>
@@ -9038,7 +9079,7 @@ function stopCard(stop, index, showPlan = true) {
       </div>
       <div class="stop-body"${locked ? " inert" : ""}>
       <div class="address-row">
-        <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" aria-label="Address">${escapeAttr(stop.address)}</textarea>
+        <textarea data-field="address" rows="2" placeholder="${escapeAttr(`${title} address`)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Address">${escapeAttr(stop.address)}</textarea>
         <button type="button" class="flag-box" data-act="paste" aria-label="Paste an address and times">Paste</button>
         <button type="button" class="flag-box" data-act="map">search/choose from map</button>
       </div>
