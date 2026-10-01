@@ -80,6 +80,14 @@ function loadHeroLines() {
 
 let plannerRoot = null;
 let writingHash = false;
+/** After a share link opens, keep scrolling to the first stop through init re-renders. */
+let pendingShareStopScroll = false;
+let shareScrollUntil = 0;
+
+function markShareStopScroll() {
+  pendingShareStopScroll = true;
+  shareScrollUntil = Date.now() + 2500;
+}
 let boxFontTimer = 0;
 let boxFontDirty = false;
 const lookupOpen = new Set();
@@ -1015,6 +1023,7 @@ function applySharedTrip(data, { notice } = {}) {
   state.plan = data.plan && Array.isArray(data.plan.events) ? data.plan : null;
   state.notice = notice || "This trip was shared with you.";
   wantAccountTrip = true;
+  markShareStopScroll();
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   persist();
@@ -1081,10 +1090,16 @@ function applyShareFromLocation() {
     try { return shareTokenFor(trip) === token; } catch { return false; }
   });
   if (saved && (saved.plan || hasRouteLine(saved.stops))) {
+    markShareStopScroll();
     if (state.activeTripId !== saved.id || !hasRouteLine(state.stops)) loadTrip(saved.id);
+    else render();
     return true;
   }
-  if (state.plan && state.activeTripId && shareToken() === token) return false;
+  if (state.plan && state.activeTripId && shareToken() === token) {
+    markShareStopScroll();
+    render();
+    return false;
+  }
   applySharedTrip(shared, {
     notice: "This trip was shared with you. Calculate again after you change anything.",
   });
@@ -9634,6 +9649,36 @@ function render() {
   const slot = document.getElementById("googleBtn");
   if (keepGoogle && slot) slot.replaceWith(keepGoogle);
   bind();
+  finishShareStopScroll();
+}
+
+function firstStopCard() {
+  const first = (state.stops || [])[0];
+  if (first?.id) {
+    const card = document.querySelector(`.stops .stop-card[data-stop="${first.id}"]`);
+    if (card) return card;
+  }
+  return document.querySelector(".stops .stop-card");
+}
+
+function finishShareStopScroll() {
+  if (!pendingShareStopScroll) return;
+  if (Date.now() > shareScrollUntil) {
+    pendingShareStopScroll = false;
+    return;
+  }
+  // Wait a frame so layout has the stop cards after innerHTML + bind.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!pendingShareStopScroll || Date.now() > shareScrollUntil) {
+        pendingShareStopScroll = false;
+        return;
+      }
+      const card = firstStopCard();
+      if (!card) return;
+      card.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  });
 }
 
 function mphWheel() {
