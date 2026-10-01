@@ -8288,9 +8288,7 @@ function pauseFollowForDirection() {
   if (!navOn) return;
   navFollowing = false;
   syncRouteChrome();
-  window.clearTimeout(navReturnTimer);
-  navReturnTimer = 0;
-  navZoomHold = Date.now() + 5000;
+  armDirectionReturn();
 }
 
 function endRouteNav() {
@@ -8820,22 +8818,35 @@ function paintLiveDirections() {
   paintSwitchOffer(hit);
 }
 
+const DIR_RETURN_MS = 5000;
+
+function returnFromDirectionTap() {
+  dirPinTimer = 0;
+  navReturnTimer = 0;
+  dirPinned = null;
+  navZoomHold = 0;
+  navMapTouch = false;
+  if (!navOn || !navFix) return;
+  onNavFix(navFix[0], navFix[1]);
+}
+
+function armDirectionReturn() {
+  window.clearTimeout(dirPinTimer);
+  navZoomHold = Date.now() + DIR_RETURN_MS;
+  dirPinTimer = window.setTimeout(returnFromDirectionTap, DIR_RETURN_MS);
+}
+
 function clearDirectionPin() {
   dirPinned = null;
   window.clearTimeout(dirPinTimer);
   dirPinTimer = 0;
+  window.clearTimeout(navReturnTimer);
+  navReturnTimer = 0;
 }
 
 function pinDirection(stopId, index) {
   dirPinned = { stopId, index: Number(index) };
-  window.clearTimeout(dirPinTimer);
-  dirPinTimer = window.setTimeout(() => {
-    dirPinned = null;
-    dirPinTimer = 0;
-  }, 5000);
-  navZoomHold = Date.now() + 5000;
-  window.clearTimeout(navReturnTimer);
-  navReturnTimer = 0;
+  armDirectionReturn();
 }
 
 function markDirection(stopId, index, fromUser = false) {
