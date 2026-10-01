@@ -1055,10 +1055,13 @@ export function timeline({
       }
       const chipHours = piece.routeHours;
       const tailMins = isTail ? Math.max(0, Math.round(Number(piece.tailDelayMinutes) || 0)) : 0;
-      // Only stretch when delay is plain sit-after-arrive before the next leave.
-      // If a 10 follows, that delay is not a longer drive window on this chip.
+      // Arrival / tail delay: same miles, longer time. Stretch the drawn window
+      // only when the next leave is after this sit — last-stop delay is already
+      // baked into block.end. Always keep tailDelayMinutes on the chip so the
+      // UI does not pretend the drive shrank (no leftover-miles chip).
       const restAfter = (piece.pausesAfter || []).some((pause) => pause.kind === "rest");
-      const stretchTail = Boolean(isTail && piece.tailBeforeNext && tailMins >= 1 && !restAfter);
+      const showTailDelay = Boolean(isTail && tailMins >= 1 && !restAfter);
+      const stretchTail = Boolean(showTailDelay && piece.tailBeforeNext);
       const stretchMs = stretchTail ? tailMins * 60 * 1000 : 0;
       const delayRest = isTail
         ? (piece.pausesAfter || []).find((pause) => pause.kind === "rest" && pause.start > piece.start + 60 * 1000 && pause.start < block.end - 60 * 1000)
@@ -1081,7 +1084,7 @@ export function timeline({
           stopID: stops[index].id,
           index,
           pieceIndex,
-          tailDelayMinutes: stretchTail ? tailMins : 0,
+          tailDelayMinutes: showTailDelay ? tailMins : 0,
         });
       } else {
         events.push({
