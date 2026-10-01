@@ -124,6 +124,8 @@ function findDates(src, now, skip) {
     const before = match.index > 0 ? src[match.index - 1] : "";
     const after = src[match.index + match[0].length] || "";
     if (/\d/.test(before) || /\d/.test(after)) continue;
+    // QualComm "24/7 PRELOADS" is all-day hours, not July 24.
+    if (/^24[\/.\-]7$/i.test(match[0].trim())) continue;
     const parts = parseDateMatch(match[0], now);
     if (!parts) continue;
     found.push({ index: match.index, length: match[0].length, ...parts });
@@ -197,8 +199,11 @@ function rangeBetween(src, left, right) {
   if (right.index < left.index + left.length) return false;
   const gap = src.slice(left.index + left.length, right.index);
   if (gap.includes("\n")) return false;
-  return /^[\s:]*(?:@|at|on)?[\s:]*(?:[-–—]|to|until|through)[\s:]*$/i.test(gap)
-    || /^[\s:]*(?:@|at|on)[\s:]*$/i.test(gap);
+  // Plain "16:00 - 23:59" or "8am to 4pm".
+  if (/^[\s:]*(?:@|at|on)?[\s:]*(?:[-–—]|to|until|through)[\s:]*$/i.test(gap)
+    || /^[\s:]*(?:@|at|on)[\s:]*$/i.test(gap)) return true;
+  // QualComm: "16:00 - 10/04 23:59" (date sits between the times).
+  return /^[\s:]*(?:[-–—]|to|until|through)[\s:]*\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?[\s:]*$/i.test(gap);
 }
 
 function applyMeridian(start, end) {
@@ -308,11 +313,14 @@ function extractAppointments(src, now, skip) {
       used.add(i + 1);
       const [startClock, endClock] = applyMeridian(clocks[i], next);
       const span = { index: clocks[i].index, length: next.index + next.length - clocks[i].index };
-      const date = dateNear(src, span, dates) || weekdayDate(src, { ...span, ...startClock }, now);
-      if (date && dates.includes(date)) usedDates.add(date);
-      if (date?.length && !dates.includes(date)) consumed.push(date);
-      const start = withDate(date, startClock, now);
-      let end = withDate(date, endClock, now);
+      const startDate = dateNear(src, clocks[i], dates) || dateNear(src, span, dates) || weekdayDate(src, { ...span, ...startClock }, now);
+      const endDate = dateNear(src, next, dates) || startDate;
+      if (startDate && dates.includes(startDate)) usedDates.add(startDate);
+      if (endDate && dates.includes(endDate)) usedDates.add(endDate);
+      if (startDate?.length && !dates.includes(startDate)) consumed.push(startDate);
+      if (endDate?.length && endDate !== startDate && !dates.includes(endDate)) consumed.push(endDate);
+      const start = withDate(startDate, startClock, now);
+      let end = withDate(endDate, endClock, now);
       if (wallKey(end) <= wallKey(start)) end = addDays(end, 1);
       appointments.push({ ...start, end });
       consumed.push(span);
@@ -342,7 +350,9 @@ function looksLikePlace(line) {
 }
 
 function isMetaLine(line) {
-  return /^(?:weight|pieces|pallets|cases|commodity|temp(?:erature)?|phone|tel|fax|email|contact|reference|ref|po#?|bol|pro#?|notes?|appointment\s+type|type|miles|distance|qty|quantity)\b/i.test(line);
+  return /^(?:weight|pieces|pallets|cases|commodity|temp(?:erature)?|phone|tel|fax|email|contact|reference|ref|po#?|bol|pro#?|notes?|appointment\s+type|type|miles|distance|qty|quantity|load\s+at\s+phone|load\s+at\s+contact|exact\s+pick(?:\s*up)?|projectd?\s+eta|origin\s+time\s+zone|trlr|product|b\/l#?|cust\s+p[uo]#?|driver\s+assisting|preload\s*\/\s*live|trip#|addt'?l\s+stops|comments?(?:\/special\s+instructions)?|special\s+instructions)\b/i.test(line)
+    || /^\*+$/.test(line)
+    || /^\*+[^*].*\*+$/.test(line);
 }
 
 function isHeaderLine(line) {
@@ -392,18 +402,24 @@ export function parseStopPaste(text, nowMs = Date.now()) {
   let start = null;
   let end = null;
   let window = false;
-  if (appointments.length >= 2) {
-    const ordered = appointments.map((item) => {
+  // Prefer appointments that actually have a clock. A leftover date-only
+  // scrap (like a misread 24/7) must not become Opens/Closes.
+  const timed = appointments.filter((item) => item.hour != null || item.end?.hour != null);
+  const pool = timed.length ? timed : appointments;
+  if (pool.length >= 2) {
+    const ordered = pool.map((item) => {
       if (item.end) return [item, item.end];
       return [item];
-    }).flat();
+    }).flat().filter((item) => item && (item.hour != null || timed.length === 0));
     ordered.sort((a, b) => wallKey(a) - wallKey(b));
-    start = ordered[0];
-    end = ordered[ordered.length - 1];
-    window = wallKey(end) !== wallKey(start);
-    if (!window) end = null;
-  } else if (appointments.length === 1) {
-    start = appointments[0];
+    start = ordered[0] || null;
+    end = ordered[ordered.length - 1] || null;
+    if (start && end) {
+      window = wallKey(end) !== wallKey(start);
+      if (!window) end = null;
+    }
+  } else if (pool.length === 1) {
+    start = pool[0];
     if (start.end) {
       end = start.end;
       window = wallKey(end) !== wallKey(start);
