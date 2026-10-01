@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" class="force-light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Ad links — sample</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f1ea;
+      --ink: #14201c;
+      --muted: #4b5a54;
+      --card: #fffdf8;
+      --line: #d7d0c4;
+      --mint: #1f8a62;
+      --navy: #13202a;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 18px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 20px 20px calc(28px + env(safe-area-inset-bottom));
+      padding-left: max(20px, env(safe-area-inset-left));
+      padding-right: max(20px, env(safe-area-inset-right));
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 8px; }
+    .banner {
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border: 2px solid #8a5a12;
+      border-radius: 12px;
+      background: #fff4d6;
+      color: #3d2a08;
+      font-weight: 700;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin: 16px 0;
+    }
+    .muted { color: var(--muted); font-size: 15px; margin: 6px 0; }
+    .ad-list { list-style: none; margin: 12px 0 0; padding: 0; }
+    .ad-list li { margin: 0; padding: 12px 0; border-top: 1px solid var(--line); }
+    .ad-where { margin: 0; font-weight: 700; }
+    .ad-counts { margin: 0 0 2px; }
+    .ad-list .muted { margin: 2px 0 0; }
+    h2 { font-size: 1.2rem; margin: 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="banner">Sample data. Not live counts. This page is not linked from the site.</p>
+    <section class="card" aria-label="Sample ad counts">
+      <h2>Ad links</h2>
+      <p id="adsNote" class="muted">73 landings. 9 first sign-ups. Totals only. No names.</p>
+      <p class="muted">Each row is one of our links. Landings are visits from that link. Sign-ups are new Google accounts.</p>
+      <ul class="ad-list">
+        <li>
+          <p class="ad-counts">40 landings · 6 sign-ups</p>
+          <p class="ad-where">google · cpc · launch</p>
+          <p class="muted">Term truck trip planner. Content headline a.</p>
+        </li>
+        <li>
+          <p class="ad-counts">22 landings · 3 sign-ups</p>
+          <p class="ad-where">google · cpc · launch</p>
+          <p class="muted">Term hours of service. Content headline b.</p>
+        </li>
+        <li>
+          <p class="ad-counts">11 landings · 0 sign-ups</p>
+          <p class="ad-where">google · cpc · launch</p>
+          <p class="muted">Term eld. Content sitelink.</p>
+        </li>
+      </ul>
+    </section>
+    <p class="muted">After the pull request is approved, this list is on Accounts. Sign in on the planner with the owner Google account, then open Accounts. Same lock as the visit chart.</p>
+    <h2>Proposed privacy line</h2>
+    <p><strong>Our own links.</strong> If you open the site from an ad or a link we ran, we keep that link’s source, campaign, term, and content on this device and add one to a count of landings. A first Google sign-in adds one to a count of sign-ups for that same link. Those counts are totals only, with no name or email. Nothing is sent to Google, Meta, or any other ad company, and this site does not load their tags or pixels.</p>
+    <p class="muted">The line “We do not run ads” stays. It means no ads on the site.</p>
+  </main>
+</body>
+</html>
