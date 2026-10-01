@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=172";
+} from "./plan.js?v=174";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8867,50 +8867,60 @@ function armLeaveNowClock() {
   }, delay);
 }
 
-function chipStatLine(event, hours, miles) {
+function chipStatLine(event, hours, miles, { hoursOnly = false, milesOnly = false } = {}) {
   const restMinutes = Math.round(Number(hours) * 60);
   const hideHours = event.kind === "thirty" || (event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60);
   if (event.kind === "leeway" && hours != null) return leewayDays(hours);
-  const hourText = hours != null && !hideHours ? hoursLabel(hours) : "";
-  const mileText = miles != null && miles > 0.05 ? formatMiles(miles) : "";
+  const hourText = !milesOnly && hours != null && !hideHours ? hoursLabel(hours) : "";
+  const mileText = !hoursOnly && miles != null && miles > 0.05 ? formatMiles(miles) : "";
   return [hourText, mileText].filter(Boolean).join(" · ");
+}
+
+function formatPlanClock(ms, timeZone) {
+  const zone = shownZone(timeZone);
+  const military = state.settings.military;
+  const options = {
+    hour: military ? "2-digit" : "numeric",
+    minute: "2-digit",
+    hourCycle: military ? "h23" : "h12",
+  };
+  if (zone) options.timeZone = zone;
+  return new Intl.DateTimeFormat("en-US", options).format(new Date(ms));
 }
 
 function chipDelayLine(event) {
   const effect = event.delayEffect;
   if (!effect) return "";
-  const after = chipStatLine(event, effect.afterHours ?? event.tripHours, effect.afterMiles ?? event.miles);
-  if (!after) return "";
-  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
-  const mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
-  const amount = pieceMins >= 1 ? pieceMins : mins;
+  const amount = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
   if (amount < 1) return "";
-  if (effect.addDelay) return `+ ${delayLabel(amount)} delay → ${after}`;
-  if (effect.movedOnly) return `− ${delayLabel(amount)} delay → same length, later`;
-  return `− ${delayLabel(amount)} delay → ${after}`;
-}
-
-function chipWhenLine(event) {
-  const span = formatPlanSpan(event.start, event.end, eventZone(event));
-  const effect = event.delayEffect;
-  if (!effect || effect.addDelay || effect.earlierOnly) return span;
-  const earlier = Math.max(0, Math.round(Number(effect.earlierMinutes) || 0));
-  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes) || 0));
-  // Pool-delay chips: mention prior-stop delay on the time row.
-  if ((event.kind === "lead" || event.kind === "stop") && pieceMins >= 1 && earlier >= 1) {
-    return `${span} · includes ${delayLabel(earlier)} earlier delay`;
+  // Finish stop: "+ 1 hr → 5:00 PM"
+  if (effect.finishDelay && effect.afterTime) {
+    return `+ ${delayLabel(amount)} → ${formatPlanClock(effect.afterTime, eventZone(event))}`;
   }
-  return span;
+  // Arrival / tail delay: top row stays the real drive; "+ 15 min delay → 1 hr 1 min"
+  if (effect.afterTimeOnly) {
+    const after = hoursLabel(effect.afterHours ?? event.tripHours);
+    if (!after) return "";
+    return `+ ${delayLabel(amount)} delay → ${after}`;
+  }
+  // Pool delay (drive shrinks): "+ 15 min delay → 14.9 miles"
+  const miles = effect.afterMiles ?? event.miles;
+  if (miles != null && miles > 0.05) {
+    return `+ ${delayLabel(amount)} delay → ${formatMiles(miles)}`;
+  }
+  const after = hoursLabel(effect.afterHours ?? event.tripHours);
+  if (!after) return "";
+  return `+ ${delayLabel(amount)} delay → ${after}`;
 }
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  const showBefore = effect && !effect.movedOnly && !effect.earlierOnly;
+  const showBefore = effect && !effect.finishDelay && effect.beforeHours != null;
   const middle = showBefore
     ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
     : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
-  const span = chipWhenLine(event);
+  const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const towardName = driveTowardName(event);
   const toward = towardName ? `Toward ${towardName}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
