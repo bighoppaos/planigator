@@ -1059,7 +1059,11 @@ export function timeline({
       // only when the next leave is after this sit — last-stop delay is already
       // baked into block.end. Always keep tailDelayMinutes on the chip so the
       // UI does not pretend the drive shrank (no leftover-miles chip).
-      const restAfter = (piece.pausesAfter || []).some((pause) => pause.kind === "rest");
+      // Only a 10 that starts right when this drive ends blocks that — a day-end
+      // rest hours later (after leeway) is not “delay ate the off-duty.”
+      const restAfter = (piece.pausesAfter || []).some((pause) => (
+        pause.kind === "rest" && pause.start <= piece.end + 60 * 1000
+      ));
       const showTailDelay = Boolean(isTail && tailMins >= 1 && !restAfter);
       const stretchTail = Boolean(showTailDelay && piece.tailBeforeNext);
       const stretchMs = stretchTail ? tailMins * 60 * 1000 : 0;
