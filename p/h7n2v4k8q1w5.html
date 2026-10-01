@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Hero tiles — sample</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: #f4f1ea;
+      color: #14201c;
+      font: 18px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 12px 16px 28px;
+    }
+    .banner {
+      width: min(100%, 640px);
+      margin: 0 auto 8px;
+      padding: 8px 10px;
+      border: 2px solid #8a5a12;
+      border-radius: 12px;
+      background: #fff4d6;
+      color: #3d2a08;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .hero-lift {
+      width: min(100%, 640px);
+      margin: 10px auto 12px;
+      border-radius: 16px;
+      box-shadow: 0 14px 12px rgb(0 0 0 / 0.35);
+      container-type: inline-size;
+    }
+    .hero-mark {
+      aspect-ratio: auto;
+      min-height: 100cqi;
+      width: min(100%, 640px);
+      margin-left: auto;
+      margin-right: auto;
+      container-type: inline-size;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      color: #fffdf8;
+      padding: 8% 5%;
+      background-color: #071525;
+    }
+    .hero-anim {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .hero-mark::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(rgb(8 16 28 / 0.28), rgb(8 16 28 / 0.4));
+      pointer-events: none;
+      z-index: 1;
+    }
+    .hero-mark h1 {
+      margin: 0 0 0.35em;
+      color: #fffdf8;
+      text-align: center;
+      font-size: 5.1cqi;
+      line-height: 1.05;
+      white-space: nowrap;
+    }
+    .hero-copy {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      padding: 12px 14px 14px;
+      border-radius: 12px;
+      background: rgb(0 0 0 / 0.62);
+      color: #fffdf8;
+    }
+    .hero-mark .pitch {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      text-align: left;
+      font-size: clamp(12px, 2.7cqi, 15px);
+      line-height: 1.25;
+    }
+    .pitch-tile {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      min-width: 0;
+      margin: 0;
+      padding: 0.4em 0.45em;
+      border-radius: 10px;
+      background: rgb(255 253 248 / 0.08);
+      border: 1px solid rgb(255 253 248 / 0.16);
+    }
+    .pitch-icon {
+      flex: 0 0 auto;
+      width: 1.45em;
+      height: 1.45em;
+      color: #3dcaa0;
+    }
+    .pitch-text { display: flex; flex-direction: column; min-width: 0; }
+    .pitch-label { font-weight: 700; }
+    .pitch-detail { color: rgb(255 253 248 / 0.84); font-weight: 500; }
+    .note { width: min(100%, 640px); margin: 0 auto; color: #4b5a54; font-size: 15px; }
+    @media (max-width: 640px) {
+      .hero-mark .pitch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="banner">Sample hero. Not the live plan. This page is not linked from the site.</p>
+    <div class="hero-lift"><section class="hero card hero-mark">
+      <img class="hero-anim" src="../icons/planigator-clip.gif?v=2" alt="" width="360" height="360">
+      <div class="hero-copy">
+      <h1>www.planigator.help</h1>
+      <ul class="pitch">
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8.2V12l2.6 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pitch-text"><span class="pitch-label">Know your leeway</span><span class="pitch-detail">before you accept a load</span></span></li>
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4h8M8 20h8M8.2 4.2c.2 3.2 3.8 3.6 3.8 7.8s-3.6 4.4-3.8 7.8M15.8 4.2c-.2 3.2-3.8 3.6-3.8 7.8s3.6 4.4 3.8 7.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pitch-text"><span class="pitch-label">Add delays</span><span class="pitch-detail">watch your leeway change</span></span></li>
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 16.2a6.8 6.8 0 0 1 13.6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16.2 15.2 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.2" r="1.15" fill="currentColor"/></svg><span class="pitch-text"><span class="pitch-label">Your settings</span><span class="pitch-detail">governed speed, your 11, your 30</span></span></li>
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.8 9.2 13.2 13.2 9.2 14.8 10.8 10.8Z" fill="currentColor"/></svg><span class="pitch-text"><span class="pitch-label">Truck-legal GPS</span><span class="pitch-detail">same page, no app</span></span></li>
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.4 18.6c.7-2.8 2.4-4.2 4.6-4.2s3.9 1.4 4.6 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pitch-text"><span class="pitch-label">Made by a driver</span><span class="pitch-detail">who still drives</span></span></li>
+        <li class="pitch-tile"><svg class="pitch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 11.2h2.2M17.8 11.2H20M8.2 11.2h7.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.1" cy="13.4" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.9" cy="13.4" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pitch-text"><span class="pitch-label">And it's cooler</span></span></li>
+      </ul>
+      </div>
+    </section></div>
+    <p class="note">Same heading as the live plan. Six lines sit in the square. On a phone the tiles are two columns. On a wider screen they are three across.</p>
+  </main>
+</body>
+</html>
