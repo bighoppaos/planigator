@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=171";
+} from "./plan.js?v=172";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8880,32 +8880,23 @@ function chipDelayLine(event) {
   const effect = event.delayEffect;
   if (!effect) return "";
   const after = chipStatLine(event, effect.afterHours ?? event.tripHours, effect.afterMiles ?? event.miles);
-  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes) || 0));
-  const earlierMins = Math.max(0, Math.round(Number(effect.earlierMinutes) || 0));
-  const mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
-  if (pieceMins >= 1) {
-    if (!after) return "";
-    return `− ${delayLabel(pieceMins)} delay → ${after}`;
-  }
-  if (effect.earlierOnly && earlierMins >= 1) {
-    return `− ${delayLabel(earlierMins)} earlier delay → same length, later`;
-  }
-  if (effect.movedOnly) {
-    const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
-    return `${delayBit} → same length, later`;
-  }
   if (!after) return "";
-  const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
-  return `${delayBit} → ${after}`;
+  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
+  const mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
+  const amount = pieceMins >= 1 ? pieceMins : mins;
+  if (amount < 1) return "";
+  if (effect.addDelay) return `+ ${delayLabel(amount)} delay → ${after}`;
+  if (effect.movedOnly) return `− ${delayLabel(amount)} delay → same length, later`;
+  return `− ${delayLabel(amount)} delay → ${after}`;
 }
 
 function chipWhenLine(event) {
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const effect = event.delayEffect;
-  if (!effect || effect.earlierOnly) return span;
+  if (!effect || effect.addDelay || effect.earlierOnly) return span;
   const earlier = Math.max(0, Math.round(Number(effect.earlierMinutes) || 0));
   const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes) || 0));
-  // Own-delay chips: mention prior-stop delay on the time row.
+  // Pool-delay chips: mention prior-stop delay on the time row.
   if ((event.kind === "lead" || event.kind === "stop") && pieceMins >= 1 && earlier >= 1) {
     return `${span} · includes ${delayLabel(earlier)} earlier delay`;
   }

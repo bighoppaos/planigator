@@ -384,6 +384,11 @@ export function schedules({
     const delayBefore = savedDayEnd ? Math.min(delayMs, Math.max(0, savedDayEnd - clock.now)) : delayMs;
     const delayAfter = delayMs - delayBefore;
     const last = pieces[pieces.length - 1];
+    // Tail delay sits after arrive before the next leave. It does not buy
+    // extra miles on this chip — only stretches the window. On the last stop
+    // the scheduler already parks that delay on end, so do not stretch twice.
+    last.tailDelayMinutes = applyTail ? tailDelayMinutes : 0;
+    last.tailBeforeNext = applyTail && nextVisible;
     if (delayBefore >= 60 * 1000) {
       const started = clock.now;
       const spent = clock.spendDriveTime(delayBefore, cap);
@@ -1049,15 +1054,22 @@ export function timeline({
         pieceMiles = share;
       }
       const chipHours = piece.routeHours;
+      const tailMins = isTail ? Math.max(0, Math.round(Number(piece.tailDelayMinutes) || 0)) : 0;
+      // Only stretch when delay is plain sit-after-arrive before the next leave.
+      // If a 10 follows, that delay is not a longer drive window on this chip.
+      const restAfter = (piece.pausesAfter || []).some((pause) => pause.kind === "rest");
+      const stretchTail = Boolean(isTail && piece.tailBeforeNext && tailMins >= 1 && !restAfter);
+      const stretchMs = stretchTail ? tailMins * 60 * 1000 : 0;
       const delayRest = isTail
         ? (piece.pausesAfter || []).find((pause) => pause.kind === "rest" && pause.start > piece.start + 60 * 1000 && pause.start < block.end - 60 * 1000)
         : null;
       if (isTail) {
+        const arriveEnd = delayRest ? delayRest.start : block.end;
         events.push({
           id: stops[index].id,
           kind: "stop",
           start: piece.start,
-          end: delayRest ? delayRest.start : block.end,
+          end: arriveEnd + stretchMs,
           miles: pieceMiles,
           tripHours: chipHours,
           timePhrase: "Drive",
@@ -1069,6 +1081,7 @@ export function timeline({
           stopID: stops[index].id,
           index,
           pieceIndex,
+          tailDelayMinutes: stretchTail ? tailMins : 0,
         });
       } else {
         events.push({
@@ -1084,6 +1097,7 @@ export function timeline({
           stopID: stops[index].id,
           index,
           pieceIndex,
+          tailDelayMinutes: 0,
         });
       }
       piece.pausesAfter.forEach((rest) => events.push(restEvent(rest, stops[index].id)));
@@ -1199,44 +1213,50 @@ function incomingDriveDelayMinutes(stops, blocks, stopID, pieceIndex) {
 function attachDriveDelayEffect(delayed, stops, blocks) {
   const stop = stopById(stops, delayed.stopID);
   const piece = Number.isInteger(delayed.pieceIndex) ? delayed.pieceIndex : 0;
+  const tailMins = Math.max(0, Math.round(Number(delayed.tailDelayMinutes) || 0));
   const pieceMins = stop ? Math.round(pieceDelayMinutes(stop, piece)) : 0;
-  const earlierMins = incomingDriveDelayMinutes(stops, blocks, delayed.stopID, piece);
-  if (pieceMins < 1 && earlierMins < 1) return;
+  const ownMins = tailMins >= 1 ? tailMins : pieceMins;
+  if (ownMins < 1) return;
 
-  const afterHours = Number(delayed.tripHours);
-  const afterMiles = Number(delayed.miles);
-  if (pieceMins >= 1 && Number.isFinite(afterHours)) {
-    // Every drive with its own delay gets the minus row, matching the stepper.
-    const pieceHrs = pieceMins / 60;
-    const showBeforeHours = Math.max(0, afterHours + pieceHrs);
-    const showBeforeMiles = Number.isFinite(afterMiles) && afterHours > 0.01
-      ? afterMiles * (showBeforeHours / Math.max(afterHours, 0.01))
-      : (Number.isFinite(afterMiles) ? afterMiles : null);
+  const driveHours = Number(delayed.tripHours);
+  const driveMiles = Number(delayed.miles);
+  if (!Number.isFinite(driveHours)) return;
+
+  // Tail / arrival delay: same miles, longer window. Show +delay → drive+delay.
+  if (tailMins >= 1) {
     delayed.delayEffect = {
-      minutes: pieceMins,
-      pieceMinutes: pieceMins,
-      earlierMinutes: earlierMins >= 1 ? earlierMins : 0,
-      beforeHours: showBeforeHours,
-      afterHours,
-      beforeMiles: showBeforeMiles,
-      afterMiles: Number.isFinite(afterMiles) ? afterMiles : null,
+      minutes: tailMins,
+      pieceMinutes: tailMins,
+      earlierMinutes: 0,
+      beforeHours: driveHours,
+      afterHours: driveHours + tailMins / 60,
+      beforeMiles: Number.isFinite(driveMiles) ? driveMiles : null,
+      afterMiles: Number.isFinite(driveMiles) ? driveMiles : null,
+      addDelay: true,
       movedOnly: false,
       earlierOnly: false,
     };
     return;
   }
 
-  // No delay on this chip, but the previous stop’s delay pushes this leave.
+  // Pool delay: delay came out of this chip’s drive time / miles.
+  const earlierMins = incomingDriveDelayMinutes(stops, blocks, delayed.stopID, piece);
+  const pieceHrs = ownMins / 60;
+  const showBeforeHours = Math.max(0, driveHours + pieceHrs);
+  const showBeforeMiles = Number.isFinite(driveMiles) && driveHours > 0.01
+    ? driveMiles * (showBeforeHours / Math.max(driveHours, 0.01))
+    : (Number.isFinite(driveMiles) ? driveMiles : null);
   delayed.delayEffect = {
-    minutes: earlierMins,
-    pieceMinutes: 0,
-    earlierMinutes: earlierMins,
-    beforeHours: Number.isFinite(afterHours) ? afterHours : null,
-    afterHours: Number.isFinite(afterHours) ? afterHours : null,
-    beforeMiles: Number.isFinite(afterMiles) ? afterMiles : null,
-    afterMiles: Number.isFinite(afterMiles) ? afterMiles : null,
-    movedOnly: true,
-    earlierOnly: true,
+    minutes: ownMins,
+    pieceMinutes: ownMins,
+    earlierMinutes: earlierMins >= 1 ? earlierMins : 0,
+    beforeHours: showBeforeHours,
+    afterHours: driveHours,
+    beforeMiles: showBeforeMiles,
+    afterMiles: Number.isFinite(driveMiles) ? driveMiles : null,
+    addDelay: false,
+    movedOnly: false,
+    earlierOnly: false,
   };
 }
 
