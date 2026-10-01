@@ -1490,12 +1490,9 @@ export function planPlainText({
         const after = [];
         if (effect.finishDelay && effect.afterTime) {
           after.push(shortOf(effect.afterTime, event));
-        } else if (effect.afterTimeOnly && effect.afterHours != null) {
-          after.push(hoursLabel(effect.afterHours));
-        } else if (effect.afterMiles != null && effect.afterMiles > 0.05) {
-          after.push(formatMiles(effect.afterMiles));
-        } else if (effect.afterHours != null) {
-          after.push(hoursLabel(effect.afterHours));
+        } else {
+          if (effect.afterHours != null) after.push(hoursLabel(effect.afterHours));
+          if (effect.afterMiles != null && effect.afterMiles > 0.05) after.push(formatMiles(effect.afterMiles));
         }
         const mins = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
         const amount = mins >= 1 ? hoursLabel(mins / 60) : "delay";

@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=176";
+} from "./plan.js?v=177";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8897,27 +8897,20 @@ function chipDelayLine(event) {
   if (effect.finishDelay && effect.afterTime) {
     return `+ ${delayLabel(amount)} → ${formatPlanClock(effect.afterTime, eventZone(event))}`;
   }
-  // Arrival / tail delay: top row stays the real drive; "+ 15 min delay → 1 hr 1 min"
-  if (effect.afterTimeOnly) {
-    const after = hoursLabel(effect.afterHours ?? event.tripHours);
-    if (!after) return "";
-    return `+ ${delayLabel(amount)} delay → ${after}`;
-  }
-  // Pool delay (drive shrinks): "+ 15 min delay → 14.9 miles"
-  const miles = effect.afterMiles ?? event.miles;
-  if (miles != null && miles > 0.05) {
-    return `+ ${delayLabel(amount)} delay → ${formatMiles(miles)}`;
-  }
-  const after = hoursLabel(effect.afterHours ?? event.tripHours);
+  // Every drive chip: "+ 15 min delay → 6 hr 45 min · 382.9 miles"
+  const after = chipStatLine(
+    event,
+    effect.afterHours ?? event.tripHours,
+    effect.afterMiles ?? event.miles,
+  );
   if (!after) return "";
   return `+ ${delayLabel(amount)} delay → ${after}`;
 }
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  // Arrival delay: top stays the real drive. Pool delay: top is this chip
-  // after the shrink so leftover miles are visible on the later drive chip.
-  const middle = effect?.afterTimeOnly && effect.beforeHours != null
+  // Drive chips keep the original time/miles on top; delay row shows after.
+  const middle = effect && !effect.finishDelay && effect.beforeHours != null
     ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
     : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
