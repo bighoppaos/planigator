@@ -8240,9 +8240,10 @@ function isTypedField(el) {
 
 // iPhone shake-to-undo watches WebKit's typing history. Our fields already
 // save into app state, so that dialog cannot put a stop name back anyway.
-// Drop the history after typing so shake has nothing to offer.
+// Drop the history on every keystroke (and on blur) so shake has nothing.
 function scrubFieldUndo(el, { keepFocus = true } = {}) {
   if (!isTypedField(el) || !el.isConnected) return null;
+  if (el.dataset.undoScrub === "1") return el;
   const focused = keepFocus && document.activeElement === el;
   const start = el.selectionStart;
   const end = el.selectionEnd;
@@ -8251,6 +8252,7 @@ function scrubFieldUndo(el, { keepFocus = true } = {}) {
   if ("checked" in el) clone.checked = el.checked;
   clone.disabled = el.disabled;
   clone.readOnly = el.readOnly;
+  clone.dataset.undoScrub = "1";
   el.replaceWith(clone);
   if (clone.matches?.("textarea[data-field=address], textarea[data-field=name]")) fitAddressField(clone);
   if (focused) {
@@ -8259,6 +8261,8 @@ function scrubFieldUndo(el, { keepFocus = true } = {}) {
       if (typeof start === "number" && typeof end === "number") clone.setSelectionRange(start, end);
     } catch (_) {}
   }
+  // Allow the next real keystroke to scrub again after this swap settles.
+  window.setTimeout(() => { delete clone.dataset.undoScrub; }, 0);
   return clone;
 }
 
@@ -8270,10 +8274,11 @@ function scheduleTypingUndoClear() {
 
 function scheduleActiveTypingUndoClear() {
   window.clearTimeout(undoClearTimer);
+  // Same turn as the keystroke so a shake right after typing sees an empty stack.
   undoClearTimer = window.setTimeout(() => {
     const active = document.activeElement;
     if (isTypedField(active)) scrubFieldUndo(active, { keepFocus: true });
-  }, 300);
+  }, 0);
 }
 
 function clearTypingUndo() {
@@ -8306,6 +8311,7 @@ document.addEventListener("beforeinput", (event) => {
 }, true);
 
 document.addEventListener("input", (event) => {
+  if (event.isComposing) return;
   if (isTypedField(event.target)) scheduleActiveTypingUndoClear();
 }, true);
 
