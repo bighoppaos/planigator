@@ -5410,7 +5410,10 @@ function seatRails() {
   if (typeof ResizeObserver === "undefined" || railSeatBox === box) return;
   railSeatObserver?.disconnect();
   railSeatBox = box;
-  railSeatObserver = new ResizeObserver(() => seatRails());
+  railSeatObserver = new ResizeObserver(() => {
+    seatRails();
+    reframeFullscreenTurn();
+  });
   railSeatObserver.observe(box);
 }
 
@@ -5500,6 +5503,7 @@ function fitRouteCover() {
   if (cover !== routeCoverSize) {
     routeCoverSize = cover;
     routeMap?.resize();
+    reframeFullscreenTurn();
   }
 }
 
@@ -6391,6 +6395,37 @@ function travelBearing(along) {
   return routeMap?.getBearing() || 0;
 }
 
+// Full-screen only. Page Turn zoom never calls this.
+// overlayTop is the map-local Y of the ETA chip (the top of the bottom stack).
+// The upcoming turn has to land above that chip and the directions under it.
+function maneuverYAboveChip(turnY, overlayTop, margin, minY) {
+  if (!Number.isFinite(overlayTop)) return turnY;
+  const limit = overlayTop - margin;
+  return Math.max(minY, Math.min(turnY, limit));
+}
+
+function fullscreenOverlayTop(mapBox) {
+  if (!mapBox || mapBox.height < 2) return null;
+  const stack = document.querySelector("#routeStage .route-bottom");
+  const sheet = document.getElementById("routeDirections");
+  let top = null;
+  for (const el of [stack, sheet]) {
+    if (!el || el.hidden) continue;
+    const box = el.getBoundingClientRect();
+    if (box.height < 2 || box.bottom <= mapBox.top || box.top >= mapBox.bottom) continue;
+    const y = box.top - mapBox.top;
+    if (top == null || y < top) top = y;
+  }
+  return top;
+}
+
+let framingTurn = false;
+
+function reframeFullscreenTurn() {
+  if (framingTurn || !routeFull || tripFit !== "nextTurn" || !navOn || !navFix || !routeMap) return;
+  frameNextTurn();
+}
+
 function noHandsSlots() {
   const map = routeMap?.getContainer() || document.getElementById("routeMap");
   const height = map?.clientHeight || 640;
@@ -6443,7 +6478,9 @@ function noHandsSlots() {
 }
 
 function frameNextTurn() {
-  if (!routeMap) return;
+  if (!routeMap || framingTurn) return;
+  framingTurn = true;
+  try {
   rebuildNavLegs();
   if (!navFix || navLine.length < 2) return;
   // Seat rails above the live ETA / directions stack before reading slots.
@@ -6485,7 +6522,14 @@ function frameNextTurn() {
   zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   const mpp = (156543.03392 * cos) / (2 ** zoom);
-  const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
+  // Page Turn zoom locks you on the Recalculate slot. Leave that center alone.
+  let center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
+  if (routeFull) {
+    const mapBox = routeMap.getContainer()?.getBoundingClientRect();
+    const overlayTop = fullscreenOverlayTop(mapBox);
+    const maneuverY = maneuverYAboveChip(slots.turnY, overlayTop ?? slots.height, 28, Math.max(48, slots.buttonH || 48));
+    center = pointAhead(at.lat, at.lon, bearing, (maneuverY - slots.height / 2) * mpp);
+  }
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
@@ -6497,6 +6541,9 @@ function frameNextTurn() {
     duration: 450,
     easing: (x) => x,
   });
+  } finally {
+    framingTurn = false;
+  }
 }
 
 function frameNextStop() {
