@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=175";
+} from "./plan.js?v=176";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8915,8 +8915,9 @@ function chipDelayLine(event) {
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  const showBefore = effect && !effect.finishDelay && effect.beforeHours != null;
-  const middle = showBefore
+  // Arrival delay: top stays the real drive. Pool delay: top is this chip
+  // after the shrink so leftover miles are visible on the later drive chip.
+  const middle = effect?.afterTimeOnly && effect.beforeHours != null
     ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
     : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
@@ -8925,21 +8926,24 @@ function chipParts(event) {
   const toward = towardName ? `Toward ${towardName}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
-  return { label, middle, delayLine, span };
+  return { label, middle, delayLine, span, finishDelay: Boolean(effect?.finishDelay) };
 }
 
 function chip(event) {
   const ink = stopInk(event.rgb);
-  const { label, middle, delayLine, span } = chipParts(event);
+  const { label, middle, delayLine, span, finishDelay } = chipParts(event);
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
+  // Finish stop: when first, then delay under it. Other chips keep delay above when.
+  const delayThenWhen = finishDelay
+    ? `${section(span, "chip-when")}${section(delayLine, "chip-delay")}`
+    : `${section(delayLine, "chip-delay")}${section(span, "chip-when")}`;
   const body = `
     <div class="chip ${event.kind}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
       ${section(middle, "chip-mid")}
-      ${section(delayLine, "chip-delay")}
-      ${section(span, "chip-when")}
+      ${delayThenWhen}
     </div>
   `;
   const delay = driveDelayTarget(event);
