@@ -1,4 +1,5 @@
 import { api, creditsMe, noteVisit, pulseActivity } from "./api.js";
+import { HERO_LINE_MAX } from "./hero-tiles.js?v=1";
 
 const status = document.getElementById("status");
 const rows = document.getElementById("rows");
@@ -272,7 +273,7 @@ async function loadVisits(hereOnly = false) {
   drawVisits();
 }
 
-const HERO_MAX = 6;
+const HERO_MAX = HERO_LINE_MAX;
 const DEFAULT_HERO = [
   "Made and maintained by a truck driver that still drives",
   "Know how much time you have to spare",
@@ -381,7 +382,7 @@ try {
     const box = document.getElementById("heroLines");
     const note = document.getElementById("heroNote");
     if (box.children.length >= HERO_MAX) {
-      note.textContent = "Six lines is the most.";
+      note.textContent = `${HERO_MAX} lines is the most.`;
       return;
     }
     const row = heroRow("");
