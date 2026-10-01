@@ -30,7 +30,8 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=6";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, noteAdLanding, redeemGift } from "./api.js?v=7";
+import { captureAds } from "./ads.js?v=1";
 import { loadTowns, townAt } from "./town.js?v=1";
 import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=3";
 
@@ -9316,6 +9317,8 @@ export function initPlanner(el) {
     render();
   });
   plannerRoot = el;
+  captureAds();
+  void noteAdLanding();
   noteVisit(!sessionStorage.getItem("planigator.web.visit"));
   sessionStorage.setItem("planigator.web.visit", "1");
   setInterval(() => {
