@@ -41,37 +41,48 @@ export function truckRouteUrl({
   departAt,
   course,
   routingMode,
+  transportMode = "truck",
   now = Date.now(),
 }) {
   const profile = TRUCK_PROFILE;
+  const mode = transportMode === "car" || transportMode === "bicycle" || transportMode === "pedestrian"
+    ? transportMode
+    : "truck";
   let origin = `${from.lat.toFixed(6)},${from.lon.toFixed(6)}`;
   if (typeof course === "number" && Number.isFinite(course) && course >= 0 && course <= 360) {
-    origin += `;course=${Math.round(course % 360)};minCourseDistance=400`;
+    origin += `;course=${Math.round(course % 360)}`;
+    if (mode === "truck") origin += ";minCourseDistance=400";
   }
   const items = [
-    pair("transportMode", "truck"),
+    pair("transportMode", mode),
     pair("origin", origin),
     pair("destination", `${to.lat.toFixed(6)},${to.lon.toFixed(6)}`),
     pair("return", "summary"),
     pair("departureTime", hereDeparture(departAt, now)),
     pair("units", "imperial"),
     pair("apiKey", apiKey),
-    pair("avoid[features]", "dirtRoad,uTurns"),
-    pair("vehicle[grossWeight]", kg(profile.grossWeightPounds)),
-    pair("vehicle[currentWeight]", kg(profile.grossWeightPounds)),
-    pair("vehicle[height]", cmFromInches(profile.heightInches)),
-    pair("vehicle[width]", cmFromInches(profile.widthInches)),
-    pair("vehicle[length]", cmFromFeet(profile.overallLengthFeet)),
-    pair("vehicle[trailerLength]", cmFromFeet(profile.trailerLengthFeet)),
-    pair("vehicle[kpraLength]", cmFromFeet(profile.kpraLengthFeet)),
-    pair("vehicle[trailerCount]", profile.trailerCount),
-    pair("vehicle[axleCount]", profile.axleCount),
-    pair("vehicle[trailerAxleCount]", 2),
-    pair("vehicle[weightPerAxleGroup]", "single:5443,tandem:15422"),
   ];
-  const cap = Number(speedCapMph);
-  if (cap > 1) {
-    items.push(pair("vehicle[speedCap]", Math.min(70, Math.max(1, cap * 0.44704)).toFixed(2)));
+  if (mode === "truck" || mode === "car") {
+    items.push(pair("avoid[features]", "dirtRoad,uTurns"));
+  }
+  if (mode === "truck") {
+    items.push(
+      pair("vehicle[grossWeight]", kg(profile.grossWeightPounds)),
+      pair("vehicle[currentWeight]", kg(profile.grossWeightPounds)),
+      pair("vehicle[height]", cmFromInches(profile.heightInches)),
+      pair("vehicle[width]", cmFromInches(profile.widthInches)),
+      pair("vehicle[length]", cmFromFeet(profile.overallLengthFeet)),
+      pair("vehicle[trailerLength]", cmFromFeet(profile.trailerLengthFeet)),
+      pair("vehicle[kpraLength]", cmFromFeet(profile.kpraLengthFeet)),
+      pair("vehicle[trailerCount]", profile.trailerCount),
+      pair("vehicle[axleCount]", profile.axleCount),
+      pair("vehicle[trailerAxleCount]", 2),
+      pair("vehicle[weightPerAxleGroup]", "single:5443,tandem:15422"),
+    );
+    const cap = Number(speedCapMph);
+    if (cap > 1) {
+      items.push(pair("vehicle[speedCap]", Math.min(70, Math.max(1, cap * 0.44704)).toFixed(2)));
+    }
   }
   if (routingMode === "short" || routingMode === "fast") items.push(pair("routingMode", routingMode));
   return `https://router.hereapi.com/v8/routes?${items.join("&")}`;

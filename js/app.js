@@ -30,7 +30,7 @@ import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
-import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=6";
+import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
 import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=3";
 
@@ -261,6 +261,7 @@ function defaultState() {
       kilometers: false,
       arrival: "earliest",
       routeMode: "fast",
+      transportMode: "truck",
     },
     stops: defaultStops(),
     tripName: "",
@@ -351,6 +352,12 @@ function applyStoredTrip(state, saved) {
   state.driveProgress = readDriveProgress(saved.driveProgress);
 }
 
+const TRANSPORT_MODES = ["truck", "car", "bicycle", "pedestrian"];
+
+function normalizeTransportMode(raw) {
+  return TRANSPORT_MODES.includes(raw) ? raw : "truck";
+}
+
 function loadState() {
   const state = defaultState();
   try {
@@ -360,6 +367,7 @@ function loadState() {
     state.settings = { ...state.settings, ...(saved.settings || {}) };
     delete state.settings.sleepHours;
     delete state.settings.readyMinutes;
+    state.settings.transportMode = normalizeTransportMode(state.settings.transportMode);
     const boxFont = Number(saved.boxFont);
     if (boxFont >= 13 && boxFont <= 28) state.boxFont = Math.round(boxFont);
     state.darkMode = saved.darkMode === true;
@@ -402,6 +410,7 @@ function settingsForSave() {
   const settings = { ...state.settings };
   delete settings.sleepHours;
   delete settings.readyMinutes;
+  settings.transportMode = normalizeTransportMode(settings.transportMode);
   return settings;
 }
 
@@ -445,6 +454,50 @@ function toggleDarkMode() {
     button.textContent = themeButtonLabel();
   }
   persist();
+}
+
+function activeTransportMode() {
+  if (!state.unlimited) return "truck";
+  return normalizeTransportMode(state.settings.transportMode);
+}
+
+function transportModeTitle(mode = activeTransportMode()) {
+  if (mode === "car") return "Car";
+  if (mode === "bicycle") return "Bike";
+  if (mode === "pedestrian") return "Walk";
+  return "Truck";
+}
+
+function transportButtonLabel(mode = activeTransportMode()) {
+  return `${transportModeTitle(mode)} mode`;
+}
+
+function transportRouteNote(mode = activeTransportMode()) {
+  if (mode === "car") return "HERE© car route.";
+  if (mode === "bicycle") return "HERE© bike route.";
+  if (mode === "pedestrian") return "HERE© walk route.";
+  return `HERE© truck route (${TRUCK_PROFILE.summary}).`;
+}
+
+function cycleTransportMode() {
+  if (!state.unlimited) return;
+  const current = activeTransportMode();
+  const at = TRANSPORT_MODES.indexOf(current);
+  const next = TRANSPORT_MODES[(at + 1) % TRANSPORT_MODES.length];
+  state.settings.transportMode = next;
+  const button = document.getElementById("transportMode");
+  if (button) {
+    button.classList.toggle("on", next !== "truck");
+    button.textContent = transportButtonLabel(next);
+  }
+  state.notice = `${transportModeTitle(next)} mode. Recalculate for a new HERE© route.`;
+  const note = document.getElementById("routeStopNote");
+  if (note) {
+    note.hidden = false;
+    note.textContent = state.notice;
+  }
+  persist();
+  saveActiveTripSettings();
 }
 
 function persist() {
@@ -1255,13 +1308,16 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     if (legsToCalculate(state.stops).mode !== "suffix") clearDriveProgress();
     state.estimating = true;
     state.error = "";
-    state.notice = "Asking HERE© for a truck-legal route…";
+    const modeAsk = activeTransportMode();
+    state.notice = modeAsk === "truck"
+      ? "Asking HERE© for a truck-legal route…"
+      : `Asking HERE© for a ${transportModeTitle(modeAsk).toLowerCase()} route…`;
     render();
     try {
       hereLegs = await fillHereLegs();
     } catch (error) {
       if (error.credits != null) state.credits = error.credits;
-      state.error = error.message || "Could not get a HERE© truck route.";
+      state.error = error.message || `Could not get a HERE© ${transportModeTitle(modeAsk).toLowerCase()} route.`;
       state.estimating = false;
       render();
       return;
@@ -1305,9 +1361,10 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
   state.error = "";
   state.arrivalBusy = false;
   if (wantAccountTrip) await keepSharedOnAccount({ quiet: true });
+  const modeDone = activeTransportMode();
   const routeNote = hereLegs?.from
-    ? `HERE© truck route from ${hereLegs.from} (${TRUCK_PROFILE.summary}). Earlier stops were not recalculated.`
-    : `HERE© truck route (${TRUCK_PROFILE.summary}).`;
+    ? `${transportRouteNote(modeDone).replace(/\.$/, "")} from ${hereLegs.from}. Earlier stops were not recalculated.`
+    : transportRouteNote(modeDone);
   if (!silent && !hereLegs?.from) clearSpeedNote();
   if (!skipHash && state.signedIn) {
     saveTrip();
@@ -2534,6 +2591,8 @@ function applyAccount(me) {
   state.signedIn = Boolean(me.signedIn);
   state.idleSignOut = Boolean(me.idle);
   state.unlimited = Boolean(me.unlimited);
+  if (!state.unlimited) state.settings.transportMode = "truck";
+  else state.settings.transportMode = normalizeTransportMode(state.settings.transportMode);
   state.email = me.email || "";
   state.checkoutReady = Boolean(me.checkoutReady);
   state.googleClientId = me.googleClientId || "";
@@ -3608,7 +3667,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
     ${directions}
     ${directions ? `<div class="nav-actions nav-go" id="navGo"><button type="button" class="flag-box" id="startNav" ${navOn ? "disabled" : ""}>${navOn ? "Navigation in progress" : "Start navigation"}</button><button type="button" class="flag-box" id="endNav">End navigation</button>${voiceStepper()}</div><p class="fine">Arrows change the voice. Phone is the voice on this phone and pauses the song. US, Clear, Ann, Cal, Scot, and North talk when you tap them and keep the song playing.</p>` : ""}
     <p class="flag-box" id="routeStopNote" hidden></p>
-    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button></div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>Search here</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
+    ${directions ? `<div class="nav-actions"><button type="button" class="flag-box${state.darkMode ? " on" : ""}" id="darkMode">${themeButtonLabel()}</button>${state.unlimited ? `<button type="button" class="flag-box${activeTransportMode() !== "truck" ? " on" : ""}" id="transportMode">${transportButtonLabel()}</button>` : ""}</div><p class="flag-box" id="nextTruckNote"${placeListMode || !truckHit ? " hidden" : ""}>${placeListMode || !truckHit ? "" : escapeAttr(truckNoteText(truckHit))}</p><div id="nextPlaceList" class="place-list"${placeListMode && truckHits.length ? "" : " hidden"}></div><button type="button" class="flag-box" id="searchPlaces"${placeSeek && placeMapMoved ? "" : " hidden"}>Search here</button><button type="button" class="flag-box" id="clearPlaces"${truckHits.length ? "" : " hidden"}>Clear</button><button type="button" class="flag-box" id="addTruckStop"${truckHit ? "" : " hidden"}>Add as next stop</button>` : ""}
     ${summaryLivesOnPlan() ? "" : planSummary()}
   </section>`;
 }
@@ -6964,7 +7023,7 @@ async function recalculateFromHere() {
   }
   clearDriveProgress();
   state.estimating = false;
-  state.notice = `HERE© truck route to ${name} (${TRUCK_PROFILE.summary}).`;
+  state.notice = `${transportRouteNote().replace(/\.$/, "")} to ${name}.`;
   await calculate({ silent: true, keepScreen: true });
 }
 
@@ -6982,11 +7041,13 @@ function stopPoint(stop) {
 
 function routeTruckLeg(from, to, course, options = {}) {
   const mode = state.settings.routeMode === "short" ? "short" : "fast";
+  const transportMode = activeTransportMode();
   const run = (routingMode) => truckRoute(from, to, {
-    speedCapMph: state.settings.governed ? mph() : null,
+    speedCapMph: transportMode === "truck" && state.settings.governed ? mph() : null,
     departAt: leaveAtNow(),
     ...(typeof course === "number" ? { course } : {}),
     ...(options.avoidUTurns ? { avoidUTurns: true } : {}),
+    transportMode,
     routingMode,
   });
   if (mode !== "short") return run(mode);
@@ -10316,6 +10377,7 @@ function bind() {
   $("#nextLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves" }));
   $("#nextWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart" }));
   $("#darkMode")?.addEventListener("click", () => toggleDarkMode());
+  $("#transportMode")?.addEventListener("click", () => cycleTransportMode());
   $("#routeTruck")?.addEventListener("click", () => findNextTruckStop({ frame: true }));
   $("#routeLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves", frame: true }));
   $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));

@@ -116,6 +116,7 @@ export function spotAddress(lat, lon) {
 }
 
 export function truckRoute(from, to, options = {}) {
+  const mode = options.transportMode;
   return api("/v1/route", {
     method: "POST",
     body: JSON.stringify({
@@ -126,6 +127,9 @@ export function truckRoute(from, to, options = {}) {
       ...(typeof options.course === "number" ? { course: options.course } : {}),
       ...(options.routingMode === "short" || options.routingMode === "fast" ? { routingMode: options.routingMode } : {}),
       ...(options.avoidUTurns ? { avoidUTurns: true } : {}),
+      ...(mode === "car" || mode === "bicycle" || mode === "pedestrian" || mode === "truck"
+        ? { transportMode: mode }
+        : {}),
     }),
   });
 }
