@@ -939,6 +939,13 @@ function leaveAtNow() {
   });
 }
 
+/** Wall clock for leeway before the first drive when Leave at is set. Leave now
+ *  uses the same instant as leaveAt so that chip does not open for no reason. */
+function planClockNow(leaveAt) {
+  if (state.settings.leaveNow) return leaveAt;
+  return Date.now();
+}
+
 function rebuiltPlan() {
   const timed = stopsAndLeaveForPlan();
   return buildPlan({
@@ -947,7 +954,7 @@ function rebuiltPlan() {
       ...state.settings,
       leaveAt: timed.leaveAt,
     },
-    now: timed.leaveAt,
+    now: planClockNow(timed.leaveAt),
   });
 }
 
@@ -1277,7 +1284,7 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
       ...state.settings,
       leaveAt,
     },
-    now: leaveAt,
+    now: planClockNow(leaveAt),
   });
   if (result.error) {
     state.arrivalBusy = false;
@@ -1929,7 +1936,7 @@ function rebuildPlanAfterDone() {
       ...state.settings,
       leaveAt: timed.leaveAt,
     },
-    now: timed.leaveAt,
+    now: planClockNow(timed.leaveAt),
   });
   if (!result.error) state.plan = result;
   persist();
@@ -9201,9 +9208,8 @@ function hereLeg(stop) {
     const parts = [];
     if (leg.miles > 0.05) parts.push(formatMiles(leg.miles));
     if (leg.hours > 0.0001) parts.push(hoursLabel(leg.hours));
-    const tail = leg.left ? "left" : "from HERE";
-    const mark = leg.left ? "" : "<sup>©</sup>";
-    return `<p class="flag-box here-leg">${escapeAttr(parts.join(" · "))} ${tail}${mark}</p>`;
+    const text = leg.left ? `${parts.join(" · ")} left` : parts.join(" · ");
+    return `<p class="flag-box here-leg">${escapeAttr(text)}</p>`;
   }
   return "";
 }
