@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=169";
+} from "./plan.js?v=170";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8811,9 +8811,12 @@ function paintPlanClocks() {
     const parts = chipParts(event);
     for (const node of nodes) {
       const mid = node.querySelector(".chip-mid");
+      const delay = node.querySelector(".chip-delay");
       const when = node.querySelector(".chip-when");
       if (!when || Boolean(parts.middle) !== Boolean(mid)) return false;
+      if (Boolean(parts.delayLine) !== Boolean(delay)) return false;
       if (mid) mid.textContent = parts.middle;
+      if (delay) delay.textContent = parts.delayLine;
       when.textContent = parts.span;
     }
   }
@@ -8864,25 +8867,60 @@ function armLeaveNowClock() {
   }, delay);
 }
 
-function chipParts(event) {
-  const miles = event.miles != null && event.miles > 0.05 ? formatMiles(event.miles) : "";
-  const restMinutes = Math.round(Number(event.tripHours) * 60);
+function chipStatLine(event, hours, miles) {
+  const restMinutes = Math.round(Number(hours) * 60);
   const hideHours = event.kind === "thirty" || (event.kind === "rest" && state.settings.endAnytime && restMinutes <= 10 * 60);
-  const hours = event.tripHours != null && !hideHours ? hoursLabel(event.tripHours) : "";
-  const middle = event.kind === "leeway" && event.tripHours != null
-    ? leewayDays(event.tripHours)
-    : [hours, miles].filter(Boolean).join(" · ");
+  if (event.kind === "leeway" && hours != null) return leewayDays(hours);
+  const hourText = hours != null && !hideHours ? hoursLabel(hours) : "";
+  const mileText = miles != null && miles > 0.05 ? formatMiles(miles) : "";
+  return [hourText, mileText].filter(Boolean).join(" · ");
+}
+
+function chipDelayLine(event) {
+  const effect = event.delayEffect;
+  if (!effect) return "";
+  const after = chipStatLine(event, effect.afterHours, effect.afterMiles);
+  if (!after && !effect.movedOnly) return "";
+  let mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
+  const beforeHours = Number(effect.beforeHours);
+  const afterHours = Number(effect.afterHours);
+  const shrunk = Number.isFinite(beforeHours) && Number.isFinite(afterHours) && afterHours < beforeHours - 0.01;
+  const grown = Number.isFinite(beforeHours) && Number.isFinite(afterHours) && afterHours > beforeHours + 0.01;
+  if (shrunk && (event.kind === "lead" || event.kind === "stop")) {
+    const stop = state.stops.find((item) => item.id === event.stopID);
+    const pieceMins = stop ? driveDelayAt(stop, drivePieceIndex(event)) : 0;
+    if (pieceMins >= 1) mins = pieceMins;
+  }
+  if (effect.movedOnly) {
+    const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
+    return `${delayBit} → same length, later`;
+  }
+  if (grown) {
+    return mins >= 1
+      ? `delay moved drive here (− ${delayLabel(mins)}) → ${after}`
+      : `delay moved drive here → ${after}`;
+  }
+  const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
+  return `${delayBit} → ${after}`;
+}
+
+function chipParts(event) {
+  const effect = event.delayEffect;
+  const middle = effect
+    ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
+    : chipStatLine(event, event.tripHours, event.miles);
+  const delayLine = chipDelayLine(event);
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const towardName = driveTowardName(event);
   const toward = towardName ? `Toward ${towardName}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");
   const label = [phrase, toward].filter(Boolean).join(" · ");
-  return { label, middle, span };
+  return { label, middle, delayLine, span };
 }
 
 function chip(event) {
   const ink = stopInk(event.rgb);
-  const { label, middle, span } = chipParts(event);
+  const { label, middle, delayLine, span } = chipParts(event);
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
@@ -8890,6 +8928,7 @@ function chip(event) {
     <div class="chip ${event.kind}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
       ${section(middle, "chip-mid")}
+      ${section(delayLine, "chip-delay")}
       ${section(span, "chip-when")}
     </div>
   `;

@@ -1240,6 +1240,10 @@ input.compact {
   padding-top: 2px;
   border-top: 1px solid currentColor;
 }
+.chip-sec.chip-delay {
+  font-weight: 700;
+  opacity: 0.92;
+}
 .chip-sec.late, .error { color: #b42318; font-weight: 700; }
 p.late-note { margin: 4px 0 8px; }
 .ok { color: var(--mint); font-weight: 600; }

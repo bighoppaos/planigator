@@ -1128,6 +1128,101 @@ function restEvent(rest, stopID) {
   };
 }
 
+function stopHasDelay(stop) {
+  if (!stop) return false;
+  if (Math.max(0, Number(stop.delayMinutes) || 0) >= 1) return true;
+  if (Math.max(0, Number(stop.finishDelayMinutes) || 0) >= 1) return true;
+  if (Array.isArray(stop.driveDelays) && stop.driveDelays.some((mins) => Math.max(0, Number(mins) || 0) >= 1)) {
+    return true;
+  }
+  return false;
+}
+
+function zeroDelayStops(stops) {
+  return stops.map((stop) => ({
+    ...stop,
+    delayMinutes: 0,
+    finishDelayMinutes: 0,
+    driveDelays: Array.isArray(stop.driveDelays) ? stop.driveDelays.map(() => 0) : stop.driveDelays,
+  }));
+}
+
+function delayEffectGroupKey(event) {
+  if (event.kind === "lead" || event.kind === "stop") {
+    const piece = Number.isInteger(event.pieceIndex) ? event.pieceIndex : 0;
+    return `drive:${event.stopID}:${piece}`;
+  }
+  if (event.kind === "rest") return `rest:${event.stopID}`;
+  if (event.kind === "thirty") return `thirty:${event.stopID}`;
+  if (event.kind === "leeway") return `leeway:${event.stopID}:${event.after}`;
+  return "";
+}
+
+function groupDelayEvents(events) {
+  const groups = new Map();
+  for (const event of events || []) {
+    const key = delayEffectGroupKey(event);
+    if (!key) continue;
+    const list = groups.get(key) || [];
+    list.push(event);
+    groups.set(key, list);
+  }
+  for (const list of groups.values()) list.sort((a, b) => a.start - b.start);
+  return groups;
+}
+
+function nearestPlainEvent(plainList, delayed) {
+  if (!plainList?.length) return null;
+  let best = plainList[0];
+  let bestGap = Math.abs(best.start - delayed.start);
+  for (let i = 1; i < plainList.length; i += 1) {
+    const gap = Math.abs(plainList[i].start - delayed.start);
+    if (gap < bestGap) {
+      best = plainList[i];
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/** Mark chips that changed because of possible delay, so the UI can show
+ *  before → after. Plain plan is the same trip with every delay at 0. */
+function annotateDelayEffects(delayedEvents, plainEvents) {
+  const plainGroups = groupDelayEvents(plainEvents);
+  const delayedGroups = groupDelayEvents(delayedEvents);
+  for (const [key, delayedList] of delayedGroups) {
+    const plainList = plainGroups.get(key) || [];
+    delayedList.forEach((delayed, index) => {
+      const plain = plainList[index] || nearestPlainEvent(plainList, delayed);
+      if (!plain) return;
+      const beforeHours = Number(plain.tripHours);
+      const afterHours = Number(delayed.tripHours);
+      const beforeMiles = Number(plain.miles);
+      const afterMiles = Number(delayed.miles);
+      const hourDelta = Math.abs((Number.isFinite(beforeHours) ? beforeHours : 0) - (Number.isFinite(afterHours) ? afterHours : 0));
+      const mileDelta = Math.abs((Number.isFinite(beforeMiles) ? beforeMiles : 0) - (Number.isFinite(afterMiles) ? afterMiles : 0));
+      const startDelta = Math.abs((plain.start || 0) - (delayed.start || 0));
+      const endDelta = Math.abs((plain.end || 0) - (delayed.end || 0));
+      if (hourDelta < 1 / 60 && mileDelta < 0.05 && startDelta < 60 * 1000 && endDelta < 60 * 1000) return;
+      const minutes = Math.max(
+        Math.round(hourDelta * 60),
+        Math.round(startDelta / 60000),
+        Math.round(endDelta / 60000),
+      );
+      delayed.delayEffect = {
+        minutes,
+        beforeHours: Number.isFinite(beforeHours) ? beforeHours : null,
+        afterHours: Number.isFinite(afterHours) ? afterHours : null,
+        beforeMiles: Number.isFinite(beforeMiles) ? beforeMiles : null,
+        afterMiles: Number.isFinite(afterMiles) ? afterMiles : null,
+        beforeStart: plain.start,
+        beforeEnd: plain.end,
+        movedOnly: hourDelta < 1 / 60 && mileDelta < 0.05,
+      };
+    });
+  }
+}
+
 export function buildPlan({
   stops,
   settings,
@@ -1149,8 +1244,7 @@ export function buildPlan({
   const leaveAt = settings.leaveAt;
   const driveHours = driveHoursForStops(stops, mph);
   const miles = milesForStops(stops, mph);
-  const { events, blocks } = timeline({
-    stops,
+  const timelineArgs = {
     driveHours,
     miles,
     leaveAt,
@@ -1160,7 +1254,12 @@ export function buildPlan({
     hoursOfEleven: settings.hoursOfEleven,
     hoursBeforeThirty: settings.hoursBeforeThirty,
     arriveLatest: settings.arrival === "latest",
-  });
+  };
+  const { events, blocks } = timeline({ stops, ...timelineArgs });
+  if (stops.some(stopHasDelay)) {
+    const plain = timeline({ stops: zeroDelayStops(stops), ...timelineArgs });
+    annotateDelayEffects(events, plain.events);
+  }
   const firstDest = destIndexes[0];
   const lastDest = destIndexes[destIndexes.length - 1];
   const rollAt = firstDest != null && blocks[firstDest] ? blocks[firstDest].start : leaveAt;
@@ -1319,11 +1418,22 @@ export function planPlainText({
       const when = event.end && event.end !== event.start
         ? `${shortOf(event.start, event)} → ${shortOf(event.end, event)}`
         : shortOf(event.start, event);
+      const effect = event.delayEffect;
       const extra = [];
       if (event.title) extra.push(event.title);
-      if (event.miles != null && event.miles > 0.05) extra.push(formatMiles(event.miles));
-      if (event.tripHours != null) extra.push(hoursLabel(event.tripHours));
+      if (effect?.beforeHours != null) extra.push(hoursLabel(effect.beforeHours));
+      else if (event.tripHours != null) extra.push(hoursLabel(event.tripHours));
+      if (effect?.beforeMiles != null && effect.beforeMiles > 0.05) extra.push(formatMiles(effect.beforeMiles));
+      else if (event.miles != null && event.miles > 0.05) extra.push(formatMiles(event.miles));
       lines.push(`${event.timePhrase}${extra.length ? ` · ${extra.join(" · ")}` : ""}`);
+      if (effect) {
+        const after = [];
+        if (effect.afterHours != null) after.push(hoursLabel(effect.afterHours));
+        if (effect.afterMiles != null && effect.afterMiles > 0.05) after.push(formatMiles(effect.afterMiles));
+        const mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
+        const delayBit = mins >= 1 ? `− ${mins} min delay` : "− delay";
+        lines.push(`  ${delayBit}${after.length ? ` → ${after.join(" · ")}` : ""}`);
+      }
       lines.push(`  ${when}`);
       if (event.arrivalPhrase && event.earliestArrive) {
         lines.push(`  ${event.arrivalPhrase}: ${shortOf(event.earliestArrive, event)}`);
