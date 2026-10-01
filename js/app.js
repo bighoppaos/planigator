@@ -8879,18 +8879,34 @@ function chipStatLine(event, hours, miles) {
 function chipDelayLine(event) {
   const effect = event.delayEffect;
   if (!effect) return "";
-  const after = chipStatLine(event, effect.afterHours, effect.afterMiles);
-  const mins = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
-  const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
-  if (effect.movedOnly) return `${delayBit} → same length, later`;
+  const after = chipStatLine(event, effect.afterHours ?? event.tripHours, effect.afterMiles ?? event.miles);
+  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes) || 0));
+  const earlierMins = Math.max(0, Math.round(Number(effect.earlierMinutes) || 0));
+  const mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
+  if (pieceMins >= 1) {
+    if (!after) return "";
+    return `− ${delayLabel(pieceMins)} delay → ${after}`;
+  }
+  if (effect.earlierOnly && earlierMins >= 1) {
+    return `− ${delayLabel(earlierMins)} earlier delay → same length, later`;
+  }
+  if (effect.movedOnly) {
+    const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
+    return `${delayBit} → same length, later`;
+  }
   if (!after) return "";
+  const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
   return `${delayBit} → ${after}`;
 }
 
 function chipWhenLine(event) {
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
-  const earlier = Math.max(0, Math.round(Number(event.delayEffect?.earlierMinutes) || 0));
-  if ((event.kind === "lead" || event.kind === "stop") && earlier >= 1) {
+  const effect = event.delayEffect;
+  if (!effect || effect.earlierOnly) return span;
+  const earlier = Math.max(0, Math.round(Number(effect.earlierMinutes) || 0));
+  const pieceMins = Math.max(0, Math.round(Number(effect.pieceMinutes) || 0));
+  // Own-delay chips: mention prior-stop delay on the time row.
+  if ((event.kind === "lead" || event.kind === "stop") && pieceMins >= 1 && earlier >= 1) {
     return `${span} · includes ${delayLabel(earlier)} earlier delay`;
   }
   return span;
@@ -8898,7 +8914,8 @@ function chipWhenLine(event) {
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  const middle = effect && !effect.movedOnly
+  const showBefore = effect && !effect.movedOnly && !effect.earlierOnly;
+  const middle = showBefore
     ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
     : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
