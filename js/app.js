@@ -8228,10 +8228,52 @@ function focusDirectionWindow(stopId, index) {
 
 let undoClearTimer = 0;
 
+function isTypedField(el) {
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return false;
+  if (el.disabled || el.dataset.undoFreeze === "1") return false;
+  const type = (el.type || "text").toLowerCase();
+  if (type === "checkbox" || type === "radio" || type === "range" || type === "file" || type === "button" || type === "submit" || type === "reset" || type === "hidden") {
+    return false;
+  }
+  return true;
+}
+
+// iPhone shake-to-undo watches WebKit's typing history. Our fields already
+// save into app state, so that dialog cannot put a stop name back anyway.
+// Drop the history after typing so shake has nothing to offer.
+function scrubFieldUndo(el, { keepFocus = true } = {}) {
+  if (!isTypedField(el) || !el.isConnected) return null;
+  const focused = keepFocus && document.activeElement === el;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const clone = el.cloneNode(true);
+  if ("value" in el) clone.value = el.value;
+  if ("checked" in el) clone.checked = el.checked;
+  clone.disabled = el.disabled;
+  clone.readOnly = el.readOnly;
+  el.replaceWith(clone);
+  if (clone.matches?.("textarea[data-field=address], textarea[data-field=name]")) fitAddressField(clone);
+  if (focused) {
+    clone.focus({ preventScroll: true });
+    try {
+      if (typeof start === "number" && typeof end === "number") clone.setSelectionRange(start, end);
+    } catch (_) {}
+  }
+  return clone;
+}
+
 function scheduleTypingUndoClear() {
   clearTypingUndo();
   window.clearTimeout(undoClearTimer);
   undoClearTimer = window.setTimeout(clearTypingUndo, 400);
+}
+
+function scheduleActiveTypingUndoClear() {
+  window.clearTimeout(undoClearTimer);
+  undoClearTimer = window.setTimeout(() => {
+    const active = document.activeElement;
+    if (isTypedField(active)) scrubFieldUndo(active, { keepFocus: true });
+  }, 300);
 }
 
 function clearTypingUndo() {
@@ -8239,12 +8281,7 @@ function clearTypingUndo() {
   if (active && active !== document.body && active.blur) active.blur();
   window.getSelection()?.removeAllRanges();
   document.querySelectorAll("input, textarea").forEach((el) => {
-    const clone = el.cloneNode(true);
-    if ("value" in el) clone.value = el.value;
-    if ("checked" in el) clone.checked = el.checked;
-    clone.disabled = el.disabled;
-    clone.readOnly = el.readOnly;
-    el.replaceWith(clone);
+    scrubFieldUndo(el, { keepFocus: false });
   });
   document.querySelectorAll("textarea[data-field=address], textarea[data-field=name]").forEach(fitAddressField);
 }
@@ -8264,9 +8301,19 @@ function freezeTyping(freeze) {
 }
 
 document.addEventListener("beforeinput", (event) => {
-  if (!navOn && !routeFull) return;
   if (event.inputType !== "historyUndo" && event.inputType !== "historyRedo") return;
   event.preventDefault();
+}, true);
+
+document.addEventListener("input", (event) => {
+  if (isTypedField(event.target)) scheduleActiveTypingUndoClear();
+}, true);
+
+document.addEventListener("blur", (event) => {
+  const el = event.target;
+  if (!isTypedField(el) || !el.isConnected) return;
+  window.clearTimeout(undoClearTimer);
+  scrubFieldUndo(el, { keepFocus: false });
 }, true);
 
 function routeProgressKey(line) {
