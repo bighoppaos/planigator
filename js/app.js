@@ -32,6 +32,7 @@ import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-mat
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=6";
 import { loadTowns, townAt } from "./town.js?v=1";
+import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=1";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
@@ -44,22 +45,10 @@ const DEFAULT_HERO = [
 ];
 let heroLines = DEFAULT_HERO.slice();
 
-function cleanHeroLines(lines) {
-  if (!Array.isArray(lines)) return [];
-  return lines
-    .map((line) => String(line ?? "").replace(/\s+/g, " ").trim().slice(0, 140))
-    .filter(Boolean)
-    .slice(0, 6);
-}
-
 function paintHeroLines() {
   const list = $(".hero-mark .pitch");
   if (!list) return;
-  list.replaceChildren(...heroLines.map((line) => {
-    const item = document.createElement("li");
-    item.textContent = line;
-    return item;
-  }));
+  list.innerHTML = heroLines.map((line) => heroTileHtml(line)).join("");
 }
 
 function loadHeroLines() {
@@ -9482,7 +9471,7 @@ function render() {
       <div class="hero-copy">
       <h1>www.planigator.help</h1>
       <ul class="pitch">
-        ${heroLines.map((line) => `<li>${escapeAttr(line)}</li>`).join("")}
+        ${heroLines.map((line) => heroTileHtml(line)).join("")}
       </ul>
       </div>
     </section></div>
