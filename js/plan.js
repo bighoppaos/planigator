@@ -930,14 +930,16 @@ function leewayGaps({ stops, blocks, now, endMinutes }) {
         return;
       }
       // An anytime stop is left as soon as this one is done. Stretching the
-      // gap to the end of the driving day overlaps that drive. A delay that
-      // still fits before the window only moves this leeway's open.
+      // gap to the end of the driving day overlaps that drive. Same when the
+      // next timed stop already leaves before day-end / window close — spare
+      // time ends when that drive starts, not at 5:30 while you are rolling.
+      // A delay that still fits before the window only moves this leeway's open.
       if (arrivedInside && close != null && !isAnytimeEnd(endMinutes) && !stops[nextIndex]?.anytime) {
         const dayEnd = nextDailyEnd(endMinutes, block.end, stops[index].timeZone || "");
         const latest = Math.min(close, dayEnd);
         if (latest > block.end + 60 * 1000) {
           gapStart = block.end + delayMs + restMs;
-          gapEnd = latest;
+          gapEnd = Math.min(latest, departure);
         } else {
           gapEnd = departure - delayMs - restMs;
         }
