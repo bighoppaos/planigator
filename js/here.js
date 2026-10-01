@@ -51,7 +51,7 @@ export function truckRouteUrl({
   let origin = `${from.lat.toFixed(6)},${from.lon.toFixed(6)}`;
   if (typeof course === "number" && Number.isFinite(course) && course >= 0 && course <= 360) {
     origin += `;course=${Math.round(course % 360)}`;
-    if (mode === "truck") origin += ";minCourseDistance=400";
+    if (mode === "truck" || mode === "car") origin += ";minCourseDistance=400";
   }
   const items = [
     pair("transportMode", mode),

@@ -5269,7 +5269,15 @@ function syncRouteChrome() {
   paintCompassRose();
   if (state.plan) warmPageVoices();
   if (navOn) freezeTyping(true);
+  else freezeTyping(false);
+  syncTripNavLocks();
   requestAnimationFrame(seatRails);
+}
+
+function syncTripNavLocks() {
+  document.querySelectorAll("#newTrip, #saveTrip, [data-load], [data-delete]").forEach((button) => {
+    button.disabled = navOn;
+  });
 }
 
 let railSeatObserver = null;
@@ -5995,10 +6003,19 @@ function turnViewPadding() {
   const buttonH = document.getElementById("routeRecalc")?.getBoundingClientRect().height || 60;
   const compass = document.getElementById("routeCompass");
   if (routeFull) {
-    // Fullscreen: next turn two button-heights below the top (under the notch).
+    // Fullscreen: keep a stable band for you above ETA + the open directions
+    // sheet so opening the list does not yank Turn zoom.
     pad.top = Math.max(pad.top, Math.round(safeTopPad() + buttonH * 2 + 8));
-  } else if (compass) {
-    // Page: next turn at compass height.
+    pad.bottom = Math.max(pad.bottom, Math.round(mapBox.height * 0.34));
+    const minOpen = Math.max(220, Math.round(mapBox.height * 0.38));
+    const maxBottom = Math.max(90, mapBox.height - minOpen);
+    if (pad.bottom > maxBottom) pad.bottom = maxBottom;
+    pad.bottom = Math.max(90, pad.bottom);
+    pad.top = Math.min(pad.top, Math.max(48, mapBox.height - pad.bottom - 120));
+    return pad;
+  }
+  // Page Turn zoom padding — leave this path alone.
+  if (compass) {
     const box = compass.getBoundingClientRect();
     if (box.height > 10) pad.top = Math.max(48, Math.round(box.top + box.height / 2 - mapBox.top));
   }
@@ -6387,12 +6404,28 @@ function noHandsSlots() {
     const box = recalc.getBoundingClientRect();
     if (box.height > 10) buttonH = box.height;
   }
-  // Map can extend above the visible screen in fullscreen (notch pad).
-  // Slot Y values are in map pixels; keep the turn in the visible band.
   const visibleTop = mapBox && mapBox.top < 0 ? Math.round(-mapBox.top) : 0;
-  // Next turn: fullscreen = two button-heights below the visible top; page = compass.
+  if (routeFull) {
+    // Fullscreen Turn zoom: stable slots like the page. Reserve room for ETA
+    // + the open directions sheet so the blue dot stays clear. Do not follow
+    // rails that seatRails lifts when the sheet opens — that was shifting zoom.
+    const reserve = Math.max(Math.round(height * 0.34), Math.max(pad.bottom, 110));
+    let userY = height - reserve - 8;
+    let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2 + 8));
+    if (compass && mapBox && mapBox.height > 10) {
+      const box = compass.getBoundingClientRect();
+      const cy = box.top + box.height / 2 - mapBox.top;
+      // Ignore compass when the sheet has lifted it into mid-screen.
+      if (box.height > 10 && cy < height * 0.4) turnY = cy;
+    }
+    turnY = Math.max(visibleTop + 8, Math.min(height * 0.36, turnY));
+    userY = Math.min(userY, height - Math.round(buttonH * 1.1));
+    userY = Math.max(turnY + buttonH * 1.8, userY);
+    return { width, height, userY, turnY, buttonH };
+  }
+  // Page Turn zoom — leave this path alone.
   let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2));
-  if (!routeFull && compass && mapBox && mapBox.height > 10) {
+  if (compass && mapBox && mapBox.height > 10) {
     const box = compass.getBoundingClientRect();
     if (box.height > 10) turnY = box.top + box.height / 2 - mapBox.top;
   }
@@ -6823,8 +6856,29 @@ function guideFromChosenStop(chosen, lat, lon, hit) {
   return "near";
 }
 
+function roadCourseNear(lat, lon) {
+  if (navLine.length >= 2 && Number.isFinite(lat) && Number.isFinite(lon)) {
+    const hit = navNearest(lat, lon, navLine);
+    const bearing = travelBearing(hit.along);
+    if (Number.isFinite(bearing)) return bearing;
+  }
+  if (typeof navTravel === "number" && Number.isFinite(navTravel)) return navTravel;
+  if (typeof navCompass === "number" && Number.isFinite(navCompass)) return navCompass;
+  if (typeof state.origin?.heading === "number" && Number.isFinite(state.origin.heading)) {
+    return state.origin.heading;
+  }
+  return undefined;
+}
+
 function currentFix() {
-  if (navFix) return Promise.resolve({ lat: navFix[0], lon: navFix[1] });
+  if (navFix) {
+    const heading = roadCourseNear(navFix[0], navFix[1]);
+    return Promise.resolve({
+      lat: navFix[0],
+      lon: navFix[1],
+      heading: typeof heading === "number" ? heading : undefined,
+    });
+  }
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       resolve(null);
@@ -6832,7 +6886,9 @@ function currentFix() {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const heading = pos.coords.heading;
+        const gps = pos.coords.heading;
+        const heading = roadCourseNear(pos.coords.latitude, pos.coords.longitude)
+          ?? (typeof gps === "number" && Number.isFinite(gps) && gps >= 0 ? gps : undefined);
         resolve({
           lat: pos.coords.latitude,
           lon: pos.coords.longitude,
@@ -7005,16 +7061,18 @@ async function recalculateFromHere() {
   const name = navStopTitle(target);
   let leg;
   try {
-    const heading = here.heading;
+    // Stay going forward on this road — prefer the route bearing under you.
+    const course = roadCourseNear(here.lat, here.lon)
+      ?? (typeof here.heading === "number" ? here.heading : undefined);
     leg = await routeTruckLeg(
       { lat: here.lat, lon: here.lon },
       { lat: Number(target.lat), lon: Number(target.lon) },
-      typeof heading === "number" ? heading : undefined,
+      typeof course === "number" && Number.isFinite(course) ? course : undefined,
       { avoidUTurns: true },
     );
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
-    abortRecalc(error.message || "Could not get a HERE© truck route.");
+    abortRecalc(error.message || `Could not get a HERE© ${transportModeTitle().toLowerCase()} route.`);
     return;
   }
   if (!applyAheadLeg(here, target.id, leg)) {
@@ -7022,9 +7080,17 @@ async function recalculateFromHere() {
     return;
   }
   clearDriveProgress();
+  clearDirectionPin();
+  directionsAutoKey = "";
+  spokenStepKey = "";
+  spokenMiles.clear();
   state.estimating = false;
   state.notice = `${transportRouteNote().replace(/\.$/, "")} to ${name}.`;
   await calculate({ silent: true, keepScreen: true });
+  // keepScreen can skip a full redraw — force the new line + live direction.
+  if (routeMap) paintLiveRoute();
+  else refillDirections();
+  if (navOn && navFix) paintLiveDirections();
 }
 
 function stopPoint(stop) {
@@ -8188,6 +8254,7 @@ function endRouteNav() {
   dirBrowseTimer = 0;
   document.getElementById("routeDirections")?.classList.remove("dir-browse");
   syncRouteChrome();
+  syncTripNavLocks();
   focusDirectionWindow(null, null);
   document.querySelectorAll("[data-dir-stop]").forEach((button) => {
     const stopId = button.getAttribute("data-dir-stop");
