@@ -23,7 +23,7 @@ import {
   encodeTripShare,
   decodeTripShare,
   planPlainText,
-} from "./plan.js?v=170";
+} from "./plan.js?v=171";
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
@@ -8880,37 +8880,29 @@ function chipDelayLine(event) {
   const effect = event.delayEffect;
   if (!effect) return "";
   const after = chipStatLine(event, effect.afterHours, effect.afterMiles);
-  if (!after && !effect.movedOnly) return "";
-  let mins = Math.max(0, Math.round(Number(effect.minutes) || 0));
-  const beforeHours = Number(effect.beforeHours);
-  const afterHours = Number(effect.afterHours);
-  const shrunk = Number.isFinite(beforeHours) && Number.isFinite(afterHours) && afterHours < beforeHours - 0.01;
-  const grown = Number.isFinite(beforeHours) && Number.isFinite(afterHours) && afterHours > beforeHours + 0.01;
-  if (shrunk && (event.kind === "lead" || event.kind === "stop")) {
-    const stop = state.stops.find((item) => item.id === event.stopID);
-    const pieceMins = stop ? driveDelayAt(stop, drivePieceIndex(event)) : 0;
-    if (pieceMins >= 1) mins = pieceMins;
-  }
-  if (effect.movedOnly) {
-    const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
-    return `${delayBit} → same length, later`;
-  }
-  if (grown) {
-    return mins >= 1
-      ? `delay moved drive here (− ${delayLabel(mins)}) → ${after}`
-      : `delay moved drive here → ${after}`;
-  }
+  const mins = Math.max(0, Math.round(Number(effect.pieceMinutes ?? effect.minutes) || 0));
   const delayBit = mins >= 1 ? `− ${delayLabel(mins)} delay` : "− delay";
+  if (effect.movedOnly) return `${delayBit} → same length, later`;
+  if (!after) return "";
   return `${delayBit} → ${after}`;
+}
+
+function chipWhenLine(event) {
+  const span = formatPlanSpan(event.start, event.end, eventZone(event));
+  const earlier = Math.max(0, Math.round(Number(event.delayEffect?.earlierMinutes) || 0));
+  if ((event.kind === "lead" || event.kind === "stop") && earlier >= 1) {
+    return `${span} · includes ${delayLabel(earlier)} earlier delay`;
+  }
+  return span;
 }
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  const middle = effect
+  const middle = effect && !effect.movedOnly
     ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
     : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
-  const span = formatPlanSpan(event.start, event.end, eventZone(event));
+  const span = chipWhenLine(event);
   const towardName = driveTowardName(event);
   const toward = towardName ? `Toward ${towardName}` : "";
   const phrase = event.kind === "rest" ? "Off-duty/Sleeper Berth" : (event.timePhrase || "");

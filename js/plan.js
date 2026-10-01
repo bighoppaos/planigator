@@ -1185,9 +1185,15 @@ function nearestPlainEvent(plainList, delayed) {
   return best;
 }
 
+function stopById(stops, id) {
+  return (stops || []).find((stop) => stop.id === id) || null;
+}
+
 /** Mark chips that changed because of possible delay, so the UI can show
- *  before → after. Plain plan is the same trip with every delay at 0. */
-function annotateDelayEffects(delayedEvents, plainEvents) {
+ *  before → after. Plain plan is the same trip with every delay at 0.
+ *  Drive chips only get a note when that piece’s own delay shortened the
+ *  drive. Time-only shifts belong on leeway / Off-duty, not on later drives. */
+function annotateDelayEffects(delayedEvents, plainEvents, stops) {
   const plainGroups = groupDelayEvents(plainEvents);
   const delayedGroups = groupDelayEvents(delayedEvents);
   for (const [key, delayedList] of delayedGroups) {
@@ -1204,21 +1210,81 @@ function annotateDelayEffects(delayedEvents, plainEvents) {
       const startDelta = Math.abs((plain.start || 0) - (delayed.start || 0));
       const endDelta = Math.abs((plain.end || 0) - (delayed.end || 0));
       if (hourDelta < 1 / 60 && mileDelta < 0.05 && startDelta < 60 * 1000 && endDelta < 60 * 1000) return;
-      const minutes = Math.max(
-        Math.round(hourDelta * 60),
-        Math.round(startDelta / 60000),
-        Math.round(endDelta / 60000),
-      );
-      delayed.delayEffect = {
-        minutes,
-        beforeHours: Number.isFinite(beforeHours) ? beforeHours : null,
-        afterHours: Number.isFinite(afterHours) ? afterHours : null,
-        beforeMiles: Number.isFinite(beforeMiles) ? beforeMiles : null,
-        afterMiles: Number.isFinite(afterMiles) ? afterMiles : null,
-        beforeStart: plain.start,
-        beforeEnd: plain.end,
-        movedOnly: hourDelta < 1 / 60 && mileDelta < 0.05,
-      };
+
+      const isDrive = delayed.kind === "lead" || delayed.kind === "stop";
+      const isLeeway = delayed.kind === "leeway";
+      const isRest = delayed.kind === "rest";
+      if (delayed.kind === "thirty") return;
+
+      if (isDrive) {
+        const stop = stopById(stops, delayed.stopID);
+        const piece = Number.isInteger(delayed.pieceIndex) ? delayed.pieceIndex : 0;
+        const pieceMins = stop ? Math.round(pieceDelayMinutes(stop, piece)) : 0;
+        // Only the drive that owns a delay, and only when delays ate route
+        // time off this chip. Do not blame Kimberly/Meijer for sitting later
+        // after an earlier delay.
+        if (pieceMins < 1) return;
+        if (!(Number.isFinite(beforeHours) && Number.isFinite(afterHours) && afterHours < beforeHours - 0.01)) return;
+        const pieceHrs = pieceMins / 60;
+        // Show this chip’s own delay in the minus line so it matches the
+        // stepper. Rebuild “before” from after + that delay so the math is
+        // honest (earlier delays land on the time row instead).
+        const showBeforeHours = afterHours + pieceHrs;
+        const showBeforeMiles = Number.isFinite(afterMiles) && afterHours > 0.01
+          ? afterMiles * (showBeforeHours / afterHours)
+          : (Number.isFinite(beforeMiles) ? beforeMiles : null);
+        const earlierMins = Math.round(Math.max(0, (delayed.start || 0) - (plain.start || 0)) / 60000);
+        delayed.delayEffect = {
+          minutes: pieceMins,
+          pieceMinutes: pieceMins,
+          earlierMinutes: earlierMins >= 1 ? earlierMins : 0,
+          beforeHours: showBeforeHours,
+          afterHours,
+          beforeMiles: showBeforeMiles,
+          afterMiles: Number.isFinite(afterMiles) ? afterMiles : null,
+          beforeStart: plain.start,
+          beforeEnd: plain.end,
+          movedOnly: false,
+        };
+        return;
+      }
+
+      if (isLeeway) {
+        // Spare-time chips: show length change, or a short “starts later”.
+        const lengthMins = Math.round(hourDelta * 60);
+        const shiftMins = Math.round(startDelta / 60000);
+        if (lengthMins < 1 && shiftMins < 1) return;
+        // Huge day-scale shifts are noise from comparing whole-trip zero-delay.
+        if (lengthMins < 1 && shiftMins > 12 * 60) return;
+        delayed.delayEffect = {
+          minutes: Math.max(lengthMins, Math.min(shiftMins, 12 * 60)),
+          beforeHours: Number.isFinite(beforeHours) ? beforeHours : null,
+          afterHours: Number.isFinite(afterHours) ? afterHours : null,
+          beforeMiles: null,
+          afterMiles: null,
+          beforeStart: plain.start,
+          beforeEnd: plain.end,
+          movedOnly: lengthMins < 1,
+        };
+        return;
+      }
+
+      if (isRest) {
+        const lengthMins = Math.round(hourDelta * 60);
+        const shiftMins = Math.round(startDelta / 60000);
+        // Off-duty: duration change, or a modest start push from delay.
+        if (lengthMins < 1 && (shiftMins < 1 || shiftMins > 12 * 60)) return;
+        delayed.delayEffect = {
+          minutes: Math.max(lengthMins, Math.min(shiftMins, 12 * 60)),
+          beforeHours: Number.isFinite(beforeHours) ? beforeHours : null,
+          afterHours: Number.isFinite(afterHours) ? afterHours : null,
+          beforeMiles: null,
+          afterMiles: null,
+          beforeStart: plain.start,
+          beforeEnd: plain.end,
+          movedOnly: lengthMins < 1,
+        };
+      }
     });
   }
 }
@@ -1258,7 +1324,7 @@ export function buildPlan({
   const { events, blocks } = timeline({ stops, ...timelineArgs });
   if (stops.some(stopHasDelay)) {
     const plain = timeline({ stops: zeroDelayStops(stops), ...timelineArgs });
-    annotateDelayEffects(events, plain.events);
+    annotateDelayEffects(events, plain.events, stops);
   }
   const firstDest = destIndexes[0];
   const lastDest = destIndexes[destIndexes.length - 1];
