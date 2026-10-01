@@ -1055,17 +1055,17 @@ export function timeline({
       }
       const chipHours = piece.routeHours;
       const tailMins = isTail ? Math.max(0, Math.round(Number(piece.tailDelayMinutes) || 0)) : 0;
-      // Arrival / tail delay: same miles, longer time. Stretch the drawn window
-      // only when the next leave is after this sit — last-stop delay is already
-      // baked into block.end. Always keep tailDelayMinutes on the chip so the
-      // UI does not pretend the drive shrank (no leftover-miles chip).
-      // Only a 10 that starts right when this drive ends blocks that — a day-end
-      // rest hours later (after leeway) is not “delay ate the off-duty.”
-      const restAfter = (piece.pausesAfter || []).some((pause) => (
+      // Arrival / tail delay: same miles, longer time. A 10 that starts right when
+      // this drive ends means delay ate into off-duty — don't treat that as a
+      // longer drive window. A day-end 10 hours later (after leeway) still gets
+      // the arrival-delay row on the chip; only skip stretching the drawn window
+      // across that later rest.
+      const restEatsDelay = (piece.pausesAfter || []).some((pause) => (
         pause.kind === "rest" && pause.start <= piece.end + 60 * 1000
       ));
-      const showTailDelay = Boolean(isTail && tailMins >= 1 && !restAfter);
-      const stretchTail = Boolean(showTailDelay && piece.tailBeforeNext);
+      const restLater = (piece.pausesAfter || []).some((pause) => pause.kind === "rest");
+      const showTailDelay = Boolean(isTail && tailMins >= 1 && !restEatsDelay);
+      const stretchTail = Boolean(showTailDelay && piece.tailBeforeNext && !restLater);
       const stretchMs = stretchTail ? tailMins * 60 * 1000 : 0;
       const delayRest = isTail
         ? (piece.pausesAfter || []).find((pause) => pause.kind === "rest" && pause.start > piece.start + 60 * 1000 && pause.start < block.end - 60 * 1000)
