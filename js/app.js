@@ -32,7 +32,7 @@ import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-mat
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=6";
 import { loadTowns, townAt } from "./town.js?v=1";
-import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=1";
+import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=3";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";

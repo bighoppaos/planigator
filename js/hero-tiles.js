@@ -73,5 +73,7 @@ export function heroTileHtml(line) {
   const { label, detail } = splitHeroLine(line);
   const icon = heroIconSvg(heroIconKind(line));
   const detailHtml = detail ? `<span class="pitch-detail">${escapeHtml(detail)}</span>` : "";
-  return `<li class="pitch-tile">${icon}<span class="pitch-text"><span class="pitch-label">${escapeHtml(label)}</span>${detailHtml}</span></li>`;
+  // Keep the colon after the bold label when the saved line has one.
+  const labelHtml = escapeHtml(detail ? `${label}:` : label);
+  return `<li class="pitch-tile">${icon}<span class="pitch-text"><span class="pitch-label">${labelHtml}</span>${detailHtml}</span></li>`;
 }
