@@ -545,10 +545,91 @@ function readNavProgress() {
       aimId: String(raw.aimId || ""),
       nav: raw.nav === true,
       spot: readNavSpot(raw.spot),
+      leftLeg: readLeftLeg(raw.leftLeg),
     };
   } catch {
     return null;
   }
+}
+
+// What was left of the leg being driven when last seen. It stays after End
+// navigation and a refresh, until that stop is done or that leg changes.
+function readLeftLeg(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const stopId = String(raw.stopId || "");
+  const legKey = String(raw.legKey || "");
+  const remainMiles = Number(raw.remainMiles);
+  const remainHours = Number(raw.remainHours);
+  const fullMiles = Number(raw.fullMiles);
+  if (!stopId || !legKey || !(remainMiles > 0) || !(fullMiles > 0) || !(remainHours >= 0)) return null;
+  return { stopId, legKey, remainMiles, remainHours, fullMiles, at: Number(raw.at) || 0 };
+}
+
+// Which leg that was: where it starts, its stop, and the stop's saved miles,
+// hours, and pin. Moving, removing, re-routing, or editing it changes this.
+function leftLegKey(stop) {
+  const index = state.stops.indexOf(stop);
+  if (index < 0) return "";
+  const fixed = (value, digits) => (Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "");
+  return [
+    state.stops[index - 1]?.id || "",
+    stop.id,
+    fixed(stop.miles, 2),
+    fixed(stop.hours, 4),
+    fixed(stop.lat, 5),
+    fixed(stop.lon, 5),
+  ].join("|");
+}
+
+// The saved left leg, only on its own trip and only while that leg is the same.
+function openLeftLeg(saved = readNavProgress()) {
+  const left = saved?.leftLeg;
+  if (!left || saved.tripKey !== tripProgressKey()) return null;
+  const stop = state.stops.find((item) => item.id === left.stopId);
+  if (!stop || stop.done || stop.skipRoute || stop.useCurrentLocation) return null;
+  return leftLegKey(stop) === left.legKey ? left : null;
+}
+
+function saveLeftLeg() {
+  if (!liveDrive) return;
+  const progress = legProgressFrom(liveDrive);
+  const stop = progress && state.stops.find((item) => item.id === progress.stopId);
+  const tripKey = tripProgressKey();
+  if (!stop || !tripKey) return;
+  const leftLeg = {
+    stopId: stop.id,
+    legKey: leftLegKey(stop),
+    remainMiles: progress.remainMiles,
+    remainHours: progress.remainHours,
+    fullMiles: progress.remainMiles / progress.remainFraction,
+    at: Date.now(),
+  };
+  const saved = readNavProgress();
+  if (saved?.tripKey === tripKey) {
+    writeNavProgress({ ...saved, leftLeg });
+    return;
+  }
+  writeNavProgress({
+    tripKey,
+    doneIds: (state.stops || []).filter((item) => item && !item.useCurrentLocation && item.done).map((item) => item.id),
+    aimId: navAimStopId || "",
+    nav: navOn === true,
+    spot: null,
+    leftLeg,
+  });
+}
+
+function forgetLeftLeg() {
+  const saved = readNavProgress();
+  if (!saved?.leftLeg) return;
+  if (!saved.doneIds.length && !saved.nav) clearNavProgress();
+  else writeNavProgress({ ...saved, leftLeg: null });
+}
+
+// Another trip is open now, so the left leg saved for the last one is gone.
+function forgetOtherTripLeftLeg() {
+  const saved = readNavProgress();
+  if (saved?.leftLeg && saved.tripKey !== tripProgressKey()) forgetLeftLeg();
 }
 
 // Where the driver was on the route line, so a refresh resumes there.
@@ -583,17 +664,19 @@ function rememberNavProgress() {
   const doneIds = (state.stops || [])
     .filter((stop) => stop && !stop.useCurrentLocation && stop.done)
     .map((stop) => stop.id);
-  if (!doneIds.length && !navOn) {
+  const saved = readNavProgress();
+  const leftLeg = openLeftLeg(saved);
+  if (!doneIds.length && !navOn && !leftLeg) {
     clearNavProgress();
     return;
   }
-  const saved = readNavProgress();
   writeNavProgress({
     tripKey,
     doneIds,
     aimId: navAimStopId || "",
     nav: navOn === true,
     spot: navOn && saved?.tripKey === tripKey ? saved.spot : null,
+    leftLeg,
   });
 }
 
@@ -678,6 +761,8 @@ function applyNavProgress() {
   const saved = readNavProgress();
   const tripKey = tripProgressKey();
   if (!saved || !tripKey || saved.tripKey !== tripKey) return false;
+  // Only a left leg: no marks to put back and no stop to aim at.
+  if (!saved.doneIds.length && !saved.nav) return false;
   const ids = new Set(saved.doneIds);
   let changed = false;
   for (const stop of state.stops) {
@@ -765,8 +850,9 @@ function endNavProgress() {
   for (const stop of state.stops || []) {
     if (stop?.id && !stop.useCurrentLocation && stop.done) doneIds.add(stop.id);
   }
-  if (!doneIds.size) clearNavProgress();
-  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: null });
+  const leftLeg = openLeftLeg(saved);
+  if (!doneIds.size && !leftLeg) clearNavProgress();
+  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: null, leftLeg });
 }
 
 function replanAroundDone() {
@@ -815,6 +901,7 @@ function readDriveProgress(value) {
 
 function clearDriveProgress() {
   state.driveProgress = null;
+  forgetLeftLeg();
 }
 
 function stopsAndLeaveForPlan() {
@@ -839,8 +926,9 @@ function stopsAndLeaveForPlan() {
       state.driveProgress = progress;
     }
   }
-  // While navigating, the leg being driven starts now with only what is left
-  // of it. A saved progress on a later stop (Update times at a stop) still wins.
+  // The leg being driven starts now with only what is left of it, live while
+  // navigating, else as last seen. A saved progress on a later stop (Update
+  // times at a stop) still wins.
   const live = liveLegProgress();
   const order = (id) => state.stops.findIndex((stop) => stop.id === id);
   if (live && (!progress || order(progress.stopId) <= order(live.stopId))) progress = live;
@@ -1285,7 +1373,7 @@ function planShape(plan) {
 }
 
 function catchUpPlan() {
-  if (!state.settings.leaveNow || !state.plan || state.estimating) return;
+  if ((!state.settings.leaveNow && !liveLegProgress()) || !state.plan || state.estimating) return;
   try {
     const result = rebuiltPlan();
     if (!result || result.error) return;
@@ -1356,6 +1444,7 @@ function applySharedTrip(data, { notice } = {}) {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
+  forgetOtherTripLeftLeg();
   persist();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
@@ -1830,6 +1919,7 @@ function loadTrip(id) {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
+  forgetOtherTripLeftLeg();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
     replanAroundDone();
@@ -1923,6 +2013,7 @@ function loadExample() {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
+  forgetOtherTripLeftLeg();
   calculate({ silent: true, skipHash: true });
 }
 
@@ -2587,6 +2678,7 @@ function resetEditor() {
 function newTrip() {
   if (navOn) return;
   leaveNavSession();
+  forgetLeftLeg();
   parkSpeedNote();
   const keep = {
     trips: state.trips,
@@ -8982,6 +9074,7 @@ function resumeNavIfNeeded() {
 }
 
 function endRouteNav({ paint = true } = {}) {
+  saveLeftLeg();
   navOn = false;
   leaveNavSession();
   endNavProgress();
@@ -9956,6 +10049,7 @@ function trackLiveDrive(hit, leg) {
   if (!switched && now - liveDrivePaintAt < LIVE_DRIVE_MS && Math.abs(hit.along - liveDrivePaintAlong) < LIVE_DRIVE_M) return;
   liveDrivePaintAt = now;
   liveDrivePaintAlong = hit.along;
+  saveLeftLeg();
   paintLiveDriveChips();
 }
 
@@ -9971,15 +10065,37 @@ function clearLiveDrive() {
   paintLiveDriveChips();
 }
 
-// What is left of the leg being driven now, as a drive progress for the plan.
-// Null when navigation is off, so the plan uses the whole saved legs.
+// The leg being driven: the live position while navigating, else the left leg
+// saved for this trip, shaped like liveDrive. Null when there is neither.
+function legDrive() {
+  if (navOn && liveDrive) return liveDrive;
+  const left = openLeftLeg();
+  const stop = left && state.stops.find((item) => item.id === left.stopId);
+  if (!stop) return null;
+  const stopMiles = Number(stop.miles) || 0;
+  const full = stopMiles > 0.05 ? stopMiles : left.fullMiles;
+  return {
+    stopId: stop.id,
+    fraction: Math.min(1, Math.max(0, 1 - left.remainMiles / full)),
+    legMiles: left.fullMiles,
+    stopMiles,
+    stopHours: Number(stop.hours) || 0,
+  };
+}
+
+// What is left of the leg being driven, as a drive progress for the plan.
+// Null when no leg is under way, so the plan uses the whole saved legs.
 function liveLegProgress() {
-  if (!navOn || !liveDrive) return null;
-  const stop = state.stops.find((item) => item.id === liveDrive.stopId);
+  return legProgressFrom(legDrive());
+}
+
+function legProgressFrom(drive) {
+  if (!drive) return null;
+  const stop = state.stops.find((item) => item.id === drive.stopId);
   if (!stop || stop.done || stop.skipRoute) return null;
-  const full = liveDrive.stopMiles > 0.05 ? liveDrive.stopMiles : liveDrive.legMiles;
+  const full = drive.stopMiles > 0.05 ? drive.stopMiles : drive.legMiles;
   if (!(full > 0)) return null;
-  const left = Math.min(1, Math.max(0, 1 - liveDrive.fraction));
+  const left = Math.min(1, Math.max(0, 1 - drive.fraction));
   // At the stop the plan still needs a sliver of the leg to place it.
   const remainMiles = Math.min(full, Math.max(0.1, full * left));
   const remainFraction = remainMiles / full;
@@ -9988,14 +10104,15 @@ function liveLegProgress() {
     remainFraction,
     leftAt: Date.now(),
     remainMiles,
-    remainHours: liveDrive.stopHours * remainFraction,
+    remainHours: drive.stopHours * remainFraction,
   };
 }
 
 // { done: true } for a drive chip already driven, { miles, hours } for the one
-// being driven now, null for chips still ahead or not on the live leg.
+// being driven now, null for chips still ahead or not on the leg under way.
 function liveChipState(event) {
-  if (!liveDrive || !isDriveChip(event) || event.stopID !== liveDrive.stopId) return null;
+  const drive = legDrive();
+  if (!drive || !isDriveChip(event) || event.stopID !== drive.stopId) return null;
   const stop = state.stops.find((item) => item.id === event.stopID);
   if (!stop || stop.skipRoute) return null;
   const pieces = (state.plan?.events || [])
@@ -10003,9 +10120,9 @@ function liveChipState(event) {
     .sort((a, b) => a.start - b.start);
   const planned = pieces.reduce((sum, item) => sum + Math.max(0, Number(item.miles) || 0), 0);
   if (!(planned > 0.05)) return null;
-  const full = Number(stop.miles) > 0.05 ? Number(stop.miles) : liveDrive.legMiles;
+  const full = Number(stop.miles) > 0.05 ? Number(stop.miles) : drive.legMiles;
   // A plan made partway into the leg covers only its last `planned` miles.
-  const driven = liveDrive.fraction * full - Math.max(0, full - planned);
+  const driven = drive.fraction * full - Math.max(0, full - planned);
   // That plan starts where the truck was, so its first piece is under way.
   const partway = full - planned > 0.05;
   let from = 0;

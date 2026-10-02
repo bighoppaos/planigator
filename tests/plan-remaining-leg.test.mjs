@@ -74,12 +74,18 @@ const APP_FUNCTIONS = [
   "lateNote", "drivePieceIndex", "driveDelayTarget", "driveDelayAt", "delayBox", "delayLabel", "doneStamp",
   "escapeAttr", "formatMiles", "formatShort", "formatPlanSpan", "formatPlanClock", "shownZone", "eventZone",
   "originStop", "driveTowardName", "leewayDays",
+  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
 ];
-// Not in the old page. It runs without it, so this test can show it failing.
-const OPTIONAL_FUNCTIONS = ["liveLegProgress"];
+// Not in the old pages. They run without them, so this test can show them failing.
+const OPTIONAL_FUNCTIONS = [
+  "liveLegProgress", "legProgressFrom", "legDrive", "readLeftLeg", "leftLegKey", "openLeftLeg", "saveLeftLeg",
+  "forgetLeftLeg",
+];
 const APP_CODE = [
   constLine("LIVE_DRIVE_MS"),
   constLine("LIVE_DRIVE_M"),
+  constLine("NAV_PROGRESS_KEY"),
+  "var navAimStopId = \"\";",
   "var liveDrive = null;",
   "var liveDrivePaintAt = 0;",
   "var liveDrivePaintAlong = NaN;",
@@ -119,6 +125,15 @@ function plannedStops({ delayMinutes = 0 } = {}) {
   ];
 }
 
+function memoryStorage() {
+  const items = new Map();
+  return {
+    getItem: (key) => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => { items.set(key, String(value)); },
+    removeItem: (key) => { items.delete(key); },
+  };
+}
+
 function page({ delayMinutes = 0, settings = {} } = {}) {
   const calls = { patch: 0, render: 0 };
   const context = {
@@ -126,6 +141,7 @@ function page({ delayMinutes = 0, settings = {} } = {}) {
     Date: FakeDate,
     ...plan, ...hos,
     calls,
+    localStorage: memoryStorage(),
     document: {
       visibilityState: "visible",
       activeElement: null,
@@ -135,7 +151,7 @@ function page({ delayMinutes = 0, settings = {} } = {}) {
     state: {
       stops: plannedStops({ delayMinutes }),
       settings: { ...SETTINGS, ...settings },
-      plan: null, estimating: false, driveProgress: null, picker: null, origin: null,
+      plan: null, estimating: false, driveProgress: null, picker: null, origin: null, activeTripId: "trip-1",
     },
     navOn: false, routeFull: false, routePageStale: false,
     zoneForStop: () => "",
@@ -283,10 +299,16 @@ console.log("\nNavigation off");
   startNav(pg, LEG1.miles - LEFT_MILES);
   pg.navOn = false;
   pg.clearLiveDrive();
-  expect("after End navigation the plan goes back to the whole legs",
-    JSON.stringify(pg.state.plan.events) === JSON.stringify(wholeLegs.events), clockText(byId(pg.state.plan, "pactiv").end));
+  // Build #603: End navigation keeps what is left of the leg, not the whole leg.
+  const ended = byId(pg.state.plan, "pactiv");
+  expect("after End navigation the plan keeps what is left of the leg",
+    ended && near(ended.start, NOW) && near(ended.end, NOW + LEFT_HOURS * 3600000), ended && clockText(ended.end));
+  clock.now += 5 * MIN;
   pg.tickLeaveNow();
-  expect("and the next tick keeps it", JSON.stringify(pg.state.plan.events) === JSON.stringify(wholeLegs.events));
+  const ticked = byId(pg.state.plan, "pactiv");
+  expect("and the next tick keeps it, from the new now", ticked && near(ticked.start, clock.now)
+    && near(ticked.end, clock.now + LEFT_HOURS * 3600000), ticked && clockText(ticked.end));
+  clock.now = NOW;
 }
 
 console.log(failures ? `\n${failures} check(s) failed.` : "\nAll checks passed.");
