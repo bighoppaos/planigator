@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=5";
+import { directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=6";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -544,10 +544,23 @@ function readNavProgress() {
       doneIds: raw.doneIds.map((id) => String(id || "")).filter(Boolean),
       aimId: String(raw.aimId || ""),
       nav: raw.nav === true,
+      spot: readNavSpot(raw.spot),
     };
   } catch {
     return null;
   }
+}
+
+// Where the driver was on the route line, so a refresh resumes there.
+function readNavSpot(raw) {
+  if (!raw || typeof raw !== "object" || !Number.isFinite(raw.along)) return null;
+  return {
+    along: Number(raw.along),
+    lineKey: String(raw.lineKey || ""),
+    stopId: String(raw.stopId || ""),
+    legAlong: Number.isFinite(raw.legAlong) ? Number(raw.legAlong) : null,
+    bearing: Number.isFinite(raw.bearing) ? Number(raw.bearing) : null,
+  };
 }
 
 function writeNavProgress(record) {
@@ -574,12 +587,55 @@ function rememberNavProgress() {
     clearNavProgress();
     return;
   }
+  const saved = readNavProgress();
   writeNavProgress({
     tripKey,
     doneIds,
     aimId: navAimStopId || "",
     nav: navOn === true,
+    spot: navOn && saved?.tripKey === tripKey ? saved.spot : null,
   });
+}
+
+let navSpotSavedAlong = null;
+
+function saveNavSpot(along) {
+  if (!navOn || !Number.isFinite(along)) return;
+  if (Number.isFinite(navSpotSavedAlong) && Math.abs(along - navSpotSavedAlong) < 50) return;
+  const saved = readNavProgress();
+  if (!saved || saved.tripKey !== tripProgressKey()) return;
+  const leg = navLegs.find((item) => along >= item.start && along <= item.end);
+  navSpotSavedAlong = along;
+  writeNavProgress({
+    ...saved,
+    spot: {
+      along,
+      lineKey: navLineKey,
+      stopId: leg?.stop?.id || "",
+      legAlong: leg ? along - leg.start : null,
+      bearing: Number.isFinite(navTravel) ? navTravel : null,
+    },
+  });
+}
+
+// After a refresh, start the along-lock where the driver was, not on
+// whichever pass of the line the first fix happens to be closest to.
+function restoreNavSpot() {
+  const saved = readNavProgress();
+  const spot = saved?.tripKey === tripProgressKey() ? saved.spot : null;
+  if (!spot) return false;
+  rebuildNavLegs();
+  if (navLine.length < 2) return false;
+  const leg = spot.stopId ? navLegs.find((item) => item.stop?.id === spot.stopId) : null;
+  let along = null;
+  if (leg && Number.isFinite(spot.legAlong)) along = leg.start + Math.min(Math.max(0, spot.legAlong), leg.end - leg.start);
+  else if (spot.lineKey && spot.lineKey === navLineKey) along = spot.along;
+  if (!Number.isFinite(along)) return false;
+  navAlongLock = along;
+  navSpotSavedAlong = along;
+  if (spot.bearing != null && navTravel == null) navTravel = spot.bearing;
+  navResumeGuard = { fix: "", candidate: null, count: 0 };
+  return true;
 }
 
 function nextOpenStopId() {
@@ -704,7 +760,7 @@ function endNavProgress() {
     if (stop?.id && !stop.useCurrentLocation && stop.done) doneIds.add(stop.id);
   }
   if (!doneIds.size) clearNavProgress();
-  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false });
+  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: null });
 }
 
 function replanAroundDone() {
@@ -4707,7 +4763,11 @@ let placeHereNote = "";
 let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
+let navResumeGuard = null;
 let navLineKey = "";
+// Consistent on-road fixes needed to move a restored spot outside its stretch.
+const RESUME_CONFIRM_FIXES = 3;
+const RESUME_AGREE_M = 800;
 
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
@@ -4865,11 +4925,43 @@ function navBearing(a, b) {
 function navNearest(lat, lon, path) {
   if (!path || path.length < 2) return { dist: Infinity, along: 0 };
   if (navOn && path === navLine) {
-    const hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
-    if (hit.dist <= ON_ROAD_M) navAlongLock = hit.along;
+    let hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
+    if (navResumeGuard && navAlongLock != null) hit = guardResumedHit(lat, lon, path, hit);
+    if (hit.dist <= ON_ROAD_M) {
+      navAlongLock = hit.along;
+      saveNavSpot(hit.along);
+    }
     return hit;
   }
   return nearestOnPath(lat, lon, path);
+}
+
+// Right after a refresh the lock is only the saved spot. Keep matches on
+// that stretch until several on-road fixes agree he is somewhere else.
+function guardResumedHit(lat, lon, path, hit) {
+  const guard = navResumeGuard;
+  if (hit.dist <= ON_ROAD_M && inLockWindow(hit.along, navAlongLock)) {
+    navResumeGuard = null;
+    return hit;
+  }
+  const free = hit.dist <= ON_ROAD_M ? hit : nearestOnPath(lat, lon, path);
+  const fix = `${lat},${lon}`;
+  if (fix !== guard.fix) {
+    guard.fix = fix;
+    if (free.dist > ON_ROAD_M) {
+      guard.candidate = null;
+      guard.count = 0;
+    } else {
+      const agrees = guard.candidate != null && Math.abs(free.along - guard.candidate) <= RESUME_AGREE_M;
+      guard.count = agrees ? guard.count + 1 : 1;
+      guard.candidate = free.along;
+    }
+  }
+  if (guard.count >= RESUME_CONFIRM_FIXES && free.dist <= ON_ROAD_M) {
+    navResumeGuard = null;
+    return free;
+  }
+  return matchNear(lat, lon, path, navAlongLock, navTravel) || hit;
 }
 
 function rebuildNavLegs() {
@@ -8668,7 +8760,7 @@ function resumeNavIfNeeded() {
   ));
   if (!routed) return;
   navProgressResume = false;
-  void beginRouteNav();
+  void beginRouteNav({ resume: true });
 }
 
 function endRouteNav({ paint = true } = {}) {
@@ -8682,6 +8774,8 @@ function endRouteNav({ paint = true } = {}) {
   northLock = false;
   compassAim = false;
   navAlongLock = null;
+  navResumeGuard = null;
+  navSpotSavedAlong = null;
   navLineKey = "";
   navStopPicked = false;
   navGuideFromId = "";
@@ -9010,13 +9104,16 @@ function keepNavSignedIn() {
   return pulseActivity();
 }
 
-async function beginRouteNav() {
+async function beginRouteNav({ resume = false } = {}) {
   navOn = true;
   rememberNavProgress();
   navPulseAt = 0;
   void keepNavSignedIn();
   navAlongLock = null;
+  navResumeGuard = null;
+  navSpotSavedAlong = null;
   navLineKey = routeProgressKey(routePoints());
+  if (resume) restoreNavSpot();
   followPinned = false;
   navFollowing = false;
   tripFit = "nextTurn";
@@ -9214,6 +9311,7 @@ function paintLiveRoute() {
   if (key !== navLineKey) {
     navLineKey = key;
     navAlongLock = null;
+    navResumeGuard = null;
   }
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
   const source = routeMap?.getSource("route");
