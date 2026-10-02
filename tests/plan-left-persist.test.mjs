@@ -1,7 +1,8 @@
 // Build #603: what is left of the leg being driven is saved with the trip's
 // nav progress, so after End navigation, a refresh, or a new build the Plan
 // still starts that leg now with only the drive time left. It goes back only
-// when that stop is Done, that leg changes, Clear trip, or another trip opens.
+// when that stop is Done, that leg changes, or Clear trip (Build #604: not when
+// another trip opens).
 // Not loaded by the site. Run: node tests/plan-left-persist.test.mjs
 //
 // Loads the real plan, live-drive, nav-progress, End navigation, Done, open
@@ -80,7 +81,8 @@ const APP_FUNCTIONS = [
   "doneStamp", "escapeAttr", "formatMiles", "formatShort", "formatPlanSpan", "formatPlanClock", "shownZone",
   "eventZone", "originStop", "driveTowardName", "leewayDays",
   // Nav progress (Build #594) and the paths that change it
-  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
+  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress", "readNavRecord", "readNavProgressMap",
+  "writeNavProgressMap",
   "rememberNavProgress", "retargetNavProgress", "applyNavProgress", "nextOpenStopId", "leaveNavSession",
   "endNavProgress", "endRouteNav", "readDriveProgress", "clearDriveProgress", "markStopDone",
   "rebuildPlanAfterDone", "loadTrip", "tripReadyToRecalc", "moveStop", "newTrip",
@@ -94,6 +96,7 @@ const APP_CODE = [
   constLine("LIVE_DRIVE_MS"),
   constLine("LIVE_DRIVE_M"),
   constLine("NAV_PROGRESS_KEY"),
+  constLine("NAV_PROGRESS_TRIPS"),
   "var navAimStopId = \"\";",
   "var navProgressResume = false;",
   "var liveDrive = null;",
@@ -244,7 +247,9 @@ const near = (a, b, ms = MIN) => Math.abs(a - b) <= ms;
 const clockText = (ms) => new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(ms));
 const sections = (html) => [...html.matchAll(/<div class="chip-sec( [\w-]+)?">([^<]*)<\/div>/g)]
   .map((hit) => ({ kind: (hit[1] || "").trim() || "label", text: hit[2] }));
-const savedLeft = (storage) => JSON.parse(storage.getItem("planigator.web.navprogress") || "null")?.leftLeg || null;
+// Build #604 keeps one record per trip: { [tripKey]: record }.
+const savedRecord = (storage, tripKey = "id:trip-1") => JSON.parse(storage.getItem("planigator.web.navprogress") || "null")?.[tripKey] || null;
+const savedLeft = (storage) => savedRecord(storage)?.leftLeg || null;
 
 let failures = 0;
 function expect(label, ok, detail = "") {
@@ -302,9 +307,9 @@ console.log("End navigation with 68.8 miles left");
   const saved = savedLeft(storage);
   expect("saved for this trip and leg", saved?.stopId === "pactiv" && Math.abs(saved.remainMiles - LEFT_MILES) < 0.01
     && Math.abs(saved.remainHours - LEFT_HOURS) < 0.001 && Math.abs(saved.fullMiles - LEG1.miles) < 0.01
-    && JSON.parse(storage.getItem("planigator.web.navprogress")).tripKey === "id:trip-1", JSON.stringify(saved));
+    && savedRecord(storage).tripKey === "id:trip-1", JSON.stringify(saved));
   expect("nav resume is off and no spot is kept", (() => {
-    const raw = JSON.parse(storage.getItem("planigator.web.navprogress") || "null");
+    const raw = savedRecord(storage);
     return raw && raw.nav === false && raw.spot === null && raw.aimId === "";
   })());
 
@@ -411,12 +416,13 @@ console.log("\nAnother trip");
   boot(other);
   expectWholeLegs(other, "same stops, different trip key");
 
+  // Build #604: each trip keeps its own, so opening another trip keeps it.
   const pg = page({ storage });
   boot(pg);
   pg.loadTrip("trip-2");
-  expect("opening another trip drops the saved left leg", savedLeft(storage) === null, JSON.stringify(savedLeft(storage)));
+  expect("opening another trip keeps the saved left leg", savedLeft(storage) !== null, JSON.stringify(savedLeft(storage)));
   pg.loadTrip("trip-1");
-  expectWholeLegs(pg, "back on the first trip");
+  expectLeftLeg(pg, "back on the first trip");
 }
 
 console.log("\nThe leg changes on the same trip");

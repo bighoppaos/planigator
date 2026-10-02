@@ -59,13 +59,15 @@ function constLine(name) {
 const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
   "navBearing", "hasRouteLine", "copyRouteLine", "stopHasSavedLeg", "readDriveProgress", "applyStoredTrip",
-  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
+  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress", "readNavRecord", "readNavProgressMap",
+  "writeNavProgressMap",
   "readLeftLeg", "leftLegKey", "openLeftLeg",
   "rememberNavProgress", "saveNavSpot", "restoreNavSpot", "rebuildNavLegs", "navNearest", "guardResumedHit",
   "navMatchSpan", "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg",
 ];
 const APP_CODE = [
   constLine("NAV_PROGRESS_KEY"),
+  constLine("NAV_PROGRESS_TRIPS"),
   constLine("RESUME_CONFIRM_FIXES"),
   constLine("RESUME_AGREE_M"),
   constLine("RESUME_PARKED_M"),
