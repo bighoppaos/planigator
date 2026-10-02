@@ -8507,6 +8507,7 @@ function onNavFix(lat, lon) {
       const title = String(step?.text || "").trim();
       const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
       setStopChip(leftOnLeg, toward);
+      trackLiveDrive(hit, leg);
       sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), towardPhrase, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
@@ -8690,6 +8691,7 @@ function endRouteNav({ paint = true } = {}) {
   clearStopNote(true);
   directionsAutoKey = "";
   setStopChip(-1, "");
+  clearLiveDrive();
   switchSpokenFor = "";
   pendingAimId = "";
   const switchRow = document.getElementById("routeSwitchRow");
@@ -9607,6 +9609,104 @@ function chipDelayLine(event) {
   return `+ ${delayLabel(amount)} delay → ${after}`;
 }
 
+// Where the truck is on the leg it is driving now, as a share of that leg.
+let liveDrive = null;
+let liveDrivePaintAt = 0;
+let liveDrivePaintAlong = NaN;
+const LIVE_DRIVE_MS = 30000;
+const LIVE_DRIVE_M = 1609.344;
+
+function isDriveChip(event) {
+  return event?.kind === "lead" || event?.kind === "stop";
+}
+
+function trackLiveDrive(hit, leg) {
+  const stop = leg?.stop;
+  if (!stop?.id || stop.skipRoute || stop.done || !Number.isFinite(hit?.along)) return;
+  const span = Math.max(1, leg.end - leg.start);
+  const fraction = Math.min(1, Math.max(0, (hit.along - leg.start) / span));
+  const switched = liveDrive?.stopId !== stop.id;
+  liveDrive = { stopId: stop.id, fraction, legMiles: span / 1609.344 };
+  const now = Date.now();
+  if (!switched && now - liveDrivePaintAt < LIVE_DRIVE_MS && Math.abs(hit.along - liveDrivePaintAlong) < LIVE_DRIVE_M) return;
+  liveDrivePaintAt = now;
+  liveDrivePaintAlong = hit.along;
+  paintLiveDriveChips();
+}
+
+function clearLiveDrive() {
+  if (!liveDrive) return;
+  liveDrive = null;
+  liveDrivePaintAt = 0;
+  liveDrivePaintAlong = NaN;
+  paintLiveDriveChips();
+}
+
+// { done: true } for a drive chip already driven, { miles, hours } for the one
+// being driven now, null for chips still ahead or not on the live leg.
+function liveChipState(event) {
+  if (!liveDrive || !isDriveChip(event) || event.stopID !== liveDrive.stopId) return null;
+  const stop = state.stops.find((item) => item.id === event.stopID);
+  if (!stop || stop.skipRoute) return null;
+  const pieces = (state.plan?.events || [])
+    .filter((item) => isDriveChip(item) && item.stopID === event.stopID)
+    .sort((a, b) => a.start - b.start);
+  const planned = pieces.reduce((sum, item) => sum + Math.max(0, Number(item.miles) || 0), 0);
+  if (!(planned > 0.05)) return null;
+  const full = Number(stop.miles) > 0.05 ? Number(stop.miles) : liveDrive.legMiles;
+  // A plan made partway into the leg covers only its last `planned` miles.
+  const driven = liveDrive.fraction * full - Math.max(0, full - planned);
+  let from = 0;
+  for (const item of pieces) {
+    const miles = Math.max(0, Number(item.miles) || 0);
+    const to = from + miles;
+    if (item.id === event.id) {
+      if (driven >= to - 0.05) return { done: true };
+      if (driven <= from) return null;
+      const left = to - driven;
+      const hours = (Number(item.tripHours) || 0) * (miles > 0 ? left / miles : 0);
+      return { done: false, miles: left, hours };
+    }
+    from = to;
+  }
+  return null;
+}
+
+function liveLeftLine(event, live) {
+  if (!live || live.done) return "";
+  const stats = chipStatLine(event, live.hours, live.miles);
+  return stats ? `${stats} left` : "";
+}
+
+function paintLiveDriveChips() {
+  const events = state.plan?.events || [];
+  document.querySelectorAll("[data-chip]").forEach((node) => {
+    const id = node.getAttribute("data-chip");
+    const event = events.find((item) => String(item.id) === id);
+    if (!isDriveChip(event)) return;
+    const live = liveChipState(event);
+    const done = Boolean(live?.done);
+    node.classList.toggle("is-done", done);
+    const mark = node.querySelector(":scope > .done-mark");
+    if (done && !mark) node.insertAdjacentHTML("beforeend", doneStamp());
+    if (!done && mark) mark.remove();
+    const text = liveLeftLine(event, live);
+    let left = node.querySelector(".chip-left");
+    if (!text) {
+      left?.remove();
+      return;
+    }
+    if (!left) {
+      left = document.createElement("div");
+      left.className = "chip-sec chip-left";
+      const first = node.querySelector(".chip-sec");
+      if (first) first.after(left);
+      else node.prepend(left);
+    }
+    left.textContent = text;
+  });
+}
+
 function chipParts(event) {
   const effect = event.delayEffect;
   // Drive chips keep the original time/miles on top; delay row shows after.
@@ -9625,6 +9725,7 @@ function chipParts(event) {
 function chip(event) {
   const ink = stopInk(event.rgb);
   const { label, middle, delayLine, span, finishDelay } = chipParts(event);
+  const live = liveChipState(event);
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
@@ -9633,10 +9734,12 @@ function chip(event) {
     ? `${section(span, "chip-when")}${section(delayLine, "chip-delay")}`
     : `${section(delayLine, "chip-delay")}${section(span, "chip-when")}`;
   const body = `
-    <div class="chip ${event.kind}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
+    <div class="chip ${event.kind}${live?.done ? " is-done" : ""}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
+      ${section(liveLeftLine(event, live), "chip-left")}
       ${section(middle, "chip-mid")}
       ${delayThenWhen}
+      ${live?.done ? doneStamp() : ""}
     </div>
   `;
   const delay = driveDelayTarget(event);
