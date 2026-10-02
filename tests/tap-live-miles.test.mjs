@@ -78,6 +78,7 @@ const APP_FUNCTIONS = [
   "spokenApproach", "directionWithMilesLeft", "upcomingDirection", "bannerDirection", "speakNavProgress", "speakNav",
   "navVoiceLocked", "onVoiceGesture", "playChosenVoice", "spokenAloud", "setStopChip", "paintStopChip",
   "hoursForMeters", "paintDrive", "driveLeftText",
+  "stepLine", "holdStepLine", "tapMoved", "currentNavStep", "currentStepLine", "sayTapLine",
 ];
 // Not in the old page. It runs without them, so this test can show it failing.
 const OPTIONAL_FUNCTIONS = ["fixTime", "navFixFresh", "stopDriveText", "nextStopMeters", "pageDriveText"];
@@ -92,6 +93,8 @@ const APP_CODE = [
   constLine("STATE_NAMES"),
   constLine("PAGE_VOICE"),
   constLine("NAV_FRESH_MS", true),
+  constLine("VOICE_TAP_MS"),
+  constLine("VOICE_OWN_LINE"),
   ...APP_FUNCTIONS.map((name) => extract(name)),
   ...OPTIONAL_FUNCTIONS.map((name) => extract(name, true)),
 ].join("\n\n");
@@ -159,6 +162,7 @@ function page(storage, voice = "phone") {
     placeSeek: "", truckHits: [], navZoomHold: 0, routeFull: false, navStopNoteText: "",
     stopChipLines: [], stopChipIndex: 0, stopChipTimer: 0, driveAlong: null, driveStopMeters: null,
     voiceGestureSeen: false, navVoiceMissed: false, navVoiceIntroPending: false, navVoiceHere: null,
+    navVoiceNow: null, voiceTapAt: 0, voicePress: null,
     spokenStepKey: "", spokenTurnKey: "", spokenMiles: new Set(), mixCtx: null,
     speakGen: 0, speakChain: Promise.resolve(),
     banner: { title: "", sub: "" },
