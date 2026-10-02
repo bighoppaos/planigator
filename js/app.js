@@ -4897,6 +4897,26 @@ let navAim = null;
 let navTravel = null;
 let navCompass = null;
 let navCompassTimer = 0;
+// GPS fixes while navigating, newest last: { lat, lon, at, acc }.
+let navTrack = [];
+// The last travel heading worth trusting: { bearing, at, lat, lon, source }.
+let navHeadingGood = null;
+const TRACK_KEEP_MS = 120000;
+const TRACK_MAX_FIXES = 40;
+const TRACK_MIN_M = 35;
+const TRACK_SPAN_M = 50;
+const TRACK_FAR_M = 400;
+const TRACK_TURN_M = 20;
+const TRACK_FRESH_MS = 15000;
+const GPS_MOVING_MPS = 2;
+const HEADING_KEEP_MS = 600000;
+const HEADING_MOVED_M = 300;
+const HEADING_TRUST_MS = 60000;
+const ROUTE_ON_M = 30;
+const ROUTE_AGREE_DEG = 60;
+const START_CHECK_M = 150;
+const START_BACKWARDS_DEG = 120;
+const AHEAD_ORIGIN_M = 150;
 let northLock = false;
 let compassAim = false;
 let navReturnTimer = 0;
@@ -7951,49 +7971,214 @@ function guideFromChosenStop(chosen, lat, lon, hit) {
   return "near";
 }
 
-function roadCourseNear(lat, lon) {
-  if (navLine.length >= 2 && Number.isFinite(lat) && Number.isFinite(lon)) {
-    const hit = navNearest(lat, lon, navLine);
-    const bearing = travelBearing(hit.along);
-    if (Number.isFinite(bearing)) return bearing;
-  }
-  if (typeof navTravel === "number" && Number.isFinite(navTravel)) return navTravel;
-  if (typeof navCompass === "number" && Number.isFinite(navCompass)) return navCompass;
-  if (typeof state.origin?.heading === "number" && Number.isFinite(state.origin.heading)) {
-    return state.origin.heading;
-  }
-  return undefined;
+function headingGap(a, b) {
+  const d = (((a - b) % 360) + 360) % 360;
+  return d > 180 ? 360 - d : d;
 }
 
-function currentFix() {
-  if (navFix) {
-    const heading = roadCourseNear(navFix[0], navFix[1]);
-    return Promise.resolve({
-      lat: navFix[0],
-      lon: navFix[1],
-      heading: typeof heading === "number" ? heading : undefined,
-    });
+// The phone's GPS heading is noise when the truck is stopped or creeping.
+function movingGpsHeading(heading, speed) {
+  if (typeof heading !== "number" || !Number.isFinite(heading) || heading < 0 || heading > 360) return null;
+  if (typeof speed !== "number" || !Number.isFinite(speed) || speed <= GPS_MOVING_MPS) return null;
+  return heading % 360;
+}
+
+function fixMotion(pos) {
+  const coords = pos?.coords || {};
+  return { heading: coords.heading, speed: coords.speed, accuracy: coords.accuracy };
+}
+
+// Bearing from the nearest fix 50 m or more back on the track to the newest
+// fix. Jitter while parked never spans that far; fixes whose error is large
+// next to the span are skipped. A stretch where he went past where he is now
+// and came back is a turnaround, not a heading.
+function trackHeading(track = navTrack) {
+  const newest = track[track.length - 1];
+  if (!newest) return null;
+  const at = [newest.lat, newest.lon];
+  const east = 111320 * Math.cos(newest.lat * Math.PI / 180);
+  const xy = (fix) => [(fix.lon - newest.lon) * east, (fix.lat - newest.lat) * 111320];
+  const turnM = Math.max(TRACK_TURN_M, newest.acc || 0);
+  let near = null;
+  for (let i = track.length - 2; i >= 0; i -= 1) {
+    const older = track[i];
+    const [ax, ay] = xy(older);
+    const span = Math.hypot(ax, ay);
+    if (span > TRACK_FAR_M) break;
+    if (span < TRACK_MIN_M) continue;
+    if ((older.acc || 0) + (newest.acc || 0) > span * 0.5) continue;
+    const ux = -ax / span;
+    const uy = -ay / span;
+    let overshoot = 0;
+    for (let j = i + 1; j < track.length - 1; j += 1) {
+      const [x, y] = xy(track[j]);
+      overshoot = Math.max(overshoot, (x - ax) * ux + (y - ay) * uy - span);
+    }
+    if (overshoot > turnM) return near || { bearing: null, turned: true };
+    const bearing = navBearing([older.lat, older.lon], at);
+    if (span >= TRACK_SPAN_M) return { bearing };
+    near ||= { bearing };
   }
+  return near;
+}
+
+function noteNavTrack(lat, lon, at = Date.now(), motion = null) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const last = navTrack[navTrack.length - 1];
+  if (last && at <= last.at) return;
+  const acc = Number(motion?.accuracy);
+  navTrack.push({ lat, lon, at, acc: Number.isFinite(acc) && acc > 0 ? acc : 0 });
+  while (navTrack.length > TRACK_MAX_FIXES || (navTrack.length > 1 && at - navTrack[0].at > TRACK_KEEP_MS)) navTrack.shift();
+  const seen = trackHeading(navTrack);
+  const gps = movingGpsHeading(motion?.heading, motion?.speed);
+  if (seen?.bearing != null) navHeadingGood = { bearing: seen.bearing, at, lat, lon, source: "track" };
+  else if (gps != null) navHeadingGood = { bearing: gps, at, lat, lon, source: "gps" };
+  else if (seen?.turned) navHeadingGood = null;
+}
+
+// Which way he is driving: his last stretch of track, then a moving GPS
+// heading, then the last good heading if it is recent and near. Never the
+// compass; that is which way the phone faces.
+function travelHeading(here, now = Date.now()) {
+  const point = [here.lat, here.lon];
+  const newest = navTrack[navTrack.length - 1];
+  if (newest && now - newest.at <= TRACK_FRESH_MS && metersBetween([newest.lat, newest.lon], point) <= TRACK_MIN_M) {
+    const seen = trackHeading(navTrack);
+    if (seen?.bearing != null) return { bearing: seen.bearing, source: "track", reliable: true };
+  }
+  const gps = movingGpsHeading(here.gpsHeading, here.speed);
+  if (gps != null) return { bearing: gps, source: "gps", reliable: true };
+  const good = navHeadingGood;
+  if (good && now - good.at <= HEADING_KEEP_MS && metersBetween([good.lat, good.lon], point) <= HEADING_MOVED_M) {
+    return { bearing: good.bearing, source: "last", reliable: now - good.at <= HEADING_TRUST_MS };
+  }
+  return null;
+}
+
+// The saved line's bearing under him, only when he is on it, on the leg of
+// the stop being driven to.
+function routeBearingUnder(lat, lon) {
+  if (navLine.length < 2 || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const hit = navNearest(lat, lon, navLine);
+  if (!(hit.dist <= ROUTE_ON_M)) return null;
+  const span = navMatchSpan();
+  if (span && (hit.along < span.from - 1 || hit.along > span.to + 1)) return null;
+  const at = pointAlong(navLine, hit.along);
+  const ahead = pointAlong(navLine, hit.along + 50);
+  if (!at || !ahead || metersBetween([at.lat, at.lon], [ahead.lat, ahead.lon]) < 5) return null;
+  return { bearing: navBearing([at.lat, at.lon], [ahead.lat, ahead.lon]), along: hit.along, span };
+}
+
+// No track heading yet: an earlier fix on the same line further back means
+// he is going the way it runs.
+function forwardOnRoute(here, under) {
+  for (let i = navTrack.length - 1; i >= 0; i -= 1) {
+    const fix = navTrack[i];
+    if (metersBetween([fix.lat, fix.lon], [here.lat, here.lon]) < 10) continue;
+    const hit = nearestOnPath(fix.lat, fix.lon, navLine, under.span);
+    return hit.dist <= ROUTE_ON_M && hit.along < under.along - 5;
+  }
+  return false;
+}
+
+// The course for a route from where he is. No course beats a wrong one.
+function travelCourse(here, now = Date.now()) {
+  const heading = travelHeading(here, now);
+  const under = routeBearingUnder(here.lat, here.lon);
+  if (under && heading && headingGap(under.bearing, heading.bearing) <= ROUTE_AGREE_DEG) {
+    return { course: under.bearing, travel: heading.bearing, reliable: heading.reliable, source: "route" };
+  }
+  if (heading) return { course: heading.bearing, travel: heading.bearing, reliable: heading.reliable, source: heading.source };
+  if (under && forwardOnRoute(here, under)) {
+    return { course: under.bearing, travel: under.bearing, reliable: false, source: "route" };
+  }
+  return { course: undefined, travel: undefined, reliable: false, source: "none" };
+}
+
+function askPosition(maximumAge, timeout) {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       resolve(null);
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const gps = pos.coords.heading;
-        const heading = roadCourseNear(pos.coords.latitude, pos.coords.longitude)
-          ?? (typeof gps === "number" && Number.isFinite(gps) && gps >= 0 ? gps : undefined);
-        resolve({
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          heading: typeof heading === "number" ? heading : undefined,
-        });
-      },
+      (pos) => resolve({
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+        at: fixTime(pos),
+        gpsHeading: pos.coords.heading,
+        speed: pos.coords.speed,
+        accuracy: pos.coords.accuracy,
+      }),
       () => resolve(null),
-      { enableHighAccuracy: true, maximumAge: 4000, timeout: 15000 },
+      { enableHighAccuracy: true, maximumAge, timeout },
     );
   });
+}
+
+// `fresh`: a route from here must not start from a fix taken a minute ago.
+async function currentFix({ fresh = false } = {}) {
+  if (navFix && (!fresh || navFixFresh())) return { lat: navFix[0], lon: navFix[1] };
+  const got = await askPosition(fresh ? 2000 : 4000, fresh ? 10000 : 15000);
+  if (got) {
+    if (fresh) noteNavTrack(got.lat, got.lon, got.at, { heading: got.gpsHeading, speed: got.speed, accuracy: got.accuracy });
+    return got;
+  }
+  return navFix ? { lat: navFix[0], lon: navFix[1] } : null;
+}
+
+// Where the first stretch of a returned path heads.
+function pathStartBearing(points) {
+  const path = (Array.isArray(points) ? points : [])
+    .map((pair) => [Number(pair?.[0]), Number(pair?.[1])])
+    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+  if (path.length < 2) return null;
+  const length = polylineMeters(path);
+  if (length < 30) return null;
+  const end = pointAlong(path, Math.min(START_CHECK_M, length));
+  return navBearing(path[0], [end.lat, end.lon]);
+}
+
+function startsBackwards(leg, travel) {
+  const start = pathStartBearing(leg?.points);
+  return start != null && headingGap(start, travel) > START_BACKWARDS_DEG;
+}
+
+// A leg routed from a point ahead of him, joined back to where he is: the
+// line starts at him, and the gap is added to the miles, time and first row.
+function joinLegFrom(here, leg) {
+  const points = Array.isArray(leg?.points) ? leg.points : [];
+  if (!points.length) return leg;
+  const gap = metersBetween([here.lat, here.lon], points[0]);
+  if (!(gap > 1)) return leg;
+  const gapMiles = gap / 1609.344;
+  const miles = Number(leg.miles) || 0;
+  const hours = Number(leg.hours) || 0;
+  const mph = miles > 0 && hours > 0 ? miles / hours : 25;
+  const directions = Array.isArray(leg.directions)
+    ? leg.directions.map((step, index) => (index === 0 && Number.isFinite(Number(step?.miles))
+      ? { ...step, miles: Math.round((Number(step.miles) + gapMiles) * 10) / 10 }
+      : step))
+    : leg.directions;
+  return { ...leg, points: [[here.lat, here.lon], ...points], miles: miles + gapMiles, hours: hours + gapMiles / mph, directions };
+}
+
+// One request. Only when it starts back the way he came, and his heading is
+// sure, one more from a point ahead of him on that heading.
+async function routeFromHere(here, to) {
+  const pick = travelCourse(here);
+  const from = { lat: here.lat, lon: here.lon };
+  const leg = await routeTruckLeg(from, to, pick.course, { avoidUTurns: true });
+  if (typeof pick.course !== "number" || !pick.reliable || !startsBackwards(leg, pick.travel)) return { leg, pick };
+  if (!state.unlimited && leg?.credits != null && Number(leg.credits) <= 0) return { leg, pick };
+  const [aheadLat, aheadLon] = pointAhead(here.lat, here.lon, pick.travel, AHEAD_ORIGIN_M);
+  try {
+    const retry = await routeTruckLeg({ lat: aheadLat, lon: aheadLon }, to, pick.course, { avoidUTurns: true });
+    if (!startsBackwards(retry, pick.travel)) return { leg: joinLegFrom(here, retry), pick };
+    return { leg: retry?.credits != null ? { ...leg, credits: retry.credits } : leg, pick };
+  } catch (error) {
+    return { leg: error?.credits != null ? { ...leg, credits: error.credits } : leg, pick };
+  }
 }
 
 function activeNavLeg() {
@@ -8133,7 +8318,7 @@ async function recalculateFromHere() {
     calc.disabled = true;
     calc.innerHTML = calculateButtonLabel();
   }
-  const here = await currentFix();
+  const here = await currentFix({ fresh: true });
   if (!here) {
     abortRecalc("Allow location first, then Recalculate.");
     return;
@@ -8156,15 +8341,9 @@ async function recalculateFromHere() {
   const name = navStopTitle(target);
   let leg;
   try {
-    // Stay going forward on this road — prefer the route bearing under you.
-    const course = roadCourseNear(here.lat, here.lon)
-      ?? (typeof here.heading === "number" ? here.heading : undefined);
-    leg = await routeTruckLeg(
-      { lat: here.lat, lon: here.lon },
-      { lat: Number(target.lat), lon: Number(target.lon) },
-      typeof course === "number" && Number.isFinite(course) ? course : undefined,
-      { avoidUTurns: true },
-    );
+    const routed = await routeFromHere(here, { lat: Number(target.lat), lon: Number(target.lon) });
+    leg = routed.leg;
+    here.heading = routed.pick.course;
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     abortRecalc(error.message || `Could not get a HERE© ${transportModeTitle().toLowerCase()} route.`);
@@ -8598,7 +8777,7 @@ async function addPlaceAsNextStop(hit) {
     syncRouteChrome();
     return;
   }
-  const here = navFix ? { lat: navFix[0], lon: navFix[1] } : await currentFix();
+  const here = await currentFix({ fresh: true });
   if (!here) {
     state.estimating = false;
     state.error = "Allow location first, then Recalculate.";
@@ -8661,7 +8840,7 @@ async function addPlaceAsNextStop(hit) {
     directions: Array.isArray(toward.directions) ? toward.directions.slice() : toward.directions,
   };
   state.stops.splice(towardIndex, 0, next);
-  const course = typeof navCompass === "number" ? navCompass : (typeof navTravel === "number" ? navTravel : here.heading);
+  const course = travelCourse(here).course;
   try {
     const into = await routeTruckLeg({ lat: here.lat, lon: here.lon }, { lat, lon }, course, { avoidUTurns: true });
     const onward = await routeTruckLeg({ lat, lon }, towardPoint, undefined, { avoidUTurns: true });
@@ -9021,6 +9200,7 @@ function stopNavMotion() {
   navShown = null;
   navAim = null;
   navTravel = null;
+  navTrack = [];
 }
 
 function placeNavDot(lat, lon) {
@@ -9732,6 +9912,7 @@ function pokeNavFix() {
     (pos) => {
       if (!navOn) return;
       if (navFixAt > asked + 500) return;
+      noteNavTrack(pos.coords.latitude, pos.coords.longitude, fixTime(pos), fixMotion(pos));
       onNavFix(pos.coords.latitude, pos.coords.longitude, fixTime(pos));
     },
     () => {},
@@ -9765,6 +9946,7 @@ function startNavWatch() {
   navWatch = navigator.geolocation.watchPosition(
     (pos) => {
       if (!navOn) return;
+      noteNavTrack(pos.coords.latitude, pos.coords.longitude, fixTime(pos), fixMotion(pos));
       onNavFix(pos.coords.latitude, pos.coords.longitude, fixTime(pos));
     },
     (err) => {
