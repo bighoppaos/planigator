@@ -839,6 +839,11 @@ function stopsAndLeaveForPlan() {
       state.driveProgress = progress;
     }
   }
+  // While navigating, the leg being driven starts now with only what is left
+  // of it. A saved progress on a later stop (Update times at a stop) still wins.
+  const live = liveLegProgress();
+  const order = (id) => state.stops.findIndex((stop) => stop.id === id);
+  if (live && (!progress || order(progress.stopId) <= order(live.stopId))) progress = live;
   if (!progress) return { stops, leaveAt: leaveAtNow() };
   const index = stops.findIndex((stop) => stop.id === progress.stopId);
   if (index < 0) {
@@ -9811,6 +9816,7 @@ function paintPlanClocks() {
   const chips = document.querySelectorAll("[data-chip]");
   const sums = document.querySelectorAll("[data-plan-summary]");
   if (!plan || !chips.length || !sums.length) return false;
+  paintLiveDriveChips();
   const byId = new Map();
   chips.forEach((node) => {
     const id = node.getAttribute("data-chip");
@@ -9856,7 +9862,7 @@ function paintPlanClocks() {
 
 function tickLeaveNow() {
   if (document.visibilityState === "hidden") return;
-  if (!state.settings.leaveNow || !state.plan || state.estimating) return;
+  if ((!state.settings.leaveNow && !liveLegProgress()) || !state.plan || state.estimating) return;
   const before = planShape(state.plan);
   const result = rebuiltPlan();
   if (!result || result.error) return;
@@ -9866,7 +9872,8 @@ function tickLeaveNow() {
   if (!shapeChanged && paintPlanClocks()) return;
   if (routeFull || navOn || typing) {
     if (shapeChanged && (routeFull || navOn)) routePageStale = true;
-    paintPlanClocks();
+    // Navigating on the page: swap in the plan's cards without touching the map.
+    if (!paintPlanClocks() && navOn && !routeFull && !typing) patchPlanAfterDone();
     return;
   }
   render();
@@ -9937,7 +9944,14 @@ function trackLiveDrive(hit, leg) {
   const span = Math.max(1, leg.end - leg.start);
   const fraction = Math.min(1, Math.max(0, (hit.along - leg.start) / span));
   const switched = liveDrive?.stopId !== stop.id;
-  liveDrive = { stopId: stop.id, fraction, legMiles: span / 1609.344 };
+  liveDrive = {
+    stopId: stop.id,
+    fraction,
+    legMiles: span / 1609.344,
+    stopMiles: Number(stop.miles) || 0,
+    stopHours: Number(stop.hours) || 0,
+  };
+  if (switched) tickLeaveNow();
   const now = Date.now();
   if (!switched && now - liveDrivePaintAt < LIVE_DRIVE_MS && Math.abs(hit.along - liveDrivePaintAlong) < LIVE_DRIVE_M) return;
   liveDrivePaintAt = now;
@@ -9950,7 +9964,32 @@ function clearLiveDrive() {
   liveDrive = null;
   liveDrivePaintAt = 0;
   liveDrivePaintAlong = NaN;
+  if (state.plan && !state.estimating) {
+    const result = rebuiltPlan();
+    if (result && !result.error) state.plan = result;
+  }
   paintLiveDriveChips();
+}
+
+// What is left of the leg being driven now, as a drive progress for the plan.
+// Null when navigation is off, so the plan uses the whole saved legs.
+function liveLegProgress() {
+  if (!navOn || !liveDrive) return null;
+  const stop = state.stops.find((item) => item.id === liveDrive.stopId);
+  if (!stop || stop.done || stop.skipRoute) return null;
+  const full = liveDrive.stopMiles > 0.05 ? liveDrive.stopMiles : liveDrive.legMiles;
+  if (!(full > 0)) return null;
+  const left = Math.min(1, Math.max(0, 1 - liveDrive.fraction));
+  // At the stop the plan still needs a sliver of the leg to place it.
+  const remainMiles = Math.min(full, Math.max(0.1, full * left));
+  const remainFraction = remainMiles / full;
+  return {
+    stopId: stop.id,
+    remainFraction,
+    leftAt: Date.now(),
+    remainMiles,
+    remainHours: liveDrive.stopHours * remainFraction,
+  };
 }
 
 // { done: true } for a drive chip already driven, { miles, hours } for the one
@@ -9967,14 +10006,16 @@ function liveChipState(event) {
   const full = Number(stop.miles) > 0.05 ? Number(stop.miles) : liveDrive.legMiles;
   // A plan made partway into the leg covers only its last `planned` miles.
   const driven = liveDrive.fraction * full - Math.max(0, full - planned);
+  // That plan starts where the truck was, so its first piece is under way.
+  const partway = full - planned > 0.05;
   let from = 0;
   for (const item of pieces) {
     const miles = Math.max(0, Number(item.miles) || 0);
     const to = from + miles;
     if (item.id === event.id) {
       if (driven >= to - 0.05) return { done: true };
-      if (driven <= from) return null;
-      const left = to - driven;
+      if (driven <= from && !(partway && from === 0)) return null;
+      const left = to - Math.max(from, driven);
       const hours = (Number(item.tripHours) || 0) * (miles > 0 ? left / miles : 0);
       return { done: false, miles: left, hours };
     }
@@ -10003,27 +10044,41 @@ function paintLiveDriveChips() {
     if (!done && mark) mark.remove();
     const text = liveLeftLine(event, live);
     let left = node.querySelector(".chip-left");
-    if (!text) {
-      left?.remove();
-      return;
+    if (!text) left?.remove();
+    else {
+      if (!left) {
+        left = document.createElement("div");
+        left.className = "chip-sec chip-left";
+        const first = node.querySelector(".chip-sec");
+        if (first) first.after(left);
+        else node.prepend(left);
+      }
+      left.textContent = text;
     }
-    if (!left) {
-      left = document.createElement("div");
-      left.className = "chip-sec chip-left";
-      const first = node.querySelector(".chip-sec");
-      if (first) first.after(left);
-      else node.prepend(left);
+    const { middle } = chipParts(event);
+    let mid = node.querySelector(".chip-mid");
+    if (!middle) mid?.remove();
+    else if (!mid) {
+      mid = document.createElement("div");
+      mid.className = "chip-sec chip-mid";
+      const above = node.querySelector(".chip-left") || node.querySelector(".chip-sec");
+      if (above) above.after(mid);
+      else node.prepend(mid);
     }
-    left.textContent = text;
+    if (mid) mid.textContent = middle;
   });
 }
 
 function chipParts(event) {
   const effect = event.delayEffect;
-  // Drive chips keep the original time/miles on top; delay row shows after.
-  const middle = effect && !effect.finishDelay && effect.beforeHours != null
-    ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
-    : chipStatLine(event, event.tripHours, event.miles);
+  const live = liveChipState(event);
+  // The leg being driven shows only its left row. Other drive chips keep the
+  // original time/miles on top; delay row shows after.
+  const middle = live && !live.done
+    ? ""
+    : effect && !effect.finishDelay && effect.beforeHours != null
+      ? chipStatLine(event, effect.beforeHours, effect.beforeMiles)
+      : chipStatLine(event, event.tripHours, event.miles);
   const delayLine = chipDelayLine(event);
   const span = formatPlanSpan(event.start, event.end, eventZone(event));
   const towardName = driveTowardName(event);
