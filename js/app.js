@@ -36,9 +36,10 @@ import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=3";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
-// Stop-done during navigation. persist() keeps it on the editor copy, but a
-// signed-in reload fills the page from the saved account trip, and Stop does
-// not update that copy. This record is what a refresh puts back.
+// Stop-done during navigation. persist() keeps it on the editor copy and
+// keepDoneOnSavedTrip() on the saved trip. If the account copy has not taken
+// it yet, a signed-in reload fills the page without it. This record is what a
+// refresh puts back.
 const NAV_PROGRESS_KEY = "planigator.web.navprogress";
 const DEFAULT_HERO = [
   "Made and maintained by a truck driver that still drives",
@@ -638,7 +639,10 @@ function applyNavProgress() {
     changed = true;
   }
   if (saved.nav) navProgressResume = true;
-  if (!changed) return true;
+  if (!changed) {
+    keepDoneOnSavedTrip();
+    return true;
+  }
   if (state.plan) {
     const timed = stopsAndLeaveForPlan();
     const result = buildPlan({
@@ -649,42 +653,69 @@ function applyNavProgress() {
     if (!result.error) state.plan = result;
   }
   persist();
+  keepDoneOnSavedTrip();
   return true;
 }
 
-function stripSavedNavDone() {
-  const trip = state.trips.find((item) => item.id === state.activeTripId);
-  if (!trip || !Array.isArray(trip.stops) || !trip.stops.some((stop) => stop?.done || stop?.switched)) return false;
+// A done stop stays done on its saved trip, on this phone and on the account,
+// so it comes back whenever that trip is opened. Marks are only ever added here.
+function keepDoneOnSavedTrip() {
+  const trip = state.trips.find((item) => item.id === state.activeTripId) || savedTripForEditor();
+  if (!trip || !Array.isArray(trip.stops)) return false;
+  const done = new Map((state.stops || [])
+    .filter((stop) => stop?.id && !stop.useCurrentLocation && stop.done)
+    .map((stop) => [stop.id, stop]));
+  if (!done.size) return false;
+  let changed = false;
   trip.stops = trip.stops.map((stop) => {
-    if (!stop?.done && !stop?.switched) return stop;
-    return { ...stop, done: false, switched: false, skipRoute: false };
+    const live = done.get(stop?.id);
+    if (!live) return stop;
+    const switched = Boolean(stop.switched || live.switched);
+    const skipRoute = Boolean(stop.skipRoute || live.skipRoute);
+    if (stop.done && Boolean(stop.switched) === switched && Boolean(stop.skipRoute) === skipRoute) return stop;
+    changed = true;
+    return { ...stop, done: true, switched, skipRoute };
   });
-  trip.driveProgress = null;
+  if (!changed) return false;
+  if (trip.id === state.activeTripId) trip.driveProgress = state.driveProgress;
   trip.pendingUpload = true;
   trip.savedAt = Date.now();
+  persist();
+  // Before the account list merges, an upload would send this phone's older
+  // list. pullAccountTrips uploads pending trips once it has merged.
+  if (!tripsSynced) return true;
+  writeTripCache();
+  uploadPendingTrips();
   return true;
 }
 
-function clearNavSession() {
-  let changed = false;
-  for (const stop of state.stops || []) {
-    if (!stop?.done && !stop?.switched) continue;
-    stop.done = false;
-    stop.switched = false;
-    stop.skipRoute = false;
-    changed = true;
-  }
-  if (changed) clearDriveProgress();
+// Leaving a trip or ending navigation ends the drive, not the done marks.
+function leaveNavSession() {
+  keepDoneOnSavedTrip();
   navAimStopId = "";
   navProgressResume = false;
-  clearNavProgress();
-  const stripped = stripSavedNavDone();
-  if (changed) rebuildPlanAfterDone();
-  else if (stripped) persist();
-  if (stripped) {
-    writeTripCache();
-    uploadPendingTrips();
+}
+
+function endNavProgress() {
+  const saved = retargetNavProgress();
+  if (!saved || saved.tripKey !== tripProgressKey()) return;
+  const doneIds = new Set(saved.doneIds);
+  for (const stop of state.stops || []) {
+    if (stop?.id && !stop.useCurrentLocation && stop.done) doneIds.add(stop.id);
   }
+  if (!doneIds.size) clearNavProgress();
+  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false });
+}
+
+function replanAroundDone() {
+  if (!state.plan || !state.stops.some((stop) => stop?.done)) return;
+  const timed = stopsAndLeaveForPlan();
+  const result = buildPlan({
+    stops: zonedPlanStops(timed.stops),
+    settings: { ...state.settings, leaveAt: timed.leaveAt },
+    now: planClockNow(timed.leaveAt),
+  });
+  if (!result.error) state.plan = result;
 }
 
 function restoreHeldAccountTrip() {
@@ -1240,7 +1271,7 @@ function applySharedTrip(data, { notice } = {}) {
   const currentIds = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
   if (incomingIds && incomingIds !== currentIds) {
     if (navOn) endRouteNav({ paint: false });
-    else clearNavSession();
+    else leaveNavSession();
   }
   state.settings = { ...state.settings, ...(data.settings || {}) };
   if (Array.isArray(data.stops) && data.stops.length) state.stops = data.stops.map((stop) => ({ ...stop }));
@@ -1702,10 +1733,7 @@ function loadTrip(id) {
   if (navOn) return;
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
-  const saved = readNavProgress();
-  const stopKey = `stops:${(trip.stops || []).map((stop) => stop?.id).filter(Boolean).join(",")}`;
-  const sameTrip = saved && (saved.tripKey === `id:${trip.id}` || (stopKey !== "stops:" && saved.tripKey === stopKey));
-  if (!sameTrip) clearNavSession();
+  leaveNavSession();
   if (trip.id !== state.activeTripId) {
     parkSpeedNote();
     showTripSpeedNote(trip);
@@ -1730,6 +1758,7 @@ function loadTrip(id) {
   applyNavProgress();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
+    replanAroundDone();
     render();
     persist();
   }
@@ -1797,7 +1826,7 @@ function rollOpenExample() {
 
 function loadExample() {
   if (navOn) endRouteNav({ paint: false });
-  else clearNavSession();
+  else leaveNavSession();
   parkSpeedNote();
   const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
   state.settings = { ...state.settings, ...(trip.settings || {}) };
@@ -1819,6 +1848,7 @@ function loadExample() {
   addressEditStarted = false;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
+  applyNavProgress();
   calculate({ silent: true, skipHash: true });
 }
 
@@ -2252,6 +2282,7 @@ function markStopDone(stop, { switched = false } = {}) {
   rebuildPlanAfterDone();
   paintDirectionToward();
   rememberNavProgress();
+  keepDoneOnSavedTrip();
 }
 
 function closerLegEnd(leg, hit) {
@@ -2481,7 +2512,7 @@ function resetEditor() {
 
 function newTrip() {
   if (navOn) return;
-  clearNavSession();
+  leaveNavSession();
   parkSpeedNote();
   const keep = {
     trips: state.trips,
@@ -6680,17 +6711,14 @@ function noHandsSlots() {
     // rails that seatRails lifts when the sheet opens — that was shifting zoom.
     const reserve = Math.max(Math.round(height * 0.34), Math.max(pad.bottom, 110));
     let userY = height - reserve - 8;
-    let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2 + 8));
-    if (compass && mapBox && mapBox.height > 10) {
-      const box = compass.getBoundingClientRect();
-      const cy = box.top + box.height / 2 - mapBox.top;
-      // Ignore compass when the sheet has lifted it into mid-screen.
-      if (box.height > 10 && cy < height * 0.4) turnY = cy;
-    }
+    const safeTop = safeTopPad();
+    // The next turn sits about an inch below the top of the screen, and
+    // always below the notch.
+    let turnY = visibleTop + Math.max(FULL_TURN_TOP_PX, Math.round(safeTop + 24));
     turnY = Math.max(visibleTop + 8, Math.min(height * 0.36, turnY));
     userY = Math.min(userY, height - Math.round(buttonH * 1.1));
     userY = Math.max(turnY + buttonH * 1.8, userY);
-    return { width, height, userY, turnY, buttonH };
+    return { width, height, userY, turnY, buttonH, visibleTop, safeTop };
   }
   // Page Turn zoom — leave this path alone.
   let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2));
@@ -6798,6 +6826,79 @@ function cameraForStretch(bearing, coords, slots) {
   return camera;
 }
 
+const FULL_TURN_TOP_PX = 96;
+const FULL_TURN_MAX_ZOOM = 18.5;
+
+// Fullscreen Turn zoom. The truck stays on the bottom slot and the next turn
+// lands on the top slot. The zoom only goes out past that when some of the
+// road between them would leave the screen, never in.
+function cameraForFullTurn(bearing, coords, turn, slots) {
+  const clear = railClearance();
+  const margin = 12;
+  const left = clear.left + margin;
+  const rightEdge = Math.max(left + 48, slots.width - clear.right - margin);
+  const top = slots.visibleTop + Math.max(8, Math.round(slots.safeTop + 4));
+  const roomPx = Math.max(72, slots.userY - top);
+  const slotPx = Math.max(48, slots.userY - slots.turnY);
+  const widePx = Math.max(48, rightEdge - left);
+  const belowPx = Math.max(20, slots.height - slots.userY - margin);
+  const frame = stretchMeters(navFix[0], navFix[1], bearing, coords);
+  const turnM = turn ? stretchMeters(navFix[0], navFix[1], bearing, [turn]).maxF : 0;
+  const aheadM = Math.max(70, frame.maxF);
+  const behindM = Math.max(0, -frame.minF);
+  const sideM = Math.max(0, frame.maxR - frame.minR);
+  let mppNeed = aheadM / roomPx;
+  if (sideM > 1) mppNeed = Math.max(mppNeed, sideM / widePx);
+  if (behindM > 1) mppNeed = Math.max(mppNeed, behindM / belowPx);
+  const mpp = Math.max(mppNeed, turnM / slotPx);
+  const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
+  let zoom = Math.log2((MERCATOR_MPP0 * cos) / mpp);
+  zoom = Math.max(3, Math.min(FULL_TURN_MAX_ZOOM, zoom));
+  const place = (useZoom) => {
+    const at = mercatorMpp(useZoom, navFix[0]);
+    const minTruckX = left - frame.minR / at;
+    const maxTruckX = rightEdge - frame.maxR / at;
+    const prefer = (left + rightEdge) / 2;
+    let truckX = prefer;
+    if (minTruckX <= maxTruckX) truckX = Math.min(maxTruckX, Math.max(minTruckX, prefer));
+    const upM = (slots.userY - slots.height / 2) * at;
+    const rightM = (slots.width / 2 - truckX) * at;
+    const raised = pointAhead(navFix[0], navFix[1], bearing, upM);
+    const center = pointAhead(raised[0], raised[1], bearing + 90, rightM);
+    return { center: [center[1], center[0]], zoom: useZoom, bearing };
+  };
+  let camera = place(zoom);
+  // The flat-earth fit is a first guess. Real projection passes zoom out
+  // only as far as a curve that still crosses a button or the screen top needs.
+  const box = { left, right: rightEdge, top, bottom: slots.height - margin };
+  const step = Math.max(1, Math.floor(coords.length / 80));
+  for (let pass = 0; pass < 3 && zoom > 3; pass += 1) {
+    routeMap.jumpTo(camera);
+    const truck = routeMap.project([navFix[1], navFix[0]]);
+    let scale = 1;
+    // Zooming out pulls every point toward the truck by the same factor.
+    const fit = (edge, from, to) => {
+      if (Math.abs(to - from) < 1) return;
+      const s = (edge - from) / (to - from);
+      if (s > 0 && s < scale) scale = s;
+    };
+    const check = (coord) => {
+      if (!coord) return;
+      const p = routeMap.project(coord);
+      if (p.y < box.top - 2) fit(box.top, truck.y, p.y);
+      if (p.y > box.bottom + 2) fit(box.bottom, truck.y, p.y);
+      if (p.x < box.left - 2) fit(box.left, truck.x, p.x);
+      if (p.x > box.right + 2) fit(box.right, truck.x, p.x);
+    };
+    for (let i = 0; i < coords.length; i += step) check(coords[i]);
+    check(coords[coords.length - 1]);
+    if (scale >= 1) break;
+    zoom = Math.max(3, zoom + Math.log2(Math.max(0.45, scale * 0.98)));
+    camera = place(zoom);
+  }
+  return camera;
+}
+
 function frameNextTurn() {
   if (!routeMap || framingTurn) return;
   framingTurn = true;
@@ -6837,7 +6938,9 @@ function frameNextTurn() {
   const to = Math.max(along, target);
   const coords = navRemaining(from, to);
   coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
-  const camera = cameraForStretch(bearing, coords, slots);
+  const camera = routeFull && ahead
+    ? cameraForFullTurn(bearing, coords, [at.lon, at.lat], slots)
+    : cameraForStretch(bearing, coords, slots);
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
@@ -8568,8 +8671,9 @@ function resumeNavIfNeeded() {
 }
 
 function endRouteNav({ paint = true } = {}) {
-  clearNavSession();
   navOn = false;
+  leaveNavSession();
+  endNavProgress();
   followPinned = false;
   navAimStopId = "";
   clearDirectionPin();
