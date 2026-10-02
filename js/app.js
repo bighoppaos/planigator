@@ -25,7 +25,7 @@ import {
   planPlainText,
 } from "./plan.js?v=179";
 import { TRUCK_PROFILE } from "./here.js";
-import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
+import { EXAMPLE_TRIP } from "./example-trip.js?v=7";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
 import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=5";
