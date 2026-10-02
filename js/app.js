@@ -3978,6 +3978,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       </div>
       </div>
       <div class="route-place-tools" id="routePlaceTools">
+        <button type="button" class="route-voice-hint" id="routeVoiceHint" hidden>Tap to turn on voice</button>
         <p class="route-place-clear" id="routePlaceStatus" hidden></p>
         <button type="button" id="routePlaceSearch" class="route-place-clear" hidden>Search here</button>
         <button type="button" id="routePlaceClear" class="route-place-clear" hidden>Clear</button>
@@ -5277,15 +5278,93 @@ function navVoiceLabel() {
 }
 
 let navVoiceIntroPending = false;
+// iOS keeps a page silent after every load until a tap. A refresh resumes
+// navigation with no tap, so the voice waits for the first touch anywhere.
+let voiceGestureSeen = false;
+let navVoiceMissed = false;
+const VOICE_GESTURES = ["pointerdown", "touchend", "click", "keydown"];
 
 function unlockNavVoice() {
   // Unlock audio on this tap, then say the line in the chosen voice. The first
   // direction queues after this so it does not cut in with a different voice.
   unlockMix();
+  voiceGestureSeen = true;
+  disarmVoiceGesture();
   navVoiceIntroPending = true;
   playChosenVoice("Navigation on.", { barge: true }).finally(() => {
     navVoiceIntroPending = false;
   });
+}
+
+function navVoiceLocked() {
+  if (voiceGestureSeen) return false;
+  if (navVoiceId() === "phone") return true;
+  return !(mixCtx && mixCtx.state === "running");
+}
+
+function warmPhoneVoice() {
+  const synth = window.speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance !== "function") return;
+  try {
+    const utter = new SpeechSynthesisUtterance(" ");
+    utter.volume = 0;
+    synth.speak(utter);
+    synth.resume();
+  } catch {
+    // The next spoken line tries again.
+  }
+}
+
+function onVoiceGesture(event) {
+  if (!navOn && !navProgressResume) return;
+  unlockMix();
+  // A finger going down is not a tap to iOS yet. Wait for it to lift.
+  if (event?.type === "pointerdown" && event.pointerType !== "mouse") return;
+  if (navVoiceId() === "phone") warmPhoneVoice();
+  voiceGestureSeen = true;
+  disarmVoiceGesture();
+  if (navVoiceMissed) {
+    // Lines that came due while the page could not talk were never heard.
+    // Say the current direction again on the next fix.
+    navVoiceMissed = false;
+    spokenStepKey = "";
+    spokenMiles.clear();
+  }
+  paintVoiceHint();
+}
+
+function armVoiceGesture() {
+  for (const type of VOICE_GESTURES) {
+    document.addEventListener(type, onVoiceGesture, { capture: true, passive: true });
+  }
+}
+
+function disarmVoiceGesture() {
+  for (const type of VOICE_GESTURES) {
+    document.removeEventListener(type, onVoiceGesture, { capture: true });
+  }
+}
+
+function rewarmNavVoice() {
+  if (!navOn || document.visibilityState !== "visible") return;
+  if (navVoiceId() === "phone" || !mixCtx || mixCtx.state === "running") return;
+  const ctx = mixCtx;
+  try {
+    Promise.resolve(ctx.resume()).catch(() => {});
+  } catch {
+    // Checked below.
+  }
+  window.setTimeout(() => {
+    if (!navOn || ctx !== mixCtx || ctx.state === "running") return;
+    voiceGestureSeen = false;
+    armVoiceGesture();
+    paintVoiceHint();
+  }, 800);
+}
+
+function paintVoiceHint() {
+  const hint = document.getElementById("routeVoiceHint");
+  if (hint) hint.hidden = !(navOn && navVoiceLocked());
 }
 
 const STATE_NAMES = {
@@ -5372,6 +5451,12 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
+  if (navVoiceLocked()) {
+    // A clip started now would sit in the paused mixer and play late.
+    navVoiceMissed = true;
+    paintVoiceHint();
+    return;
+  }
   // Queue behind "Navigation on." so Start does not sound like two people.
   // Later turn updates still barge in and replace the line.
   playChosenVoice(text, { barge: !navVoiceIntroPending });
@@ -5381,6 +5466,7 @@ function resetNavVoice() {
   spokenStepKey = "";
   spokenTurnKey = "";
   spokenMiles.clear();
+  navVoiceMissed = false;
   stopNavUtterance();
 }
 
@@ -5615,6 +5701,7 @@ function syncRouteChrome() {
   syncTripFitButton();
   paintStopNote();
   paintCompassRose();
+  paintVoiceHint();
   if (state.plan) warmPageVoices();
   if (navOn) freezeTyping(true);
   else freezeTyping(false);
@@ -10294,13 +10381,18 @@ export function initPlanner(el) {
   document.addEventListener("pointerdown", mark);
   document.addEventListener("keydown", mark);
   document.addEventListener("scroll", mark, true);
+  armVoiceGesture();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
     watchSignIn();
     tickLeaveNow();
     wakeNavLock();
+    rewarmNavVoice();
   });
-  window.addEventListener("pageshow", () => wakeNavLock());
+  window.addEventListener("pageshow", () => {
+    wakeNavLock();
+    rewarmNavVoice();
+  });
   window.addEventListener("focus", () => wakeNavLock());
   window.addEventListener("resize", () => {
     if (navOn && document.visibilityState === "visible") snapNavLock();

@@ -2394,6 +2394,20 @@ button.lookup.lookup-flash {
   pointer-events: auto;
 }
 .route-place-clear[hidden] { display: none; }
+.route-voice-hint {
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid rgb(255 255 255 / 0.5);
+  border-radius: 999px;
+  background: rgb(7 21 37 / 0.85);
+  color: #fffdf8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: auto;
+}
+.route-voice-hint[hidden] { display: none; }
 .route-stage.is-full .route-place-tools {
   top: max(8px, env(safe-area-inset-top));
 }
