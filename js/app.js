@@ -5514,6 +5514,13 @@ function approachPhrase(nextText, metersLeft) {
   return `${distance.charAt(0).toUpperCase()}${distance.slice(1)}, ${maneuver}`;
 }
 
+function spokenApproach(nextText, metersLeft) {
+  if (metersLeft / 1609.344 >= 0.1) return approachPhrase(nextText, metersLeft);
+  // The turn is right there. "In 1 foot" or "in 434 feet" is noise.
+  const maneuver = maneuverText(nextText);
+  return maneuver ? `${maneuver.charAt(0).toUpperCase()}${maneuver.slice(1)}` : "";
+}
+
 function shownDirection(step, nextStep, meters) {
   const distance = Number.isFinite(meters) ? meters : stepLengthMeters(step);
   const approach = approachPhrase(String(nextStep?.text || ""), distance);
@@ -5547,7 +5554,8 @@ function speakNavProgress(leg, found, hereAlong) {
       if (miles <= band) spokenMiles.add(band);
     }
     const next = upcomingDirection(leg, found.index);
-    const said = (next && approachPhrase(next, leftMeters)) || (text ? phrase() : "");
+    // Under 0.1 mi with nothing ahead, this row is a stop already reached.
+    const said = (next && spokenApproach(next, leftMeters)) || (text && miles >= 0.1 ? phrase() : "");
     if (said) speakNav(said);
   }
   for (const band of bands) {
