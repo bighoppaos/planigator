@@ -6122,6 +6122,7 @@ function placeDirections(full) {
 }
 
 function syncRouteChrome() {
+  syncTurnMaxZoom();
   const stage = document.getElementById("routeStage");
   if (stage) stage.classList.toggle("is-full", routeFull);
   document.documentElement.classList.toggle("route-full", routeFull);
@@ -6821,6 +6822,7 @@ function syncTripFitButton() {
   button.innerHTML = `<span>${top}</span><span>${bottom}</span>`;
   button.setAttribute("aria-label", `${top} ${bottom}`);
   button.classList.toggle("on", tripFit !== "off");
+  syncTurnMaxZoom();
 }
 
 function tripViewPadding() {
@@ -6991,6 +6993,7 @@ function clearTurnFrame() {
   turnLockAlong = null;
   turnPhase = "approach";
   turnWidenAt = 0;
+  turnPin = null;
   stopTurnZoomOut();
 }
 
@@ -7566,6 +7569,255 @@ function cameraForFullTurn(bearing, coords, turn, slots) {
   return camera;
 }
 
+// Turn zoom pins two spots on the screen: your dot and the next turn. Close
+// to a turn that takes more zoom than the map's usual max (22). Tiles
+// overzoom past their own max; MapLibre stops at 24.
+const TURN_PIN_MAX_ZOOM = 23;
+// Under this far from the turn, a few meters of GPS wobble would spin the
+// map and send the zoom up fast. Hold the last zoom and bearing instead,
+// and only let go again past TURN_PIN_HOLD_OUT_M.
+const TURN_PIN_HOLD_M = 20;
+const TURN_PIN_HOLD_OUT_M = 28;
+// Once the turn is this far behind you, the map turns to the road you are on.
+const TURN_PIN_PAST_M = 15;
+// Moving the map to a new turn.
+const TURN_PIN_EASE_MS = 700;
+
+let turnPin = null;
+let turnPinHooked = null;
+let turnMaxZoomKept = null;
+
+// MapLibre's world is 512px wide at zoom 0, y grows to the south.
+function mercatorWorld(lon, lat) {
+  const sin = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180);
+  return {
+    x: (lon + 180) / 360 * 512,
+    y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * 512,
+  };
+}
+
+function mercatorLngLat(x, y) {
+  const n = Math.PI * (1 - y / 256);
+  return [x / 512 * 360 - 180, Math.atan(Math.sinh(n)) * 180 / Math.PI];
+}
+
+function wrapBearing(bearing) {
+  return ((((bearing + 180) % 360) + 360) % 360) - 180;
+}
+
+// Camera with `here` ([lon, lat]) on the screen spot `you` at this zoom and bearing.
+function cameraAtSpot(here, you, zoom, bearing, size) {
+  const world = mercatorWorld(here[0], here[1]);
+  const scale = 2 ** zoom;
+  const theta = bearing * Math.PI / 180;
+  const dx = you.x - size.width / 2;
+  const dy = you.y - size.height / 2;
+  const center = mercatorLngLat(
+    world.x - (dx * Math.cos(theta) - dy * Math.sin(theta)) / scale,
+    world.y - (dx * Math.sin(theta) + dy * Math.cos(theta)) / scale,
+  );
+  return { center, zoom, bearing: wrapBearing(bearing) };
+}
+
+// Where a [lon, lat] lands on the screen under `camera`.
+function spotOnCamera(camera, coord, size) {
+  const at = mercatorWorld(coord[0], coord[1]);
+  const mid = mercatorWorld(camera.center[0], camera.center[1]);
+  const scale = 2 ** camera.zoom;
+  const theta = camera.bearing * Math.PI / 180;
+  const wx = (at.x - mid.x) * scale;
+  const wy = (at.y - mid.y) * scale;
+  return {
+    x: size.width / 2 + wx * Math.cos(theta) + wy * Math.sin(theta),
+    y: size.height / 2 - wx * Math.sin(theta) + wy * Math.cos(theta),
+  };
+}
+
+// The one camera that puts `here` on `you` and `turn` on `spot`. The bearing
+// is the map direction from you to the turn less the screen direction from
+// your spot to the turn spot. The zoom makes the map distance fill the
+// screen distance. Web Mercator keeps both exact at any distance or latitude.
+function pinTwoPoints(here, turn, you, spot, size) {
+  const a = mercatorWorld(here[0], here[1]);
+  const b = mercatorWorld(turn[0], turn[1]);
+  const world = Math.hypot(b.x - a.x, b.y - a.y);
+  const screen = Math.hypot(spot.x - you.x, spot.y - you.y);
+  if (!(world > 0) || !(screen > 0)) return null;
+  const bearing = (Math.atan2(b.x - a.x, a.y - b.y) - Math.atan2(spot.x - you.x, you.y - spot.y)) * 180 / Math.PI;
+  return cameraAtSpot(here, you, Math.log2(screen / world), bearing, size);
+}
+
+// How far to zoom out about your spot (1 = not at all) so every point fits the box.
+function roadRoom(camera, coords, you, box, size) {
+  let room = 1;
+  const fit = (edge, from, to) => {
+    const s = (edge - from) / (to - from);
+    if (s > 0 && s < room) room = s;
+  };
+  for (const coord of coords) {
+    if (!coord) continue;
+    const p = spotOnCamera(camera, coord, size);
+    if (p.y < box.top - 0.5) fit(box.top, you.y, p.y);
+    if (p.y > box.bottom + 0.5) fit(box.bottom, you.y, p.y);
+    if (p.x < box.left - 0.5) fit(box.left, you.x, p.x);
+    if (p.x > box.right + 0.5) fit(box.right, you.x, p.x);
+  }
+  return Math.max(1e-4, room);
+}
+
+// Your spot, the turn spot, and the box the road must stay in, per view.
+function turnPinFrame(slots) {
+  const clear = railClearance();
+  const margin = 12;
+  const left = clear.left + margin;
+  const right = Math.max(left + 48, slots.width - clear.right - margin);
+  const x = routeFull ? (left + right) / 2 : (Number.isFinite(slots.turnX) ? slots.turnX : slots.width / 2);
+  const box = routeFull
+    ? { left, right, top: slots.visibleTop + Math.max(8, Math.round((slots.safeTop || 0) + 4)), bottom: slots.height - margin }
+    : { left, right, top: Math.max(margin, (slots.visibleTop || 0) + margin), bottom: slots.userY + 14 };
+  return {
+    size: { width: slots.width, height: slots.height },
+    you: { x, y: slots.userY },
+    spot: { x, y: slots.turnY },
+    box,
+  };
+}
+
+// The map's own max zoom stays as it was outside Turn zoom.
+function syncTurnMaxZoom() {
+  if (!routeMap || typeof routeMap.setMaxZoom !== "function" || typeof routeMap.getMaxZoom !== "function") return;
+  if (navOn && tripFit === "nextTurn") {
+    if (turnMaxZoomKept?.map !== routeMap) turnMaxZoomKept = { map: routeMap, zoom: routeMap.getMaxZoom() };
+    if (routeMap.getMaxZoom() < TURN_PIN_MAX_ZOOM) routeMap.setMaxZoom(TURN_PIN_MAX_ZOOM);
+    return;
+  }
+  if (!turnMaxZoomKept) return;
+  if (turnMaxZoomKept.map === routeMap) routeMap.setMaxZoom(turnMaxZoomKept.zoom);
+  turnMaxZoomKept = null;
+}
+
+// While the map moves to a new turn, the turn dot waits on its spot.
+function hookTurnPinGlide() {
+  if (turnPinHooked === routeMap || typeof routeMap.on !== "function") return;
+  turnPinHooked = routeMap;
+  routeMap.on("move", () => {
+    if (!turnPin?.glide || !turnMarker || tripFit !== "nextTurn") return;
+    turnMarker.setLngLat(routeMap.unproject([turnPin.glide.x, turnPin.glide.y]));
+  });
+  routeMap.on("moveend", () => {
+    if (!turnPin?.glide) return;
+    turnPin.glide = null;
+    if (tripFit === "nextTurn") placeTurnPin(turnPin.target);
+  });
+}
+
+// The closed form is exact for MapLibre. If the real map still lands off
+// (a clamp, or a different container size), measure and fix it once.
+function settleTurnPin(here, turn, you, spot) {
+  const off = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  let p = routeMap.project(here);
+  let q = turn ? routeMap.project(turn) : null;
+  if (off(p, you) <= 2 && (!q || off(q, spot) <= 2)) return;
+  if (q) {
+    const got = Math.hypot(q.x - p.x, q.y - p.y);
+    const want = Math.hypot(spot.x - you.x, spot.y - you.y);
+    if (got > 0.5 && want > 0.5) {
+      const turnBy = (Math.atan2(q.x - p.x, p.y - q.y) - Math.atan2(spot.x - you.x, you.y - spot.y)) * 180 / Math.PI;
+      routeMap.jumpTo({ zoom: routeMap.getZoom() + Math.log2(want / got), bearing: routeMap.getBearing() + turnBy });
+    }
+  }
+  p = routeMap.project(here);
+  const canvas = routeMap.getContainer?.();
+  const width = canvas?.clientWidth || 0;
+  const height = canvas?.clientHeight || 0;
+  if (width < 2 || height < 2) return;
+  const center = routeMap.unproject([width / 2 + p.x - you.x, height / 2 + p.y - you.y]);
+  routeMap.jumpTo({ center });
+}
+
+// Turn zoom: your dot and the next turn stay on their screen spots. The map
+// turns, pans and zooms under them. Near the turn the zoom and bearing hold.
+// After the turn, until the next one takes the spot, the map turns to the
+// road you are on with your dot still on its spot.
+function framePinnedTurn(along, target, at, slots) {
+  const frame = turnPinFrame(slots);
+  const { size, you, box } = frame;
+  const here = [navFix[1], navFix[0]];
+  const turn = [at.lon, at.lat];
+  const left = target - along;
+  const gap = Math.min(left, metersBetween(navFix, [at.lat, at.lon]));
+  const last = turnPin && turnPin.target === target ? turnPin : null;
+  const holdUnder = last?.mode === "hold" ? TURN_PIN_HOLD_OUT_M : TURN_PIN_HOLD_M;
+  let mode = "pin";
+  if (left < -TURN_PIN_PAST_M) mode = "past";
+  else if (gap < holdUnder) mode = "hold";
+  let camera = null;
+  let spot = frame.spot;
+  if (mode === "pin") {
+    camera = pinTwoPoints(here, turn, you, spot, size);
+    // Both dots pinned leaves nothing free. If a curve of the road to the
+    // turn would leave the box, the only give is to zoom out about your
+    // dot, keeping the turn in the same direction: the turn dot slides down
+    // that line toward you, just as far as the curve needs, and goes back
+    // once the curve is gone. A road that runs roughly along the line moves
+    // neither dot.
+    const coords = navRemaining(along, target);
+    coords.push(here, turn);
+    const room = camera ? roadRoom(camera, coords, you, box, size) : 1;
+    if (camera && room < 1) {
+      camera = cameraAtSpot(here, you, camera.zoom + Math.log2(room), camera.bearing, size);
+      spot = { x: you.x + (spot.x - you.x) * room, y: you.y + (spot.y - you.y) * room };
+    }
+  } else if (mode === "hold") {
+    if (last && Number.isFinite(last.zoom) && Number.isFinite(last.bearing)) {
+      camera = cameraAtSpot(here, you, last.zoom, last.bearing, size);
+    } else {
+      const toward = gap > 3 ? navBearing(navFix, [at.lat, at.lon]) : travelBearing(along);
+      const stand = pointAhead(navFix[0], navFix[1], Number.isFinite(toward) ? toward : 0, TURN_PIN_HOLD_M);
+      camera = pinTwoPoints(here, [stand[1], stand[0]], you, frame.spot, size);
+    }
+  } else {
+    const bearing = travelBearing(along);
+    const floor = routeFull ? 70 : 110;
+    const coords = navRemaining(target, along + floor);
+    coords.push(here, turn);
+    const zoom = last && Number.isFinite(last.zoom) ? last.zoom : 17;
+    camera = cameraAtSpot(here, you, zoom, Number.isFinite(bearing) ? bearing : 0, size);
+    const room = roadRoom(camera, coords, you, { ...box, bottom: size.height - 12 }, size);
+    if (room < 1) camera = cameraAtSpot(here, you, zoom + Math.log2(room), camera.bearing, size);
+  }
+  if (!camera) return null;
+  let pinned = mode === "pin";
+  if (camera.zoom > TURN_PIN_MAX_ZOOM) {
+    camera = cameraAtSpot(here, you, TURN_PIN_MAX_ZOOM, camera.bearing, size);
+    pinned = false;
+  }
+  // A new turn, or the map turning to the road after one: ease there with
+  // your dot held on its spot. Pin and hold flow into each other, no ease.
+  const now = Date.now();
+  const moved = turnPin && (turnPin.target !== target || (turnPin.mode === "past") !== (mode === "past"));
+  const easeUntil = moved ? now + TURN_PIN_EASE_MS : (turnPin?.easeUntil || 0);
+  const newTurn = moved ? turnPin.target !== target && mode !== "past" : Boolean(turnPin?.newTurn);
+  turnPin = { target, mode, zoom: camera.zoom, bearing: camera.bearing, easeUntil, newTurn, glide: null };
+  return { camera, here, turn: pinned ? turn : null, you, spot, size, ease: now < easeUntil ? easeUntil - now : 0 };
+}
+
+function showPinnedTurn(shot) {
+  const { camera, here, turn, you, spot, size, ease } = shot;
+  if (!(ease > 0) || typeof routeMap.easeTo !== "function") {
+    showNavCamera(camera);
+    settleTurnPin(here, turn, you, spot);
+    return;
+  }
+  hookTurnPinGlide();
+  routeMap.stop?.();
+  // Start from the zoom and bearing on screen with your dot on its spot,
+  // then ease around your dot so it never leaves the spot.
+  routeMap.jumpTo(cameraAtSpot(here, you, routeMap.getZoom(), routeMap.getBearing(), size));
+  if (turnPin.newTurn) turnPin.glide = { x: spot.x, y: spot.y };
+  routeMap.easeTo({ zoom: camera.zoom, bearing: camera.bearing, around: here, duration: ease, easing: (x) => x * (2 - x) });
+}
+
 function frameNextTurn() {
   if (!routeMap || framingTurn) return;
   framingTurn = true;
@@ -7582,14 +7834,30 @@ function frameNextTurn() {
     if (jumped != null) turnLockAlong = jumped;
   } else if (turnLockAlong != null && along < turnLockAlong - 12) {
     const sooner = currentDirectionEnd(along);
-    if (sooner != null && sooner + 30 < turnLockAlong) turnLockAlong = sooner;
+    // Not back to a turn that would hand over again on the next fix.
+    if (sooner != null && sooner + 30 < turnLockAlong
+      && !turnLockShouldAdvance(along, sooner, currentDirectionEnd(sooner + 35))) turnLockAlong = sooner;
   }
   const target = turnLockAlong;
   if (target == null) return;
   const at = pointAlong(navLine, target);
   if (!at) return;
   const slots = noHandsSlots();
+  syncTurnMaxZoom();
+  if (!northLock) {
+    const shot = framePinnedTurn(along, target, at, slots);
+    if (!shot) return;
+    placeTurnPin(target);
+    turnShownAlong = target;
+    placeNavDot(navFix[0], navFix[1]);
+    // The camera puts this fix on your spot. Sliding the dot over from the
+    // last fix would pull it off the spot for a second after every fix.
+    navAim = null;
+    showPinnedTurn(shot);
+    return;
+  }
   const ahead = target >= along - 15;
+  // North lock: the map cannot turn, so only you stay on your spot.
   // Point the stretch up the screen: the line from you to the next turn,
   // not the few feet of road under the truck. A long curve aimed only at
   // the local heading runs off the side before the turn.
@@ -7611,6 +7879,7 @@ function frameNextTurn() {
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
+  navAim = null;
   // Jump, do not ease. The ease waits on a frame iOS drops when a banner
   // or an app switch covers the page, and the map then stays on the old
   // north-up view until he comes back.
