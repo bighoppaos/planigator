@@ -2487,6 +2487,7 @@ function markStopDone(stop, { switched = false } = {}) {
   paintDirectionToward();
   rememberNavProgress();
   keepDoneOnSavedTrip();
+  paintDrive();
 }
 
 function closerLegEnd(leg, hit) {
@@ -5804,6 +5805,8 @@ function driveLeftText(alongMeters) {
 
 // Full screen keeps the whole trip. On the page the chip is the drive time to
 // the stop being driven to, the same hours as the ETA chip, with no delays.
+// With navigation off it is the time left saved for this trip's leg, the same
+// hours the Plan starts that leg with, until that stop is done or the leg changes.
 let driveAlong = null;
 let driveStopMeters = null;
 
@@ -5811,6 +5814,12 @@ function stopDriveText(meters) {
   if (!(meters >= 0)) return "";
   if (meters < 1) return "0 min left";
   return `${hoursLabel(hoursForMeters(meters))} left`;
+}
+
+function pageDriveText() {
+  const left = navOn ? null : openLeftLeg();
+  if (left) return `${hoursLabel(left.remainHours)} left`;
+  return stopDriveText(nextStopMeters());
 }
 
 function nextStopMeters() {
@@ -5823,7 +5832,7 @@ function paintDrive(alongMeters = driveAlong) {
   driveAlong = alongMeters;
   const chip = document.getElementById("routeDrive");
   if (!chip) return;
-  const text = routeFull ? driveLeftText(driveAlong) : stopDriveText(nextStopMeters());
+  const text = routeFull ? driveLeftText(driveAlong) : pageDriveText();
   chip.hidden = !text;
   chip.textContent = text;
 }

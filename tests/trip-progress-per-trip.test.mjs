@@ -239,7 +239,7 @@ function page({ storage = memoryStorage(), activeTripId = "trip-1", stops } = {}
     navWatch: null, navYou: null, routeMap: null, dirBrowseTimer: 0, onNavCompass: noop,
     clearDirectionPin: noop, clearStopNote: noop, setStopChip: noop, stopNavMotion: noop, resetNavVoice: noop,
     stopMixNavVoice: noop, clearTurnFrame: noop, freezeTyping: noop, syncTripFitButton: noop, showWholeTrip: noop,
-    syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop,
+    syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop, paintDrive: noop,
     // The route line, for the saved spot.
     navLine: [[39.9, -75.6], [40, -76.5]], navLegs: [LEG1_LINE], navTravel: 270,
     activeNavLeg: () => LEG1_LINE, rebuildNavLegs: noop,
