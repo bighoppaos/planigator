@@ -6513,6 +6513,93 @@ function noHandsSlots() {
   return { width, height, userY, turnY, buttonH };
 }
 
+// Meters forward (along bearing) and right of the truck. Coords are [lon, lat].
+function stretchMeters(originLat, originLon, bearing, coords) {
+  const theta = bearing * Math.PI / 180;
+  const sin = Math.sin(theta);
+  const cos = Math.cos(theta);
+  const cosLat = Math.cos(originLat * Math.PI / 180);
+  let minF = 0;
+  let maxF = 0;
+  let minR = 0;
+  let maxR = 0;
+  for (const coord of coords) {
+    const lon = Number(coord?.[0]);
+    const lat = Number(coord?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const dNorth = (lat - originLat) * Math.PI / 180 * 6378137;
+    const dEast = (lon - originLon) * Math.PI / 180 * 6378137 * cosLat;
+    const forward = dEast * sin + dNorth * cos;
+    const right = dEast * cos - dNorth * sin;
+    if (forward < minF) minF = forward;
+    if (forward > maxF) maxF = forward;
+    if (right < minR) minR = right;
+    if (right > maxR) maxR = right;
+  }
+  return { minF, maxF, minR, maxR };
+}
+
+// Zoom so every point of the stretch sits above the truck, between the side
+// buttons and above the directions. The truck stays on the bottom slot.
+function cameraForStretch(bearing, coords, slots) {
+  const clear = railClearance();
+  const margin = 12;
+  const left = clear.left + margin;
+  const rightEdge = Math.max(left + 48, slots.width - clear.right - margin);
+  const top = Math.max(margin, slots.turnY);
+  const aheadPx = Math.max(72, slots.userY - top - margin);
+  const widePx = Math.max(48, rightEdge - left);
+  const belowPx = Math.max(20, slots.height - slots.userY - margin);
+  const frame = stretchMeters(navFix[0], navFix[1], bearing, coords);
+  const floor = routeFull ? 70 : 110;
+  const aheadM = Math.max(floor, frame.maxF);
+  const behindM = Math.max(0, -frame.minF);
+  const sideM = Math.max(0, frame.maxR - frame.minR);
+  let mppNeed = aheadM / aheadPx;
+  if (sideM > 1) mppNeed = Math.max(mppNeed, sideM / widePx);
+  if (behindM > 1) mppNeed = Math.max(mppNeed, behindM / belowPx);
+  const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
+  let zoom = Math.log2((MERCATOR_MPP0 * cos) / mppNeed);
+  zoom = Math.max(3, Math.min(routeFull ? 17.2 : 16.4, zoom));
+  const place = (useZoom) => {
+    const mpp = mercatorMpp(useZoom, navFix[0]);
+    const minTruckX = left - frame.minR / mpp;
+    const maxTruckX = rightEdge - frame.maxR / mpp;
+    const prefer = (left + rightEdge) / 2;
+    let truckX = prefer;
+    if (minTruckX <= maxTruckX) truckX = Math.min(maxTruckX, Math.max(minTruckX, prefer));
+    const upM = (slots.userY - slots.height / 2) * mpp;
+    const rightM = (slots.width / 2 - truckX) * mpp;
+    const raised = pointAhead(navFix[0], navFix[1], bearing, upM);
+    const center = pointAhead(raised[0], raised[1], bearing + 90, rightM);
+    return { center: [center[1], center[0]], zoom: useZoom, bearing };
+  };
+  let camera = place(zoom);
+  // The flat-earth fit is a first guess. One real projection pass zooms out
+  // if a curve still crosses a button or the top of the map.
+  showNavCamera(camera);
+  const box = { left, right: rightEdge, top, bottom: slots.userY + 14 };
+  let overflow = 0;
+  const step = Math.max(1, Math.floor(coords.length / 80));
+  for (let i = 0; i < coords.length; i += step) {
+    const coord = coords[i];
+    if (!coord) continue;
+    const p = routeMap.project(coord);
+    overflow = Math.max(overflow, box.left - p.x, p.x - box.right, box.top - p.y, p.y - box.bottom);
+  }
+  const last = coords[coords.length - 1];
+  if (last) {
+    const p = routeMap.project(last);
+    overflow = Math.max(overflow, box.left - p.x, p.x - box.right, box.top - p.y, p.y - box.bottom);
+  }
+  if (overflow > 2 && zoom > 3) {
+    const shrink = aheadPx / (aheadPx + overflow);
+    zoom = Math.max(3, zoom + Math.log2(Math.min(0.92, Math.max(0.45, shrink))));
+    camera = place(zoom);
+  }
+  return camera;
+}
+
 function frameNextTurn() {
   if (!routeMap || framingTurn) return;
   framingTurn = true;
@@ -6537,34 +6624,29 @@ function frameNextTurn() {
   if (!at) return;
   const slots = noHandsSlots();
   const ahead = target >= along - 15;
-  // Keep the map pointed down the road under you. Aiming at a side turn
-  // would swing the locked slots off center.
-  let bearing = northLock ? 0 : travelBearing(along);
-  if (!Number.isFinite(bearing)) {
-    bearing = ahead ? navBearing(navFix, [at.lat, at.lon]) : (routeMap.getBearing() || 0);
+  // Point the stretch up the screen: the line from you to the next turn,
+  // not the few feet of road under the truck. A long curve aimed only at
+  // the local heading runs off the side before the turn.
+  let bearing = routeMap.getBearing() || 0;
+  if (northLock) bearing = 0;
+  else if (ahead && metersBetween(navFix, [at.lat, at.lon]) > 30) bearing = navBearing(navFix, [at.lat, at.lon]);
+  else {
+    const travel = travelBearing(along);
+    if (Number.isFinite(travel)) bearing = travel;
   }
-  if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
-  const dist = metersBetween(navFix, [at.lat, at.lon]);
-  const pixels = Math.max(72, slots.userY - slots.turnY);
-  // Fit the whole stretch from you to the next turn, including a 100-mile
-  // highway step. The center stays on the bottom slot, heading up. Do not
-  // cap this distance, and do not fit a box around the stretch: that centers
-  // you and lifts you off the bottom.
-  const floor = routeFull ? 70 : 110;
-  const road = ahead && Number.isFinite(target) && Number.isFinite(along) ? Math.max(0, target - along) : dist;
-  const span = Math.max(floor, Number.isFinite(road) ? road : floor);
-  let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
-  zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
-  const mpp = mercatorMpp(zoom, navFix[0]);
-  const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
-  const cameraCenter = [center[1], center[0]];
+  if (!Number.isFinite(bearing)) bearing = 0;
+  const from = Math.min(along, target);
+  const to = Math.max(along, target);
+  const coords = navRemaining(from, to);
+  coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
+  const camera = cameraForStretch(bearing, coords, slots);
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
   // Jump, do not ease. The ease waits on a frame iOS drops when a banner
   // or an app switch covers the page, and the map then stays on the old
   // north-up view until he comes back.
-  showNavCamera({ center: cameraCenter, zoom, bearing });
+  showNavCamera(camera);
   } finally {
     framingTurn = false;
   }
