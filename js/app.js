@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=5";
+import { directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=6";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -544,10 +544,23 @@ function readNavProgress() {
       doneIds: raw.doneIds.map((id) => String(id || "")).filter(Boolean),
       aimId: String(raw.aimId || ""),
       nav: raw.nav === true,
+      spot: readNavSpot(raw.spot),
     };
   } catch {
     return null;
   }
+}
+
+// Where the driver was on the route line, so a refresh resumes there.
+function readNavSpot(raw) {
+  if (!raw || typeof raw !== "object" || !Number.isFinite(raw.along)) return null;
+  return {
+    along: Number(raw.along),
+    lineKey: String(raw.lineKey || ""),
+    stopId: String(raw.stopId || ""),
+    legAlong: Number.isFinite(raw.legAlong) ? Number(raw.legAlong) : null,
+    bearing: Number.isFinite(raw.bearing) ? Number(raw.bearing) : null,
+  };
 }
 
 function writeNavProgress(record) {
@@ -574,12 +587,55 @@ function rememberNavProgress() {
     clearNavProgress();
     return;
   }
+  const saved = readNavProgress();
   writeNavProgress({
     tripKey,
     doneIds,
     aimId: navAimStopId || "",
     nav: navOn === true,
+    spot: navOn && saved?.tripKey === tripKey ? saved.spot : null,
   });
+}
+
+let navSpotSavedAlong = null;
+
+function saveNavSpot(along) {
+  if (!navOn || !Number.isFinite(along)) return;
+  if (Number.isFinite(navSpotSavedAlong) && Math.abs(along - navSpotSavedAlong) < 50) return;
+  const saved = readNavProgress();
+  if (!saved || saved.tripKey !== tripProgressKey()) return;
+  const leg = navLegs.find((item) => along >= item.start && along <= item.end);
+  navSpotSavedAlong = along;
+  writeNavProgress({
+    ...saved,
+    spot: {
+      along,
+      lineKey: navLineKey,
+      stopId: leg?.stop?.id || "",
+      legAlong: leg ? along - leg.start : null,
+      bearing: Number.isFinite(navTravel) ? navTravel : null,
+    },
+  });
+}
+
+// After a refresh, start the along-lock where the driver was, not on
+// whichever pass of the line the first fix happens to be closest to.
+function restoreNavSpot() {
+  const saved = readNavProgress();
+  const spot = saved?.tripKey === tripProgressKey() ? saved.spot : null;
+  if (!spot) return false;
+  rebuildNavLegs();
+  if (navLine.length < 2) return false;
+  const leg = spot.stopId ? navLegs.find((item) => item.stop?.id === spot.stopId) : null;
+  let along = null;
+  if (leg && Number.isFinite(spot.legAlong)) along = leg.start + Math.min(Math.max(0, spot.legAlong), leg.end - leg.start);
+  else if (spot.lineKey && spot.lineKey === navLineKey) along = spot.along;
+  if (!Number.isFinite(along)) return false;
+  navAlongLock = along;
+  navSpotSavedAlong = along;
+  if (spot.bearing != null && navTravel == null) navTravel = spot.bearing;
+  navResumeGuard = { fix: "", candidate: null, count: 0 };
+  return true;
 }
 
 function nextOpenStopId() {
@@ -704,7 +760,7 @@ function endNavProgress() {
     if (stop?.id && !stop.useCurrentLocation && stop.done) doneIds.add(stop.id);
   }
   if (!doneIds.size) clearNavProgress();
-  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false });
+  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: null });
 }
 
 function replanAroundDone() {
@@ -4707,7 +4763,11 @@ let placeHereNote = "";
 let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
+let navResumeGuard = null;
 let navLineKey = "";
+// Consistent on-road fixes needed to move a restored spot outside its stretch.
+const RESUME_CONFIRM_FIXES = 3;
+const RESUME_AGREE_M = 800;
 
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
@@ -4865,11 +4925,43 @@ function navBearing(a, b) {
 function navNearest(lat, lon, path) {
   if (!path || path.length < 2) return { dist: Infinity, along: 0 };
   if (navOn && path === navLine) {
-    const hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
-    if (hit.dist <= ON_ROAD_M) navAlongLock = hit.along;
+    let hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
+    if (navResumeGuard && navAlongLock != null) hit = guardResumedHit(lat, lon, path, hit);
+    if (hit.dist <= ON_ROAD_M) {
+      navAlongLock = hit.along;
+      saveNavSpot(hit.along);
+    }
     return hit;
   }
   return nearestOnPath(lat, lon, path);
+}
+
+// Right after a refresh the lock is only the saved spot. Keep matches on
+// that stretch until several on-road fixes agree he is somewhere else.
+function guardResumedHit(lat, lon, path, hit) {
+  const guard = navResumeGuard;
+  if (hit.dist <= ON_ROAD_M && inLockWindow(hit.along, navAlongLock)) {
+    navResumeGuard = null;
+    return hit;
+  }
+  const free = hit.dist <= ON_ROAD_M ? hit : nearestOnPath(lat, lon, path);
+  const fix = `${lat},${lon}`;
+  if (fix !== guard.fix) {
+    guard.fix = fix;
+    if (free.dist > ON_ROAD_M) {
+      guard.candidate = null;
+      guard.count = 0;
+    } else {
+      const agrees = guard.candidate != null && Math.abs(free.along - guard.candidate) <= RESUME_AGREE_M;
+      guard.count = agrees ? guard.count + 1 : 1;
+      guard.candidate = free.along;
+    }
+  }
+  if (guard.count >= RESUME_CONFIRM_FIXES && free.dist <= ON_ROAD_M) {
+    navResumeGuard = null;
+    return free;
+  }
+  return matchNear(lat, lon, path, navAlongLock, navTravel) || hit;
 }
 
 function rebuildNavLegs() {
@@ -8507,6 +8599,7 @@ function onNavFix(lat, lon) {
       const title = String(step?.text || "").trim();
       const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
       setStopChip(leftOnLeg, toward);
+      trackLiveDrive(hit, leg);
       sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), towardPhrase, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
@@ -8667,7 +8760,7 @@ function resumeNavIfNeeded() {
   ));
   if (!routed) return;
   navProgressResume = false;
-  void beginRouteNav();
+  void beginRouteNav({ resume: true });
 }
 
 function endRouteNav({ paint = true } = {}) {
@@ -8681,6 +8774,8 @@ function endRouteNav({ paint = true } = {}) {
   northLock = false;
   compassAim = false;
   navAlongLock = null;
+  navResumeGuard = null;
+  navSpotSavedAlong = null;
   navLineKey = "";
   navStopPicked = false;
   navGuideFromId = "";
@@ -8690,6 +8785,7 @@ function endRouteNav({ paint = true } = {}) {
   clearStopNote(true);
   directionsAutoKey = "";
   setStopChip(-1, "");
+  clearLiveDrive();
   switchSpokenFor = "";
   pendingAimId = "";
   const switchRow = document.getElementById("routeSwitchRow");
@@ -9008,13 +9104,16 @@ function keepNavSignedIn() {
   return pulseActivity();
 }
 
-async function beginRouteNav() {
+async function beginRouteNav({ resume = false } = {}) {
   navOn = true;
   rememberNavProgress();
   navPulseAt = 0;
   void keepNavSignedIn();
   navAlongLock = null;
+  navResumeGuard = null;
+  navSpotSavedAlong = null;
   navLineKey = routeProgressKey(routePoints());
+  if (resume) restoreNavSpot();
   followPinned = false;
   navFollowing = false;
   tripFit = "nextTurn";
@@ -9212,6 +9311,7 @@ function paintLiveRoute() {
   if (key !== navLineKey) {
     navLineKey = key;
     navAlongLock = null;
+    navResumeGuard = null;
   }
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
   const source = routeMap?.getSource("route");
@@ -9607,6 +9707,104 @@ function chipDelayLine(event) {
   return `+ ${delayLabel(amount)} delay → ${after}`;
 }
 
+// Where the truck is on the leg it is driving now, as a share of that leg.
+let liveDrive = null;
+let liveDrivePaintAt = 0;
+let liveDrivePaintAlong = NaN;
+const LIVE_DRIVE_MS = 30000;
+const LIVE_DRIVE_M = 1609.344;
+
+function isDriveChip(event) {
+  return event?.kind === "lead" || event?.kind === "stop";
+}
+
+function trackLiveDrive(hit, leg) {
+  const stop = leg?.stop;
+  if (!stop?.id || stop.skipRoute || stop.done || !Number.isFinite(hit?.along)) return;
+  const span = Math.max(1, leg.end - leg.start);
+  const fraction = Math.min(1, Math.max(0, (hit.along - leg.start) / span));
+  const switched = liveDrive?.stopId !== stop.id;
+  liveDrive = { stopId: stop.id, fraction, legMiles: span / 1609.344 };
+  const now = Date.now();
+  if (!switched && now - liveDrivePaintAt < LIVE_DRIVE_MS && Math.abs(hit.along - liveDrivePaintAlong) < LIVE_DRIVE_M) return;
+  liveDrivePaintAt = now;
+  liveDrivePaintAlong = hit.along;
+  paintLiveDriveChips();
+}
+
+function clearLiveDrive() {
+  if (!liveDrive) return;
+  liveDrive = null;
+  liveDrivePaintAt = 0;
+  liveDrivePaintAlong = NaN;
+  paintLiveDriveChips();
+}
+
+// { done: true } for a drive chip already driven, { miles, hours } for the one
+// being driven now, null for chips still ahead or not on the live leg.
+function liveChipState(event) {
+  if (!liveDrive || !isDriveChip(event) || event.stopID !== liveDrive.stopId) return null;
+  const stop = state.stops.find((item) => item.id === event.stopID);
+  if (!stop || stop.skipRoute) return null;
+  const pieces = (state.plan?.events || [])
+    .filter((item) => isDriveChip(item) && item.stopID === event.stopID)
+    .sort((a, b) => a.start - b.start);
+  const planned = pieces.reduce((sum, item) => sum + Math.max(0, Number(item.miles) || 0), 0);
+  if (!(planned > 0.05)) return null;
+  const full = Number(stop.miles) > 0.05 ? Number(stop.miles) : liveDrive.legMiles;
+  // A plan made partway into the leg covers only its last `planned` miles.
+  const driven = liveDrive.fraction * full - Math.max(0, full - planned);
+  let from = 0;
+  for (const item of pieces) {
+    const miles = Math.max(0, Number(item.miles) || 0);
+    const to = from + miles;
+    if (item.id === event.id) {
+      if (driven >= to - 0.05) return { done: true };
+      if (driven <= from) return null;
+      const left = to - driven;
+      const hours = (Number(item.tripHours) || 0) * (miles > 0 ? left / miles : 0);
+      return { done: false, miles: left, hours };
+    }
+    from = to;
+  }
+  return null;
+}
+
+function liveLeftLine(event, live) {
+  if (!live || live.done) return "";
+  const stats = chipStatLine(event, live.hours, live.miles);
+  return stats ? `${stats} left` : "";
+}
+
+function paintLiveDriveChips() {
+  const events = state.plan?.events || [];
+  document.querySelectorAll("[data-chip]").forEach((node) => {
+    const id = node.getAttribute("data-chip");
+    const event = events.find((item) => String(item.id) === id);
+    if (!isDriveChip(event)) return;
+    const live = liveChipState(event);
+    const done = Boolean(live?.done);
+    node.classList.toggle("is-done", done);
+    const mark = node.querySelector(":scope > .done-mark");
+    if (done && !mark) node.insertAdjacentHTML("beforeend", doneStamp());
+    if (!done && mark) mark.remove();
+    const text = liveLeftLine(event, live);
+    let left = node.querySelector(".chip-left");
+    if (!text) {
+      left?.remove();
+      return;
+    }
+    if (!left) {
+      left = document.createElement("div");
+      left.className = "chip-sec chip-left";
+      const first = node.querySelector(".chip-sec");
+      if (first) first.after(left);
+      else node.prepend(left);
+    }
+    left.textContent = text;
+  });
+}
+
 function chipParts(event) {
   const effect = event.delayEffect;
   // Drive chips keep the original time/miles on top; delay row shows after.
@@ -9625,6 +9823,7 @@ function chipParts(event) {
 function chip(event) {
   const ink = stopInk(event.rgb);
   const { label, middle, delayLine, span, finishDelay } = chipParts(event);
+  const live = liveChipState(event);
   const section = (text, extra = "") => text
     ? `<div class="chip-sec${extra ? ` ${extra}` : ""}">${escapeAttr(text)}</div>`
     : "";
@@ -9633,10 +9832,12 @@ function chip(event) {
     ? `${section(span, "chip-when")}${section(delayLine, "chip-delay")}`
     : `${section(delayLine, "chip-delay")}${section(span, "chip-when")}`;
   const body = `
-    <div class="chip ${event.kind}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
+    <div class="chip ${event.kind}${live?.done ? " is-done" : ""}" data-chip="${escapeAttr(event.id)}" style="background:${cssRGB(event.rgb)};color:${ink.color}">
       ${section(label)}
+      ${section(liveLeftLine(event, live), "chip-left")}
       ${section(middle, "chip-mid")}
       ${delayThenWhen}
+      ${live?.done ? doneStamp() : ""}
     </div>
   `;
   const delay = driveDelayTarget(event);

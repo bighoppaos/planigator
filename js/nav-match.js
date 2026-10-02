@@ -113,6 +113,18 @@ export function matchAlong(lat, lon, path, { along = null, bearing = null } = {}
   return earliestNear(pool.length ? pool : hits);
 }
 
+// The best point on the stretch around `along`, even if it is off the road.
+// Null when the line has nothing in that stretch.
+export function matchNear(lat, lon, path, along, bearing = null) {
+  const hits = collectHits(lat, lon, path)
+    .filter((hit) => hit.along >= along - LOCK_BACK_M && hit.along <= along + LOCK_AHEAD_M);
+  return hits.length ? preferBearing(hits, bearing) : null;
+}
+
+export function inLockWindow(hitAlong, along) {
+  return hitAlong >= along - LOCK_BACK_M && hitAlong <= along + LOCK_AHEAD_M;
+}
+
 // One mile. After a turn, the next one takes the top map slot once it is
 // under this far from the truck, or once this far has been driven.
 export const TURN_SLOT_MILE_M = 1609.344;
