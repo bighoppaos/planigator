@@ -129,15 +129,6 @@ export function turnLockShouldAdvance(along, lockAlong, nextAlong) {
   return gap < TURN_SLOT_MILE_M || away < TURN_SLOT_MILE_M || along >= lockAlong + TURN_SLOT_MILE_M;
 }
 
-// Meters of road Turn zoom may fit between the truck and the top slot.
-// A maneuver farther than a mile must not set the zoom. Inside a mile, the
-// real distance is used so the map tightens as the turn gets closer.
-export function turnFrameMeters(distMeters, { ahead = true, floor = 70 } = {}) {
-  const dist = Number.isFinite(distMeters) ? Math.max(0, distMeters) : TURN_SLOT_MILE_M;
-  const look = ahead ? Math.min(dist, TURN_SLOT_MILE_M) : TURN_SLOT_MILE_M;
-  return Math.max(floor, look);
-}
-
 // Three direction rows, always including the current step when the list has them.
 export function directionWindow(current, count, size = 3) {
   if (count <= 0 || current < 0) return [];

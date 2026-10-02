@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnFrameMeters, turnLockShouldAdvance } from "./nav-match.js?v=4";
+import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=5";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -6546,11 +6546,13 @@ function frameNextTurn() {
   if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
   const dist = metersBetween(navFix, [at.lat, at.lon]);
   const pixels = Math.max(72, slots.userY - slots.turnY);
-  // Lock you on the bottom slot. Zoom fits at most a mile of road up to the
-  // top slot. A 100-mile highway step used to set this distance, and the
-  // fullscreen fit then centered that whole stretch, so you left the bottom.
+  // Fit the whole stretch from you to the next turn, including a 100-mile
+  // highway step. The center stays on the bottom slot, heading up. Do not
+  // cap this distance, and do not fit a box around the stretch: that centers
+  // you and lifts you off the bottom.
   const floor = routeFull ? 70 : 110;
-  const span = turnFrameMeters(dist, { ahead, floor });
+  const road = ahead && Number.isFinite(target) && Number.isFinite(along) ? Math.max(0, target - along) : dist;
+  const span = Math.max(floor, Number.isFinite(road) ? road : floor);
   let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
   zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
   const mpp = mercatorMpp(zoom, navFix[0]);
