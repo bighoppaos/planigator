@@ -60,6 +60,7 @@ const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
   "navBearing", "hasRouteLine", "copyRouteLine", "stopHasSavedLeg", "readDriveProgress", "applyStoredTrip",
   "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
+  "readLeftLeg", "leftLegKey", "openLeftLeg",
   "rememberNavProgress", "saveNavSpot", "restoreNavSpot", "rebuildNavLegs", "navNearest", "guardResumedHit",
   "navMatchSpan", "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg",
 ];

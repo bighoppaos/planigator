@@ -70,6 +70,7 @@ function constLine(name, optional = false) {
 const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
   "navBearing", "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
+  "readLeftLeg", "leftLegKey", "openLeftLeg",
   "rememberNavProgress", "saveNavSpot", "restoreNavSpot", "rebuildNavLegs", "navNearest", "guardResumedHit",
   "navMatchSpan", "navOffRoute", "activeNavLeg", "routePoints", "routeProgressKey", "onNavFix", "noteArrivedStops",
   "navMiles", "navStopTitle", "pointReady", "withoutGo", "maneuverText", "inDistance", "approachPhrase",
