@@ -36,6 +36,10 @@ import { cleanHeroLines, heroTileHtml } from "./hero-tiles.js?v=3";
 
 const STORAGE = "planigator.web.v1";
 const TRIP_CACHE = "planigator.web.tripcache";
+// Stop-done during navigation. persist() keeps it on the editor copy, but a
+// signed-in reload fills the page from the saved account trip, and Stop does
+// not update that copy. This record is what a refresh puts back.
+const NAV_PROGRESS_KEY = "planigator.web.navprogress";
 const DEFAULT_HERO = [
   "Made and maintained by a truck driver that still drives",
   "Know how much time you have to spare",
@@ -524,15 +528,176 @@ function forgetAccountTripCache() {
   }
 }
 
+function tripProgressKey() {
+  if (state.activeTripId) return `id:${state.activeTripId}`;
+  const ids = (state.stops || []).map((stop) => stop?.id).filter(Boolean);
+  return ids.length ? `stops:${ids.join(",")}` : "";
+}
+
+function readNavProgress() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NAV_PROGRESS_KEY) || "null");
+    if (!raw || typeof raw !== "object" || !raw.tripKey || !Array.isArray(raw.doneIds)) return null;
+    return {
+      tripKey: String(raw.tripKey),
+      doneIds: raw.doneIds.map((id) => String(id || "")).filter(Boolean),
+      aimId: String(raw.aimId || ""),
+      nav: raw.nav === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeNavProgress(record) {
+  try {
+    localStorage.setItem(NAV_PROGRESS_KEY, JSON.stringify(record));
+  } catch {
+    // The marks still show on this page if this phone blocked storage.
+  }
+}
+
+function clearNavProgress() {
+  try { localStorage.removeItem(NAV_PROGRESS_KEY); } catch {
+    // Already gone if this browser blocked storage.
+  }
+}
+
+function rememberNavProgress() {
+  const tripKey = tripProgressKey();
+  if (!tripKey) return;
+  const doneIds = (state.stops || [])
+    .filter((stop) => stop && !stop.useCurrentLocation && stop.done)
+    .map((stop) => stop.id);
+  if (!doneIds.length && !navOn) {
+    clearNavProgress();
+    return;
+  }
+  writeNavProgress({
+    tripKey,
+    doneIds,
+    aimId: navAimStopId || "",
+    nav: navOn === true,
+  });
+}
+
+function nextOpenStopId() {
+  const aimed = state.stops.find((stop, index) => (
+    stop
+    && stop.id === navAimStopId
+    && !isOriginStop(state.stops, index)
+    && !stop.done
+    && !stop.skipRoute
+    && !stop.useCurrentLocation
+  ));
+  if (aimed) return aimed.id;
+  const next = state.stops.find((stop, index) => (
+    !isOriginStop(state.stops, index) && !stop.done && !stop.skipRoute && !stop.useCurrentLocation
+  ));
+  return next?.id || "";
+}
+
+function retargetNavProgress() {
+  const saved = readNavProgress();
+  const tripKey = tripProgressKey();
+  if (!saved || !tripKey || saved.tripKey === tripKey) return saved;
+  const ids = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
+  const sameStops = Boolean(ids) && saved.tripKey === `stops:${ids}`;
+  const sameId = Boolean(state.activeTripId) && saved.tripKey === `id:${state.activeTripId}`;
+  if (!sameStops && !sameId) return null;
+  const next = { ...saved, tripKey };
+  writeNavProgress(next);
+  return next;
+}
+
+function applyNavProgress() {
+  retargetNavProgress();
+  const saved = readNavProgress();
+  const tripKey = tripProgressKey();
+  if (!saved || !tripKey || saved.tripKey !== tripKey) return false;
+  const ids = new Set(saved.doneIds);
+  let changed = false;
+  for (const stop of state.stops) {
+    if (!stop || stop.useCurrentLocation || !ids.has(stop.id)) continue;
+    if (stop.done && stop.skipRoute && stop.switched) continue;
+    stop.done = true;
+    stop.switched = true;
+    stop.skipRoute = true;
+    changed = true;
+  }
+  if (saved.aimId && state.stops.some((stop) => stop.id === saved.aimId && !stop.done && !stop.skipRoute && !stop.useCurrentLocation)) {
+    navAimStopId = saved.aimId;
+  } else {
+    const nextId = nextOpenStopId();
+    if (nextId) navAimStopId = nextId;
+  }
+  const openId = nextOpenStopId();
+  const progressStop = state.stops.find((stop) => stop.id === state.driveProgress?.stopId);
+  if (openId && (!progressStop || progressStop.done || progressStop.skipRoute)) {
+    state.driveProgress = { stopId: openId, remainFraction: 1, leftAt: state.driveProgress?.leftAt || Date.now() };
+    changed = true;
+  }
+  if (saved.nav) navProgressResume = true;
+  if (!changed) return true;
+  if (state.plan) {
+    const timed = stopsAndLeaveForPlan();
+    const result = buildPlan({
+      stops: zonedPlanStops(timed.stops),
+      settings: { ...state.settings, leaveAt: timed.leaveAt },
+      now: planClockNow(timed.leaveAt),
+    });
+    if (!result.error) state.plan = result;
+  }
+  persist();
+  return true;
+}
+
+function stripSavedNavDone() {
+  const trip = state.trips.find((item) => item.id === state.activeTripId);
+  if (!trip || !Array.isArray(trip.stops) || !trip.stops.some((stop) => stop?.done || stop?.switched)) return false;
+  trip.stops = trip.stops.map((stop) => {
+    if (!stop?.done && !stop?.switched) return stop;
+    return { ...stop, done: false, switched: false, skipRoute: false };
+  });
+  trip.driveProgress = null;
+  trip.pendingUpload = true;
+  trip.savedAt = Date.now();
+  return true;
+}
+
+function clearNavSession() {
+  let changed = false;
+  for (const stop of state.stops || []) {
+    if (!stop?.done && !stop?.switched) continue;
+    stop.done = false;
+    stop.switched = false;
+    stop.skipRoute = false;
+    changed = true;
+  }
+  if (changed) clearDriveProgress();
+  navAimStopId = "";
+  navProgressResume = false;
+  clearNavProgress();
+  const stripped = stripSavedNavDone();
+  if (changed) rebuildPlanAfterDone();
+  else if (stripped) persist();
+  if (stripped) {
+    writeTripCache();
+    uploadPendingTrips();
+  }
+}
+
 function restoreHeldAccountTrip() {
   const saved = heldAccountTrip;
   if (!saved || !state.signedIn) return;
   heldAccountTrip = null;
-  if (!editorIsUnused()) return;
-  applyStoredTrip(state, saved);
-  settleLoadedStops(state.stops);
-  pinEnteredClocks();
-  persist();
+  if (editorIsUnused()) {
+    applyStoredTrip(state, saved);
+    settleLoadedStops(state.stops);
+    pinEnteredClocks();
+    persist();
+  }
+  applyNavProgress();
 }
 
 function discardHeldAccountTrip() {
@@ -1071,6 +1236,12 @@ function writeShareHash() {
 }
 
 function applySharedTrip(data, { notice } = {}) {
+  const incomingIds = (Array.isArray(data.stops) ? data.stops : []).map((stop) => stop?.id).filter(Boolean).join(",");
+  const currentIds = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
+  if (incomingIds && incomingIds !== currentIds) {
+    if (navOn) endRouteNav({ paint: false });
+    else clearNavSession();
+  }
   state.settings = { ...state.settings, ...(data.settings || {}) };
   if (Array.isArray(data.stops) && data.stops.length) state.stops = data.stops.map((stop) => ({ ...stop }));
   state.tripName = data.tripName || "";
@@ -1086,6 +1257,7 @@ function applySharedTrip(data, { notice } = {}) {
   markShareStopScroll();
   settleLoadedStops(state.stops);
   pinEnteredClocks();
+  applyNavProgress();
   persist();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
@@ -1396,9 +1568,11 @@ function presentAfterPlan(keepScreen) {
     routePageStale = true;
     if (routeMap) paintLiveRoute();
     syncRouteChrome();
+    if (navBootReady) resumeNavIfNeeded();
     return;
   }
   render();
+  if (navBootReady) resumeNavIfNeeded();
 }
 
 let wantAccountTrip = false;
@@ -1470,6 +1644,8 @@ function saveTrip() {
   };
   state.trips = [trip, ...state.trips.filter((item) => item.id !== id)].slice(0, 40);
   state.activeTripId = id;
+  retargetNavProgress();
+  if (navOn || state.stops.some((stop) => stop?.done)) rememberNavProgress();
 }
 
 async function saveNamedTrip() {
@@ -1526,6 +1702,10 @@ function loadTrip(id) {
   if (navOn) return;
   const trip = state.trips.find((item) => item.id === id);
   if (!trip) return;
+  const saved = readNavProgress();
+  const stopKey = `stops:${(trip.stops || []).map((stop) => stop?.id).filter(Boolean).join(",")}`;
+  const sameTrip = saved && (saved.tripKey === `id:${trip.id}` || (stopKey !== "stops:" && saved.tripKey === stopKey));
+  if (!sameTrip) clearNavSession();
   if (trip.id !== state.activeTripId) {
     parkSpeedNote();
     showTripSpeedNote(trip);
@@ -1547,6 +1727,7 @@ function loadTrip(id) {
   addressEditStarted = false;
   settleLoadedStops(state.stops);
   pinEnteredClocks();
+  applyNavProgress();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
     render();
@@ -1615,6 +1796,8 @@ function rollOpenExample() {
 }
 
 function loadExample() {
+  if (navOn) endRouteNav({ paint: false });
+  else clearNavSession();
   parkSpeedNote();
   const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
   state.settings = { ...state.settings, ...(trip.settings || {}) };
@@ -1766,12 +1949,17 @@ function restoreOpenTrip() {
   const current = state.trips.find((trip) => trip.id === state.activeTripId);
   if (current && editorMatchesTrip(current) && !hasRouteLine(state.stops)) {
     state.stops = copyRouteLine(state.stops, current.stops);
+    applyNavProgress();
     return;
   }
   if (!state.activeTripId && editorIsUnused()) {
     const latest = state.trips.find((trip) => (trip.stops || []).length);
-    if (latest) loadTrip(latest.id);
+    if (latest) {
+      loadTrip(latest.id);
+      return;
+    }
   }
+  applyNavProgress();
 }
 
 function mergeRemoteTrips(remote, { touchEditor = true } = {}) {
@@ -1788,7 +1976,9 @@ function mergeRemoteTrips(remote, { touchEditor = true } = {}) {
   }
   state.trips = [...byId.values()].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, 40);
   if (state.activeTripId && !byId.has(state.activeTripId)) state.activeTripId = null;
-  if (!touchEditor) return;
+  // The open editor is still waiting in heldAccountTrip. Filling it from the
+  // account trip here drops stop-done marks that were never saved to the account.
+  if (!touchEditor || heldAccountTrip) return;
   restoreOpenTrip();
 }
 
@@ -2061,6 +2251,7 @@ function markStopDone(stop, { switched = false } = {}) {
   }
   rebuildPlanAfterDone();
   paintDirectionToward();
+  rememberNavProgress();
 }
 
 function closerLegEnd(leg, hit) {
@@ -2120,6 +2311,7 @@ function noteArrivedStops(lat, lon) {
   });
   if (!changed) return;
   persist();
+  rememberNavProgress();
   const calc = document.getElementById("calculate");
   if (calc && !state.estimating) calc.innerHTML = calculateButtonLabel();
   if (routeFull) routePageStale = true;
@@ -2257,6 +2449,8 @@ function addStartBefore() {
 }
 
 function resetEditor() {
+  clearNavProgress();
+  navProgressResume = false;
   const keep = {
     settings: { ...state.settings },
     credits: state.credits,
@@ -2287,6 +2481,7 @@ function resetEditor() {
 
 function newTrip() {
   if (navOn) return;
+  clearNavSession();
   parkSpeedNote();
   const keep = {
     trips: state.trips,
@@ -4442,6 +4637,8 @@ let routePageStale = false;
 let routeLivePaint = false;
 let routePinMarkers = [];
 let navOn = false;
+let navProgressResume = false;
+let navBootReady = false;
 let navFollowing = true;
 let followPinned = false;
 let navMapTouch = false;
@@ -5933,6 +6130,7 @@ function aimNavAtStop(stopId, confirmed) {
   navReturnTimer = 0;
   if (navFix) onNavFix(navFix[0], navFix[1]);
   syncRouteChrome();
+  rememberNavProgress();
 }
 
 let navStopTapAt = 0;
@@ -8353,7 +8551,24 @@ function pauseFollowForDirection() {
   armDirectionReturn();
 }
 
-function endRouteNav() {
+function resumeNavIfNeeded() {
+  if (!navBootReady || navOn || !navProgressResume) return;
+  const saved = readNavProgress();
+  if (!saved?.nav || saved.tripKey !== tripProgressKey()) {
+    navProgressResume = false;
+    return;
+  }
+  const routed = (state.stops || []).some((stop) => (
+    (Array.isArray(stop?.path) && stop.path.length > 1)
+    || (Array.isArray(stop?.directions) && stop.directions.length)
+  ));
+  if (!routed) return;
+  navProgressResume = false;
+  void beginRouteNav();
+}
+
+function endRouteNav({ paint = true } = {}) {
+  clearNavSession();
   navOn = false;
   followPinned = false;
   navAimStopId = "";
@@ -8415,6 +8630,9 @@ function endRouteNav() {
     const link = button.querySelector(".dir-link");
     if (link) link.textContent = shownDirection(directionStep(stopId, index), { text: nextManeuverText(stopId, index) });
   });
+  if (!paint) return;
+  if (routeFull) routePageStale = true;
+  else render();
 }
 
 let dirBrowseTimer = 0;
@@ -8688,6 +8906,7 @@ function keepNavSignedIn() {
 
 async function beginRouteNav() {
   navOn = true;
+  rememberNavProgress();
   navPulseAt = 0;
   void keepNavSignedIn();
   navAlongLock = null;
@@ -9736,7 +9955,10 @@ export function initPlanner(el) {
     await tripsPromise;
     if (wantAccountTrip && state.signedIn && state.plan) await keepSharedOnAccount({ quiet: true });
     rollOpenExample();
+    applyNavProgress();
     if (!state.locating) render();
+    navBootReady = true;
+    resumeNavIfNeeded();
     if (paid === "1") watchPackGrant();
     if (card === "1") watchCardGrant();
   });
