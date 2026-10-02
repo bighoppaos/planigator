@@ -4750,6 +4750,10 @@ let navFixAt = 0;
 let navWakeAt = 0;
 let navYou = null;
 let navFix = null;
+// When the GPS took navFix. iOS can hand back its last cached fix after a
+// refresh or when the screen comes back on, minutes after it was true.
+let navFixTime = 0;
+const NAV_FRESH_MS = 5000;
 let navMotion = 0;
 let navShown = null;
 let navAim = null;
@@ -4897,6 +4901,8 @@ function paintStopChip() {
 }
 
 function setStopChip(meters, name) {
+  driveStopMeters = meters >= 0 && name ? meters : null;
+  paintDrive();
   if (!(meters >= 0) || !name) {
     stopChipLines = [];
     stopChipIndex = 0;
@@ -5237,9 +5243,10 @@ function speakPhone(text, gen) {
   });
 }
 
+// `text` can be a function. It is read just before the line is spoken.
 function playChosenVoice(text, { barge = true } = {}) {
-  const said = spokenAloud(text);
-  if (!said) return Promise.resolve();
+  const lineNow = () => spokenAloud(typeof text === "function" ? text() : text);
+  if (typeof text !== "function" && !lineNow()) return Promise.resolve();
   if (barge) {
     speakGen += 1;
     stopNavUtterance();
@@ -5249,13 +5256,16 @@ function playChosenVoice(text, { barge = true } = {}) {
   const job = speakChain.then(async () => {
     if (gen !== speakGen) return;
     if (navVoiceId() === "phone") {
-      await speakPhone(said, gen);
+      const said = lineNow();
+      if (said) await speakPhone(said, gen);
       return;
     }
     unlockMix();
     try {
       await warmPageVoices();
       if (gen !== speakGen) return;
+      const said = lineNow();
+      if (!said) return;
       const spec = PAGE_VOICE[navVoiceId()] || PAGE_VOICE.us;
       const clip = await pageSpeech(said, spec);
       if (gen !== speakGen) return;
@@ -5359,7 +5369,7 @@ function onVoiceGesture(event) {
   disarmVoiceGesture();
   if (navVoiceMissed) {
     // Lines that came due while the page could not talk were never heard.
-    // Say the current direction again on the next fix.
+    // Say the current direction again on the next fresh fix.
     navVoiceMissed = false;
     spokenStepKey = "";
     spokenMiles.clear();
@@ -5586,13 +5596,17 @@ function upcomingDirection(leg, index) {
   return "";
 }
 
+let navVoiceHere = null;
+
 function speakNavProgress(leg, found, hereAlong) {
   if (!found || !leg?.stop?.id) return;
+  // Not where he is now. The next fresh fix says it.
+  if (!navFixFresh()) return;
+  navVoiceHere = { stopId: leg.stop.id, along: hereAlong };
   const stepKey = `${leg.stop.id}:${found.index}`;
   const leftMeters = metersLeftInStep(leg, hereAlong - leg.start, found.index);
   const miles = leftMeters / 1609.344;
   const text = String(found.step?.text || "").trim();
-  const phrase = () => directionWithMilesLeft(text, leftMeters);
   const bands = [5, 4, 3, 2, 1, 0.5];
   if (stepKey !== spokenStepKey) {
     spokenStepKey = stepKey;
@@ -5602,8 +5616,15 @@ function speakNavProgress(leg, found, hereAlong) {
     }
     const next = upcomingDirection(leg, found.index);
     // Under 0.1 mi with nothing ahead, this row is a stop already reached.
-    const said = (next && spokenApproach(next, leftMeters)) || (text && miles >= 0.1 ? phrase() : "");
-    if (said) speakNav(said);
+    const line = (meters) => (next && spokenApproach(next, meters))
+      || (text && meters / 1609.344 >= 0.1 ? directionWithMilesLeft(text, meters) : "");
+    // Read when the voice is ready to talk, from the latest fix, so a line
+    // that waited on the voice still has the miles from where he is then.
+    if (line(leftMeters)) speakNav(() => {
+      const here = navVoiceHere?.stopId === leg.stop.id ? navVoiceHere.along : hereAlong;
+      if (navStep(leg, Math.max(0, here - leg.start))?.index !== found.index) return "";
+      return line(metersLeftInStep(leg, here - leg.start, found.index));
+    });
   }
   for (const band of bands) {
     if (spokenMiles.has(band) || miles > band) continue;
@@ -5645,10 +5666,28 @@ function driveLeftText(alongMeters) {
   return `${hoursLabel(minutes / 60)} left`;
 }
 
-function paintDrive(alongMeters) {
+// Full screen keeps the whole trip. On the page the chip is the drive time to
+// the stop being driven to, the same hours as the ETA chip, with no delays.
+let driveAlong = null;
+let driveStopMeters = null;
+
+function stopDriveText(meters) {
+  if (!(meters >= 0)) return "";
+  if (meters < 1) return "0 min left";
+  return `${hoursLabel(hoursForMeters(meters))} left`;
+}
+
+function nextStopMeters() {
+  if (navOn) return driveStopMeters;
+  const leg = buildNavLine(state.stops).legs.find(({ stop }) => stop && !stop.done && !stop.skipRoute && !stop.useCurrentLocation);
+  return leg ? leg.end - leg.start : null;
+}
+
+function paintDrive(alongMeters = driveAlong) {
+  driveAlong = alongMeters;
   const chip = document.getElementById("routeDrive");
   if (!chip) return;
-  const text = driveLeftText(alongMeters);
+  const text = routeFull ? driveLeftText(driveAlong) : stopDriveText(nextStopMeters());
   chip.hidden = !text;
   chip.textContent = text;
 }
@@ -5755,6 +5794,7 @@ function syncRouteChrome() {
   }
   syncTripFitButton();
   paintStopNote();
+  paintDrive();
   paintCompassRose();
   paintVoiceHint();
   if (state.plan) warmPageVoices();
@@ -8693,9 +8733,26 @@ function startNavMotion() {
   navMotion = requestAnimationFrame(paintNavMotion);
 }
 
-function onNavFix(lat, lon) {
+function fixTime(pos) {
+  const at = Number(pos?.timestamp);
+  const now = Date.now();
+  // A fix stamped by a wrong clock must not keep the voice quiet.
+  return Number.isFinite(at) && at <= now + 60000 && now - at < 86400000 ? at : now;
+}
+
+function navFixFresh() {
+  return Date.now() - navFixTime <= NAV_FRESH_MS;
+}
+
+// `at` is when the GPS took this fix. Repaints of the fix already shown pass none.
+function onNavFix(lat, lon, at = null) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
+  if (at != null) {
+    // Older than the fix on screen: a cached one. It would pull him back.
+    if (at <= navFixTime) return;
+    navFixTime = at;
+  }
   navFixAt = Date.now();
   // Always keep the blue circle on the map when GPS updates.
   if (!navYou) placeNavDot(lat, lon);
@@ -9322,7 +9379,7 @@ function pokeNavFix() {
     (pos) => {
       if (!navOn) return;
       if (navFixAt > asked + 500) return;
-      onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude);
+      onNavFix(pos.coords.latitude, pos.coords.longitude, fixTime(pos));
     },
     () => {},
     { enableHighAccuracy: true, maximumAge: 1500, timeout: 4000 },
@@ -9355,7 +9412,7 @@ function startNavWatch() {
   navWatch = navigator.geolocation.watchPosition(
     (pos) => {
       if (!navOn) return;
-      onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude);
+      onNavFix(pos.coords.latitude, pos.coords.longitude, fixTime(pos));
     },
     (err) => {
       if (!navOn) return;
