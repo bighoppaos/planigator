@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOffSpan, nearestOnPath, ON_ROAD_M, trackLeave, turnLockShouldAdvance } from "./nav-match.js?v=8";
+import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=9";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -604,7 +604,10 @@ function saveNavSpot(along) {
   if (Number.isFinite(navSpotSavedAlong) && Math.abs(along - navSpotSavedAlong) < 50) return;
   const saved = readNavProgress();
   if (!saved || saved.tripKey !== tripProgressKey()) return;
-  const leg = navLegs.find((item) => along >= item.start && along <= item.end);
+  const active = activeNavLeg();
+  const leg = active && along >= active.start - 1 && along <= active.end + 1
+    ? active
+    : navLegs.find((item) => along >= item.start && along <= item.end);
   navSpotSavedAlong = along;
   writeNavProgress({
     ...saved,
@@ -631,9 +634,9 @@ function restoreNavSpot() {
   if (leg && Number.isFinite(spot.legAlong)) along = leg.start + Math.min(Math.max(0, spot.legAlong), leg.end - leg.start);
   else if (spot.lineKey && spot.lineKey === navLineKey) along = spot.along;
   if (!Number.isFinite(along)) return false;
-  // A spot saved past the stop still being driven to is not where he is.
+  // A spot saved on the leg of another stop is not where he is.
   const active = activeNavLeg();
-  if (active && along > active.end + 1) return false;
+  if (active && (along < active.start - 1 || along > active.end + 1)) return false;
   navAlongLock = along;
   navSpotSavedAlong = along;
   if (spot.bearing != null && navTravel == null) navTravel = spot.bearing;
@@ -1482,8 +1485,19 @@ async function updateTimesFromHere() {
     render();
     return;
   }
-  const locked = navNearest(here.lat, here.lon, navLine);
-  const closest = nearestOnPath(here.lat, here.lon, navLine);
+  const leg = activeNavLeg();
+  if (!leg) {
+    state.updatingTimes = false;
+    state.notice = "";
+    state.error = "You're already at the last stop.";
+    render();
+    return;
+  }
+  // Only the leg of the stop being driven to. The line to the next stop can
+  // run right beside it (a turnpike median plaza).
+  const span = navMatchSpan();
+  const closest = nearestOnPath(here.lat, here.lon, navLine, span);
+  const locked = navOn ? navNearest(here.lat, here.lon, navLine) : closest;
   const hit = closest.dist + 50 < locked.dist ? closest : locked;
   if (hit === closest && closest.dist <= 2 * 1609.344) navAlongLock = closest.along;
   if (hit.dist > 2 * 1609.344) {
@@ -1493,22 +1507,16 @@ async function updateTimesFromHere() {
     render();
     return;
   }
-  let leg = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
-  let legMeters = Math.max(1, leg.end - leg.start);
-  let into = Math.min(legMeters, Math.max(0, hit.along - leg.start));
-  let remaining = Math.max(0, legMeters - into);
-  let fraction = remaining / legMeters;
-  let stop = leg.stop;
+  const legMeters = Math.max(1, leg.end - leg.start);
+  const into = Math.min(legMeters, Math.max(0, hit.along - leg.start));
+  const remaining = Math.max(0, legMeters - into);
+  const fraction = remaining / legMeters;
+  const stop = leg.stop;
   if (remaining < STOP_ARRIVE_M || !legStillCounts(stop, fraction)) {
+    // At the stop. It stays the stop being driven to until he presses Done.
     const index = state.stops.findIndex((item) => item.id === stop.id);
     const next = nextTimedStop(index);
     state.updatingTimes = false;
-    if (!stop.useCurrentLocation) {
-      const at = state.stops.findIndex((item) => item.id === stop.id);
-      if (at >= 0 && !isOriginStop(state.stops, at)) {
-        markStopDone(stop);
-      }
-    }
     if (!next) {
       state.notice = "";
       state.error = "You're already at the last stop.";
@@ -4770,12 +4778,12 @@ let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
 let navResumeGuard = null;
-let navLeave = null;
 let navLineKey = "";
 // Consistent on-road fixes needed to move a restored spot outside its stretch.
 const RESUME_CONFIRM_FIXES = 3;
 const RESUME_AGREE_M = 800;
 const RESUME_PARKED_M = 500;
+const RESUME_DRIVEN_M = 1000;
 
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
@@ -4936,7 +4944,6 @@ function navNearest(lat, lon, path) {
     const span = navMatchSpan();
     let hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel, span });
     if (navResumeGuard && navAlongLock != null) hit = guardResumedHit(lat, lon, path, hit, span);
-    if (span) hit = leaveSpanWhenDriven(lat, lon, path, hit, span);
     if (hit.dist <= ON_ROAD_M) {
       navAlongLock = hit.along;
       saveNavSpot(hit.along);
@@ -4946,48 +4953,12 @@ function navNearest(lat, lon, path) {
   return nearestOnPath(lat, lon, path);
 }
 
-// The legs the truck may be matched on: the stop being driven to, any open
-// stop before it, and the leg the lock is already on. A later stop's line
-// that runs beside them only wins in leaveSpanWhenDriven.
+// The truck is matched only on the leg of the stop being driven to. That
+// stop changes only when he picks the next one and presses Done, never
+// because he drove onto another stop's line or reached this one.
 function navMatchSpan() {
   const active = activeNavLeg();
-  if (!active) return null;
-  let from = active.start;
-  let to = active.end;
-  for (const leg of navLegs) {
-    if (leg === active) break;
-    const stop = leg.stop;
-    if (stop && !stop.done && !stop.skipRoute && !stop.useCurrentLocation) {
-      from = Math.min(from, leg.start);
-      break;
-    }
-  }
-  const locked = navAlongLock == null ? null : navLegs.find((leg) => navAlongLock >= leg.start && navAlongLock <= leg.end);
-  if (locked) {
-    from = Math.min(from, locked.start);
-    to = Math.max(to, locked.end);
-  }
-  return { from, to };
-}
-
-// Off the span's line, a nearby leg outside it (parked in a median plaza
-// next to the other carriageway) is taken only once he has driven along it.
-function leaveSpanWhenDriven(lat, lon, path, hit, span) {
-  if (hit.dist <= ON_ROAD_M) {
-    navLeave = null;
-    return hit;
-  }
-  const other = nearestOffSpan(lat, lon, path, span);
-  if (!other || other.dist > ON_ROAD_M) {
-    navLeave = null;
-    return hit;
-  }
-  const fix = `${lat},${lon}`;
-  if (navLeave?.fix !== fix) navLeave = { ...trackLeave(navLeave, [lat, lon], other), fix };
-  if (!navLeave.driven) return hit;
-  navLeave = null;
-  navResumeGuard = null;
-  return other;
+  return active ? { from: active.start, to: active.end } : null;
 }
 
 // "Not on the route yet" past this distance. Right after a refresh, a truck
@@ -5005,6 +4976,12 @@ function guardResumedHit(lat, lon, path, hit, span = null) {
     return hit;
   }
   const free = hit.dist <= ON_ROAD_M ? hit : nearestOnPath(lat, lon, path, span);
+  // Parked beside the saved spot, not driving on off the line (the other
+  // carriageway of the same turnpike).
+  if (free.dist > ON_ROAD_M && Math.abs(free.along - navAlongLock) > RESUME_DRIVEN_M) {
+    navResumeGuard = null;
+    return free;
+  }
   const fix = `${lat},${lon}`;
   if (fix !== guard.fix) {
     guard.fix = fix;
@@ -5576,6 +5553,19 @@ function spokenApproach(nextText, metersLeft) {
   // The turn is right there. "In 1 foot" or "in 434 feet" is noise.
   const maneuver = maneuverText(nextText);
   return maneuver ? `${maneuver.charAt(0).toUpperCase()}${maneuver.slice(1)}` : "";
+}
+
+// The map banner for the highlighted step. Same rules as the voice: under
+// 0.1 mi it is just the move, never "In 1 foot".
+function bannerDirection(leg, found, leftInStep, toward) {
+  const next = found && leg ? upcomingDirection(leg, found.index) : "";
+  const approach = next ? spokenApproach(next, leftInStep) : "";
+  if (approach) return approach;
+  const title = String(found?.step?.text || "").trim();
+  if (!title) return `Continue to ${toward}`;
+  if (leftInStep / 1609.344 >= 0.1) return directionWithMilesLeft(title, leftInStep);
+  const move = maneuverText(title) || title;
+  return `${move.charAt(0).toUpperCase()}${move.slice(1)}`;
 }
 
 function shownDirection(step, nextStep, meters) {
@@ -7558,13 +7548,7 @@ function guideFromChosenStop(chosen, lat, lon, hit) {
   openDirectionsNear(leg.stop.id, found.index, leftInStep);
   paintNavLine(Math.min(hit.along, leg.end), leg.end);
   setStopChip(leftToEnd, targetName);
-  const title = String(found.step.text || "").trim();
-  const nextTitle = approachPhrase(upcomingDirection(leg, found.index), leftInStep);
-  sayNav(
-    nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${targetName}`),
-    `${navMiles(leftToEnd)} to ${targetName}`,
-    "",
-  );
+  sayNav(bannerDirection(leg, found, leftInStep, targetName), `${navMiles(leftToEnd)} to ${targetName}`, "");
   const key = `${chosen.stop.id}:near`;
   if (navStopSpeakKey !== key) {
     navStopSpeakKey = key;
@@ -8746,7 +8730,6 @@ function onNavFix(lat, lon) {
     const gap = leg ? Math.max(0, leg.start - hit.along) : 0;
     const alongInLeg = leg ? Math.max(0, hit.along - leg.start) : 0;
     const found = leg && (!off || raw?.stop?.done) ? navStep(leg, alongInLeg) : null;
-    const step = found?.step || null;
     const leftOnLeg = leg ? Math.max(0, leg.end - hit.along) : 0;
     const leftOnTrip = Math.max(0, polylineMeters(navLine) - hit.along);
     const towardStop = leg?.stop;
@@ -8764,17 +8747,16 @@ function onNavFix(lat, lon) {
       sayNav(`Head back to ${toward}`, "Recalculate to turn around.", "");
       paintNavLine(hit.along, Infinity);
     } else if (off && !raw?.stop?.done) {
+      const away = Math.min(hit.dist, nearestOnPath(lat, lon, navLine, navMatchSpan()).dist);
       setStopChip(-1, "");
-      sayNav("Not on the route yet", `${navMiles(hit.dist)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
+      sayNav("Not on the route yet", `${navMiles(away)} from the line`, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(0, until);
       clearStopNote(true);
     } else {
       const leftInStep = (found && leg ? metersLeftInStep(leg, alongInLeg, found.index) : 0) + gap;
-      const title = String(step?.text || "").trim();
-      const nextTitle = found && leg ? approachPhrase(upcomingDirection(leg, found.index), leftInStep) : "";
       setStopChip(leftOnLeg, toward);
       trackLiveDrive(hit, leg);
-      sayNav(nextTitle || (title ? directionWithMilesLeft(title, leftInStep) : `Continue to ${toward}`), towardPhrase, `${navMiles(leftOnTrip)} left in the trip`);
+      sayNav(bannerDirection(leg, found, leftInStep, toward), towardPhrase, `${navMiles(leftOnTrip)} left in the trip`);
       paintNavLine(hit.along, until);
       if (found && leg?.stop?.id) {
         markDirection(leg.stop.id, found.index);
@@ -8949,7 +8931,6 @@ function endRouteNav({ paint = true } = {}) {
   compassAim = false;
   navAlongLock = null;
   navResumeGuard = null;
-  navLeave = null;
   navSpotSavedAlong = null;
   navLineKey = "";
   navStopPicked = false;
@@ -9286,7 +9267,6 @@ async function beginRouteNav({ resume = false } = {}) {
   void keepNavSignedIn();
   navAlongLock = null;
   navResumeGuard = null;
-  navLeave = null;
   navSpotSavedAlong = null;
   navLineKey = routeProgressKey(routePoints());
   if (resume) restoreNavSpot();
@@ -9488,7 +9468,6 @@ function paintLiveRoute() {
     navLineKey = key;
     navAlongLock = null;
     navResumeGuard = null;
-    navLeave = null;
   }
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
   const source = routeMap?.getSource("route");

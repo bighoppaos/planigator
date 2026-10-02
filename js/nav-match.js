@@ -65,17 +65,15 @@ function closest(hits) {
   return hits.reduce((best, hit) => (hit.dist < best.dist ? hit : best));
 }
 
-// `span` is { from, to } on the joined line: the legs the truck may be on.
-// Another stop's leg can run right beside them (the same turnpike the other
-// way), so points outside it are left out.
+// `span` is { from, to } on the joined line: the leg of the stop being driven
+// to. Another stop's leg can run right beside it (the same turnpike the other
+// way), so points outside it are never matched.
 function inSpan(hit, span) {
   return !span || (hit.along >= span.from - 1 && hit.along <= span.to + 1);
 }
 
 function spanHits(hits, span) {
-  if (!span) return hits;
-  const kept = hits.filter((hit) => inSpan(hit, span));
-  return kept.length ? kept : hits;
+  return span ? hits.filter((hit) => inSpan(hit, span)) : hits;
 }
 
 function sameWay(hit, bearing) {
@@ -138,12 +136,6 @@ export function nearestOnPath(lat, lon, path, span = null) {
   return closest(hits);
 }
 
-// The closest point outside `span`, or null.
-export function nearestOffSpan(lat, lon, path, span) {
-  const hits = collectHits(lat, lon, path).filter((hit) => !inSpan(hit, span));
-  return hits.length ? closest(hits) : null;
-}
-
 export function matchAlong(lat, lon, path, { along = null, bearing = null, span = null } = {}) {
   const hits = spanHits(collectHits(lat, lon, path), span);
   if (!hits.length) return { dist: Infinity, along: 0 };
@@ -178,28 +170,6 @@ export function matchNear(lat, lon, path, along, bearing = null, span = null) {
 
 export function inLockWindow(hitAlong, along) {
   return hitAlong >= along - LOCK_BACK_M && hitAlong <= along + LOCK_AHEAD_M;
-}
-
-// Meters a truck must drive along another stop's leg before the match moves
-// onto it. A parked truck's fixes wander far less than this.
-const LEAVE_DRIVE_M = 300;
-const LEAVE_STEPS = 3;
-
-// One fix of evidence that the truck is driving along `hit`, a point on a
-// leg outside the span. `track` is the record from the last fix (or null).
-// The new record has `driven` true once he has gone LEAVE_DRIVE_M forward
-// along that leg over several fixes and has really moved that far.
-export function trackLeave(track, point, hit) {
-  if (!track || hit.along < track.lastAlong - SNAP_BACK_M || hit.along > track.lastAlong + LOCK_AHEAD_M) {
-    return { point, startAlong: hit.along, lastAlong: hit.along, steps: 0, driven: false };
-  }
-  const forward = hit.along > track.lastAlong + 5;
-  const steps = track.steps + (forward ? 1 : 0);
-  const lastAlong = Math.max(track.lastAlong, hit.along);
-  const driven = steps >= LEAVE_STEPS
-    && lastAlong - track.startAlong >= LEAVE_DRIVE_M
-    && metersBetween(track.point, point) >= LEAVE_DRIVE_M * 0.6;
-  return { point: track.point, startAlong: track.startAlong, lastAlong, steps, driven };
 }
 
 // One mile. After a turn, the next one takes the top map slot once it is

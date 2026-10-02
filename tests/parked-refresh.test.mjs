@@ -76,6 +76,7 @@ const APP_CODE = [
   constLine("RESUME_CONFIRM_FIXES"),
   constLine("RESUME_AGREE_M"),
   constLine("RESUME_PARKED_M", true),
+  constLine("RESUME_DRIVEN_M", true),
   ...APP_FUNCTIONS.map((name) => extract(name)),
   ...OPTIONAL_FUNCTIONS.map((name) => extract(name, true)),
 ].join("\n\n");
@@ -198,6 +199,7 @@ function readout(pg, x, y) {
   const raw = pg.navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || pg.navLegs[pg.navLegs.length - 1];
   const legNow = pg.activeNavLeg(hit);
   const found = legNow && (!off || raw?.stop?.done) ? pg.navStep(legNow, Math.max(0, hit.along - legNow.start)) : null;
+  const span = typeof pg.navMatchSpan === "function" ? pg.navMatchSpan() : null;
   return {
     stopId: legNow?.stop?.id || "",
     onLeg: raw?.stop?.id || "",
@@ -205,6 +207,8 @@ function readout(pg, x, y) {
     step: found ? found.step.text : "Not on the route yet",
     leftMiles: legNow ? Math.max(0, legNow.end - hit.along) / MILE : 0,
     dist: hit.dist,
+    // "N mi from the line" under "Not on the route yet".
+    away: Math.min(hit.dist, pg.nearestOnPath(lat, lon, pg.navLine, span).dist),
   };
 }
 
@@ -318,23 +322,20 @@ console.log("\nNo saved spot on this phone, refresh while parked in the plaza");
   expectStillMidStep("after refresh, parked: still the PACTIV leg at the plaza, no arrival", parked(after), { allowOffRoute: true });
 }
 
-console.log("\nAfter the parked refresh he really drives west on the WALMARpu line");
+console.log("\nAfter the parked refresh he drives west on the WALMARpu line without pressing Done");
 {
   const storage = fakeStorage();
   const live = startLive(storage);
   driveEast(live, -31000, -300);
   const after = reload(storage, live.state.stops);
   parked(after, 4);
-  const early = [];
-  const later = [];
+  const reads = [];
   // Out of the plaza onto the westbound lanes, then west.
-  for (let x = 0; x >= -2500; x -= 60) {
-    const r = readout(after, x, bend(x) + SPLIT_M - 10);
-    if (x > -150) early.push(r);
-    else later.push(r);
-  }
-  expect("the first 150 m do not move him onto the WALMARpu line", early.every((r) => r.onLeg === "pactiv"), show(early[early.length - 1]));
-  expect("after 2.5 km driven along it, the match follows him onto the WALMARpu line", later[later.length - 1].onLeg === "walmart", show(later[later.length - 1]));
+  for (let x = 0; x >= -2500; x -= 60) reads.push(readout(after, x, bend(x) + SPLIT_M - 10));
+  const strayed = reads.find((r) => r.stopId !== "pactiv" || r.onLeg !== "pactiv" || r.row === PACTIV_LAST_ROW);
+  expect("every fix: still PACTIV, matched only on the PACTIV line, never its arrival", !strayed, show(strayed || reads[reads.length - 1]));
+  const end = reads[reads.length - 1];
+  expect("after 2.5 km on the other carriageway: \"Not on the route yet\", the right distance from the PACTIV line", end.row == null && Math.abs(end.away - (SPLIT_M - 10)) < 60, `${show(end)}, shows ${end.away.toFixed(0)} m from the line`);
 }
 
 console.log("\nNo refresh: drive the whole PACTIV leg on the turnpike");
