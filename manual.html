@@ -155,7 +155,7 @@
   </header>
   <main class="manual">
     <h1>Manual</h1>
-    <p class="build-line"><span>Build#592 10.2.26.</span><a href="./releases.html">Release notes</a></p>
+    <p class="build-line"><span>Build#593 10.2.26.</span><a href="./releases.html">Release notes</a></p>
     <p>This page shows the buttons on <a href="./">the planner</a> and what each one does. The pictures are the same buttons, drawn here so you can match them. They are not a live map, and they are not a saved trip.</p>
     <p>Planigator plans a truck trip in the browser, then navigates that route on the same page. The clocks are a planning aid. They are not legal advice and they are not a substitute for your ELD.</p>
     <ul class="toc">
@@ -364,7 +364,7 @@
         <span class="flag-box">Dark mode</span>
       </div>
       <p>Start navigation stays on this page. The browser asks before it uses location, compass, or motion. Those readings stay on the phone. They are not saved and they are not sent to Planigator. The button then says Navigation in progress. End navigation stops it. The zoom button goes back to Trip zoom. An hour of driving does not sign you out. Navigation counts as using the site.</p>
-      <p>A stop you mark done stays done if you refresh, leave the app, or open a new build. Navigation keeps going toward the next stop that is not done. End navigation clears those done marks. So does opening a different trip, Clear trip, or Load an example trip.</p>
+      <p>A stop you mark done stays done. It stays done after a refresh, after you leave the app, after a new build, and after End navigation. The done mark is saved with the trip, and with your account when you are signed in, so it is still there when you open that trip again. Opening a different trip, Clear trip, or Load an example trip does not clear it. Each trip keeps its own done marks. Navigation keeps going toward the next stop that is not done.</p>
       <p>The stop you are driving toward is a blue line. The other stops stay green. The lighter blue is the part of that stop still ahead of you. The arrival chip stays on one line: arrival time, miles left, and hours and minutes left.</p>
       <p>Before navigation, the map is in <strong>Trip zoom</strong>. Navigation starts in <strong>Turn zoom</strong>. Each tap of the zoom button moves to the next view:</p>
       <div class="samples" aria-hidden="true">
@@ -376,7 +376,7 @@
       <ul>
         <li><strong>Trip zoom</strong> shows the whole route, north up, clear of the directions and the side buttons. This is the default before you start navigation, and again after End navigation.</li>
         <li><strong>Left zoom</strong> shows what is left, north up.</li>
-        <li><strong>Turn zoom</strong> is the default once navigation is running. You stay at the bottom of the map, at Recalculate height. In full screen that is just above the directions. The map fits the whole road from you to the next turn, even when that turn is a long highway run many miles ahead. That road runs up the screen from you, including when it curves, and the whole stretch stays on the map between the side buttons and above the directions. The map tightens as the turn gets closer. You and the turn stay clear of the buttons, the ETA chip, and the directions. After you pass a turn, you stay low on the map. The next turn moves to the top of the view once it is under a mile away, or once you have driven a mile, whichever comes first. The map turns so that stretch points up unless north is locked. It keeps that lock while Planigator is on screen, including after a notification. You do not have to leave the app and come back for the map to catch up. In landscape, each side has two rails of three buttons beside the directions. Exit sits at the top.</li>
+        <li><strong>Turn zoom</strong> is the default once navigation is running. You stay at the bottom of the map, at Recalculate height. In full screen that is just above the directions. The map fits the whole road from you to the next turn, even when that turn is a long highway run many miles ahead. That road runs up the screen from you, including when it curves, and the whole stretch stays on the map between the side buttons and above the directions. In full screen the next turn stays about an inch from the top of the screen, below the notch. The map only shows it lower when that is the only way to keep all of the road to it on the screen, or in the last few hundred feet before the turn. The map tightens as the turn gets closer. You and the turn stay clear of the buttons, the ETA chip, and the directions. After you pass a turn, you stay low on the map. The next turn moves to the top of the view once it is under a mile away, or once you have driven a mile, whichever comes first. The map turns so that stretch points up unless north is locked. It keeps that lock while Planigator is on screen, including after a notification. You do not have to leave the app and come back for the map to catch up. In landscape, each side has two rails of three buttons beside the directions. Exit sits at the top.</li>
         <li><strong>Stop zoom</strong> shows you and the next stop, north up.</li>
         <li><strong>Follow me</strong> is a separate button. It is only the close view on you. It does not turn into Turn zoom.</li>
       </ul>
