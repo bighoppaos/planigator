@@ -74,7 +74,8 @@ const APP_FUNCTIONS = [
   "lateNote", "drivePieceIndex", "driveDelayTarget", "driveDelayAt", "delayBox", "delayLabel", "doneStamp",
   "escapeAttr", "formatMiles", "formatShort", "formatPlanSpan", "formatPlanClock", "shownZone", "eventZone",
   "originStop", "driveTowardName", "leewayDays",
-  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
+  "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress", "readNavRecord", "readNavProgressMap",
+  "writeNavProgressMap",
 ];
 // Not in the old pages. They run without them, so this test can show them failing.
 const OPTIONAL_FUNCTIONS = [
@@ -85,6 +86,7 @@ const APP_CODE = [
   constLine("LIVE_DRIVE_MS"),
   constLine("LIVE_DRIVE_M"),
   constLine("NAV_PROGRESS_KEY"),
+  constLine("NAV_PROGRESS_TRIPS"),
   "var navAimStopId = \"\";",
   "var liveDrive = null;",
   "var liveDrivePaintAt = 0;",

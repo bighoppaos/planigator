@@ -39,8 +39,10 @@ const TRIP_CACHE = "planigator.web.tripcache";
 // Stop-done during navigation. persist() keeps it on the editor copy and
 // keepDoneOnSavedTrip() on the saved trip. If the account copy has not taken
 // it yet, a signed-in reload fills the page without it. This record is what a
-// refresh puts back.
+// refresh puts back. Each trip has its own, so opening another trip and coming
+// back finds it as it was left. Only the most recently saved trips are kept.
 const NAV_PROGRESS_KEY = "planigator.web.navprogress";
+const NAV_PROGRESS_TRIPS = 20;
 const DEFAULT_HERO = [
   "Made and maintained by a truck driver that still drives",
   "Know how much time you have to spare",
@@ -535,21 +537,54 @@ function tripProgressKey() {
   return ids.length ? `stops:${ids.join(",")}` : "";
 }
 
-function readNavProgress() {
+function readNavRecord(raw, tripKey = raw?.tripKey) {
+  if (!raw || typeof raw !== "object" || !tripKey || !Array.isArray(raw.doneIds)) return null;
+  const leftLeg = readLeftLeg(raw.leftLeg);
+  return {
+    tripKey: String(tripKey),
+    doneIds: raw.doneIds.map((id) => String(id || "")).filter(Boolean),
+    aimId: String(raw.aimId || ""),
+    nav: raw.nav === true,
+    spot: readNavSpot(raw.spot),
+    leftLeg,
+    savedAt: Number(raw.savedAt) || leftLeg?.at || 0,
+  };
+}
+
+// { [tripKey]: record }. Before Build #604 this key held one trip's record.
+function readNavProgressMap() {
   try {
     const raw = JSON.parse(localStorage.getItem(NAV_PROGRESS_KEY) || "null");
-    if (!raw || typeof raw !== "object" || !raw.tripKey || !Array.isArray(raw.doneIds)) return null;
-    return {
-      tripKey: String(raw.tripKey),
-      doneIds: raw.doneIds.map((id) => String(id || "")).filter(Boolean),
-      aimId: String(raw.aimId || ""),
-      nav: raw.nav === true,
-      spot: readNavSpot(raw.spot),
-      leftLeg: readLeftLeg(raw.leftLeg),
-    };
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    if (typeof raw.tripKey === "string") {
+      const one = readNavRecord(raw);
+      return one ? { [one.tripKey]: one } : {};
+    }
+    const all = {};
+    for (const [key, value] of Object.entries(raw)) {
+      const record = readNavRecord(value, key);
+      if (record) all[key] = record;
+    }
+    return all;
   } catch {
-    return null;
+    return {};
   }
+}
+
+function writeNavProgressMap(all) {
+  const kept = Object.values(all)
+    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+    .slice(0, NAV_PROGRESS_TRIPS);
+  try {
+    if (!kept.length) localStorage.removeItem(NAV_PROGRESS_KEY);
+    else localStorage.setItem(NAV_PROGRESS_KEY, JSON.stringify(Object.fromEntries(kept.map((record) => [record.tripKey, record]))));
+  } catch {
+    // The marks still show on this page if this phone blocked storage.
+  }
+}
+
+function readNavProgress(tripKey = tripProgressKey()) {
+  return (tripKey && readNavProgressMap()[tripKey]) || null;
 }
 
 // What was left of the leg being driven when last seen. It stays after End
@@ -619,17 +654,12 @@ function saveLeftLeg() {
   });
 }
 
+// Only the trip on the page. Other trips keep theirs.
 function forgetLeftLeg() {
   const saved = readNavProgress();
-  if (!saved?.leftLeg) return;
+  if (!saved?.leftLeg && !(saved?.spot && !navOn)) return;
   if (!saved.doneIds.length && !saved.nav) clearNavProgress();
-  else writeNavProgress({ ...saved, leftLeg: null });
-}
-
-// Another trip is open now, so the left leg saved for the last one is gone.
-function forgetOtherTripLeftLeg() {
-  const saved = readNavProgress();
-  if (saved?.leftLeg && saved.tripKey !== tripProgressKey()) forgetLeftLeg();
+  else writeNavProgress({ ...saved, leftLeg: null, spot: navOn ? saved.spot : null });
 }
 
 // Where the driver was on the route line, so a refresh resumes there.
@@ -645,14 +675,20 @@ function readNavSpot(raw) {
 }
 
 function writeNavProgress(record) {
-  try {
-    localStorage.setItem(NAV_PROGRESS_KEY, JSON.stringify(record));
-  } catch {
-    // The marks still show on this page if this phone blocked storage.
-  }
+  if (!record?.tripKey) return;
+  const all = readNavProgressMap();
+  all[record.tripKey] = { ...record, savedAt: Date.now() };
+  writeNavProgressMap(all);
 }
 
-function clearNavProgress() {
+function clearNavProgress(tripKey = tripProgressKey()) {
+  const all = readNavProgressMap();
+  if (!tripKey || !all[tripKey]) return;
+  delete all[tripKey];
+  writeNavProgressMap(all);
+}
+
+function clearAllNavProgress() {
   try { localStorage.removeItem(NAV_PROGRESS_KEY); } catch {
     // Already gone if this browser blocked storage.
   }
@@ -675,7 +711,7 @@ function rememberNavProgress() {
     doneIds,
     aimId: navAimStopId || "",
     nav: navOn === true,
-    spot: navOn && saved?.tripKey === tripKey ? saved.spot : null,
+    spot: (navOn || leftLeg) && saved?.tripKey === tripKey ? saved.spot : null,
     leftLeg,
   });
 }
@@ -743,16 +779,19 @@ function nextOpenStopId() {
   return next?.id || "";
 }
 
+// A trip saved after it was driven: its progress moves from its stops to its id.
 function retargetNavProgress() {
-  const saved = readNavProgress();
   const tripKey = tripProgressKey();
-  if (!saved || !tripKey || saved.tripKey === tripKey) return saved;
+  if (!tripKey) return null;
+  const all = readNavProgressMap();
+  if (all[tripKey]) return all[tripKey];
   const ids = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
-  const sameStops = Boolean(ids) && saved.tripKey === `stops:${ids}`;
-  const sameId = Boolean(state.activeTripId) && saved.tripKey === `id:${state.activeTripId}`;
-  if (!sameStops && !sameId) return null;
-  const next = { ...saved, tripKey };
-  writeNavProgress(next);
+  const from = ids ? all[`stops:${ids}`] : null;
+  if (!from) return null;
+  const next = { ...from, tripKey };
+  delete all[from.tripKey];
+  all[tripKey] = next;
+  writeNavProgressMap(all);
   return next;
 }
 
@@ -837,10 +876,13 @@ function keepDoneOnSavedTrip() {
 }
 
 // Leaving a trip or ending navigation ends the drive, not the done marks.
+// Opening that trip again must not start navigating it.
 function leaveNavSession() {
   keepDoneOnSavedTrip();
   navAimStopId = "";
   navProgressResume = false;
+  const saved = readNavProgress();
+  if (saved?.nav && !navOn) writeNavProgress({ ...saved, nav: false, aimId: "" });
 }
 
 function endNavProgress() {
@@ -852,7 +894,7 @@ function endNavProgress() {
   }
   const leftLeg = openLeftLeg(saved);
   if (!doneIds.size && !leftLeg) clearNavProgress();
-  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: null, leftLeg });
+  else writeNavProgress({ ...saved, doneIds: [...doneIds], aimId: "", nav: false, spot: leftLeg ? saved.spot : null, leftLeg });
 }
 
 function replanAroundDone() {
@@ -1444,7 +1486,6 @@ function applySharedTrip(data, { notice } = {}) {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
-  forgetOtherTripLeftLeg();
   persist();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
@@ -1919,7 +1960,6 @@ function loadTrip(id) {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
-  forgetOtherTripLeftLeg();
   if (!state.plan || tripReadyToRecalc()) calculate({ silent: true, skipHash: true });
   else {
     replanAroundDone();
@@ -1997,7 +2037,7 @@ function loadExample() {
   delete state.settings.sleepHours;
   delete state.settings.readyMinutes;
   state.stops = Array.isArray(trip.stops) ? trip.stops : [];
-  clearDriveProgress();
+  state.driveProgress = null;
   state.tripName = trip.tripName || trip.name || "";
   state.activeTripId = null;
   state.origin = trip.origin || null;
@@ -2013,7 +2053,6 @@ function loadExample() {
   settleLoadedStops(state.stops);
   pinEnteredClocks();
   applyNavProgress();
-  forgetOtherTripLeftLeg();
   calculate({ silent: true, skipHash: true });
 }
 
@@ -2645,7 +2684,7 @@ function addStartBefore() {
 }
 
 function resetEditor() {
-  clearNavProgress();
+  clearAllNavProgress();
   navProgressResume = false;
   const keep = {
     settings: { ...state.settings },
