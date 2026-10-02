@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=6";
+import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=7";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -1381,6 +1381,8 @@ function copyRouteLine(onto, fromStops) {
   const next = onto.map((stop, index) => {
     const from = fromStops.find((item) => item.id === stop.id) || fromStops[index];
     if (!from) return stop;
+    // A stop Recalculate routed past has no leg. Its old line stays off.
+    if (stop.skipRoute && !stopHasSavedLeg(stop)) return stop;
     const needPath = !hasRouteLine([stop]) && Array.isArray(from.path) && from.path.length > 1;
     const needDir = (!Array.isArray(stop.directions) || !stop.directions.length) && Array.isArray(from.directions) && from.directions.length;
     if (!needPath && !needDir) return stop;
@@ -4965,22 +4967,9 @@ function guardResumedHit(lat, lon, path, hit) {
 }
 
 function rebuildNavLegs() {
-  const next = [];
-  let cursor = 0;
-  const full = [];
-  for (const stop of state.stops) {
-    const path = Array.isArray(stop.path)
-      ? stop.path.map((pair) => [Number(pair?.[0]), Number(pair?.[1])]).filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
-      : [];
-    if (path.length < 2) continue;
-    if (full.length && path[0][0] === full[full.length - 1][0] && path[0][1] === full[full.length - 1][1]) full.push(...path.slice(1));
-    else full.push(...path);
-    const meters = polylineMeters(path);
-    next.push({ stop, path, start: cursor, end: cursor + meters });
-    cursor += meters;
-  }
-  navLine = full;
-  navLegs = next;
+  const built = buildNavLine(state.stops);
+  navLine = built.line;
+  navLegs = built.legs;
 }
 
 function scaledStepLengths(steps, path) {

@@ -86,6 +86,39 @@ function earliestNear(hits) {
   return near[0];
 }
 
+function lineMeters(path) {
+  let walked = 0;
+  for (let i = 1; i < path.length; i += 1) walked += metersBetween(path[i - 1], path[i]);
+  return walked;
+}
+
+// The stops' road lines joined into one line, and each stop's leg on it.
+// Leg start/end are measured on that joined line, the same way `along` is,
+// so a stop line that does not begin where the one before it ended (a leg
+// routed from where the truck was) moves every later leg past the jump.
+export function buildNavLine(stops) {
+  const line = [];
+  const legs = [];
+  let cursor = 0;
+  for (const stop of stops || []) {
+    const path = Array.isArray(stop?.path)
+      ? stop.path.map((pair) => [Number(pair?.[0]), Number(pair?.[1])]).filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+      : [];
+    if (path.length < 2) continue;
+    const last = line[line.length - 1];
+    if (last && path[0][0] === last[0] && path[0][1] === last[1]) {
+      line.push(...path.slice(1));
+    } else {
+      if (last) cursor += metersBetween(last, path[0]);
+      line.push(...path);
+    }
+    const meters = lineMeters(path);
+    legs.push({ stop, path, start: cursor, end: cursor + meters });
+    cursor += meters;
+  }
+  return { line, legs };
+}
+
 export function nearestOnPath(lat, lon, path) {
   const hits = collectHits(lat, lon, path);
   if (!hits.length) return { dist: Infinity, along: 0 };
