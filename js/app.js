@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=7";
+import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOffSpan, nearestOnPath, ON_ROAD_M, trackLeave, turnLockShouldAdvance } from "./nav-match.js?v=8";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -631,6 +631,9 @@ function restoreNavSpot() {
   if (leg && Number.isFinite(spot.legAlong)) along = leg.start + Math.min(Math.max(0, spot.legAlong), leg.end - leg.start);
   else if (spot.lineKey && spot.lineKey === navLineKey) along = spot.along;
   if (!Number.isFinite(along)) return false;
+  // A spot saved past the stop still being driven to is not where he is.
+  const active = activeNavLeg();
+  if (active && along > active.end + 1) return false;
   navAlongLock = along;
   navSpotSavedAlong = along;
   if (spot.bearing != null && navTravel == null) navTravel = spot.bearing;
@@ -4767,10 +4770,12 @@ let navLine = [];
 let navLegs = [];
 let navAlongLock = null;
 let navResumeGuard = null;
+let navLeave = null;
 let navLineKey = "";
 // Consistent on-road fixes needed to move a restored spot outside its stretch.
 const RESUME_CONFIRM_FIXES = 3;
 const RESUME_AGREE_M = 800;
+const RESUME_PARKED_M = 500;
 
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
@@ -4928,8 +4933,10 @@ function navBearing(a, b) {
 function navNearest(lat, lon, path) {
   if (!path || path.length < 2) return { dist: Infinity, along: 0 };
   if (navOn && path === navLine) {
-    let hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel });
-    if (navResumeGuard && navAlongLock != null) hit = guardResumedHit(lat, lon, path, hit);
+    const span = navMatchSpan();
+    let hit = matchAlong(lat, lon, path, { along: navAlongLock, bearing: navTravel, span });
+    if (navResumeGuard && navAlongLock != null) hit = guardResumedHit(lat, lon, path, hit, span);
+    if (span) hit = leaveSpanWhenDriven(lat, lon, path, hit, span);
     if (hit.dist <= ON_ROAD_M) {
       navAlongLock = hit.along;
       saveNavSpot(hit.along);
@@ -4939,15 +4946,65 @@ function navNearest(lat, lon, path) {
   return nearestOnPath(lat, lon, path);
 }
 
+// The legs the truck may be matched on: the stop being driven to, any open
+// stop before it, and the leg the lock is already on. A later stop's line
+// that runs beside them only wins in leaveSpanWhenDriven.
+function navMatchSpan() {
+  const active = activeNavLeg();
+  if (!active) return null;
+  let from = active.start;
+  let to = active.end;
+  for (const leg of navLegs) {
+    if (leg === active) break;
+    const stop = leg.stop;
+    if (stop && !stop.done && !stop.skipRoute && !stop.useCurrentLocation) {
+      from = Math.min(from, leg.start);
+      break;
+    }
+  }
+  const locked = navAlongLock == null ? null : navLegs.find((leg) => navAlongLock >= leg.start && navAlongLock <= leg.end);
+  if (locked) {
+    from = Math.min(from, locked.start);
+    to = Math.max(to, locked.end);
+  }
+  return { from, to };
+}
+
+// Off the span's line, a nearby leg outside it (parked in a median plaza
+// next to the other carriageway) is taken only once he has driven along it.
+function leaveSpanWhenDriven(lat, lon, path, hit, span) {
+  if (hit.dist <= ON_ROAD_M) {
+    navLeave = null;
+    return hit;
+  }
+  const other = nearestOffSpan(lat, lon, path, span);
+  if (!other || other.dist > ON_ROAD_M) {
+    navLeave = null;
+    return hit;
+  }
+  const fix = `${lat},${lon}`;
+  if (navLeave?.fix !== fix) navLeave = { ...trackLeave(navLeave, [lat, lon], other), fix };
+  if (!navLeave.driven) return hit;
+  navLeave = null;
+  navResumeGuard = null;
+  return other;
+}
+
+// "Not on the route yet" past this distance. Right after a refresh, a truck
+// parked a little way off the saved spot still gets that spot's step.
+function navOffRoute(hit) {
+  return hit.dist > (navResumeGuard ? RESUME_PARKED_M : 250);
+}
+
 // Right after a refresh the lock is only the saved spot. Keep matches on
 // that stretch until several on-road fixes agree he is somewhere else.
-function guardResumedHit(lat, lon, path, hit) {
+function guardResumedHit(lat, lon, path, hit, span = null) {
   const guard = navResumeGuard;
   if (hit.dist <= ON_ROAD_M && inLockWindow(hit.along, navAlongLock)) {
     navResumeGuard = null;
     return hit;
   }
-  const free = hit.dist <= ON_ROAD_M ? hit : nearestOnPath(lat, lon, path);
+  const free = hit.dist <= ON_ROAD_M ? hit : nearestOnPath(lat, lon, path, span);
   const fix = `${lat},${lon}`;
   if (fix !== guard.fix) {
     guard.fix = fix;
@@ -4964,7 +5021,7 @@ function guardResumedHit(lat, lon, path, hit) {
     navResumeGuard = null;
     return free;
   }
-  return matchNear(lat, lon, path, navAlongLock, navTravel) || hit;
+  return matchNear(lat, lon, path, navAlongLock, navTravel, span) || hit;
 }
 
 function rebuildNavLegs() {
@@ -8683,7 +8740,7 @@ function onNavFix(lat, lon) {
   } else {
     const hit = navNearest(lat, lon, navLine);
     paintDrive(hit.along);
-    const off = hit.dist > 250;
+    const off = navOffRoute(hit);
     const raw = navLegs.find((item) => hit.along >= item.start && hit.along <= item.end) || navLegs[navLegs.length - 1];
     const leg = activeNavLeg(hit);
     const gap = leg ? Math.max(0, leg.start - hit.along) : 0;
@@ -8892,6 +8949,7 @@ function endRouteNav({ paint = true } = {}) {
   compassAim = false;
   navAlongLock = null;
   navResumeGuard = null;
+  navLeave = null;
   navSpotSavedAlong = null;
   navLineKey = "";
   navStopPicked = false;
@@ -9228,6 +9286,7 @@ async function beginRouteNav({ resume = false } = {}) {
   void keepNavSignedIn();
   navAlongLock = null;
   navResumeGuard = null;
+  navLeave = null;
   navSpotSavedAlong = null;
   navLineKey = routeProgressKey(routePoints());
   if (resume) restoreNavSpot();
@@ -9429,6 +9488,7 @@ function paintLiveRoute() {
     navLineKey = key;
     navAlongLock = null;
     navResumeGuard = null;
+    navLeave = null;
   }
   const coordinates = line.map(([lat, lon]) => [lon, lat]);
   const source = routeMap?.getSource("route");

@@ -61,12 +61,13 @@ const APP_FUNCTIONS = [
   "navBearing", "hasRouteLine", "copyRouteLine", "stopHasSavedLeg", "readDriveProgress", "applyStoredTrip",
   "tripProgressKey", "readNavProgress", "readNavSpot", "writeNavProgress", "clearNavProgress",
   "rememberNavProgress", "saveNavSpot", "restoreNavSpot", "rebuildNavLegs", "navNearest", "guardResumedHit",
-  "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg",
+  "navMatchSpan", "leaveSpanWhenDriven", "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg",
 ];
 const APP_CODE = [
   constLine("NAV_PROGRESS_KEY"),
   constLine("RESUME_CONFIRM_FIXES"),
   constLine("RESUME_AGREE_M"),
+  constLine("RESUME_PARKED_M"),
   ...APP_FUNCTIONS.map(extract),
 ].join("\n\n");
 
@@ -89,7 +90,7 @@ function page(storage) {
     ...navMatch,
     localStorage: storage,
     state: { stops: [], origin: null, tripName: "", activeTripId: "trip-1", trips: [], plan: null, driveProgress: null },
-    navLine: [], navLegs: [], navAlongLock: null, navResumeGuard: null, navLineKey: "", navTravel: null,
+    navLine: [], navLegs: [], navAlongLock: null, navResumeGuard: null, navLeave: null, navLineKey: "", navTravel: null,
     navOn: false, navAimStopId: "", navSpotSavedAlong: null, navFix: null,
     navStopCursor: 0, navStopPicked: false, navGuideFromId: "", navStopAwaitNear: false, navStopAnnounce: false, navStopSpeakKey: "",
     defaultStop: (over = {}) => ({ id: `cl-${++idCount}`, name: "", address: "", miles: "", hours: "", ...over }),
