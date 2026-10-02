@@ -4448,6 +4448,8 @@ let navMapTouch = false;
 let navZoom = 15;
 let navZoomHold = 0;
 let navWatch = null;
+let navFixAt = 0;
+let navWakeAt = 0;
 let navYou = null;
 let navFix = null;
 let navMotion = 0;
@@ -6435,6 +6437,16 @@ function pointAhead(lat, lon, bearingDeg, meters) {
   return [phi2 * 180 / Math.PI, ((lambda2 * 180 / Math.PI + 540) % 360) - 180];
 }
 
+// MapLibre normally paints on requestAnimationFrame. iOS drops that frame
+// when the ringer, a banner, or an app switch covers the page, and then
+// ignores later paints until the next resume. redraw() paints now and
+// clears the dropped frame, so the lock keeps up while the app is open.
+function showNavCamera(camera) {
+  if (!routeMap || !camera) return;
+  routeMap.jumpTo(camera);
+  if (typeof routeMap.redraw === "function") routeMap.redraw();
+}
+
 function travelBearing(along) {
   const here = pointAlong(navLine, along);
   const ahead = pointAlong(navLine, along + 50);
@@ -6547,14 +6559,10 @@ function frameNextTurn() {
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
-  routeMap.stop();
-  routeMap.easeTo({
-    center: cameraCenter,
-    zoom,
-    bearing,
-    duration: 450,
-    easing: (x) => x,
-  });
+  // Jump, do not ease. The ease waits on a frame iOS drops when a banner
+  // or an app switch covers the page, and the map then stays on the old
+  // north-up view until he comes back.
+  showNavCamera({ center: cameraCenter, zoom, bearing });
   } finally {
     framingTurn = false;
   }
@@ -8053,6 +8061,7 @@ function startNavMotion() {
 function onNavFix(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
+  navFixAt = Date.now();
   // Always keep the blue circle on the map when GPS updates.
   if (!navYou) placeNavDot(lat, lon);
   else aimNavDot(lat, lon);
@@ -8618,6 +8627,61 @@ async function beginRouteNav() {
   // Motion permission is only asked here — not again in the Start click handler.
   await enableNavCompass();
   startNavMotion();
+}
+
+function snapNavLock() {
+  if (!navOn || !routeMap || !navFix || document.visibilityState === "hidden") return;
+  if (Date.now() < navZoomHold) return;
+  if (tripFit === "nextTurn") {
+    frameNextTurn();
+    return;
+  }
+  if (navFollowing && tripFit === "off" && !navMapTouch) {
+    const camera = { center: [navFix[1], navFix[0]], zoom: routeMap.getZoom() };
+    const bearing = followBearing();
+    if (bearing != null) camera.bearing = bearing;
+    showNavCamera(camera);
+  }
+}
+
+function restartNavWatch() {
+  if (!navigator.geolocation || !navOn) return;
+  if (navWatch != null) {
+    navigator.geolocation.clearWatch(navWatch);
+    navWatch = null;
+  }
+  startNavWatch();
+}
+
+function pokeNavFix() {
+  if (!navigator.geolocation || !navOn) return;
+  const asked = Date.now();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      if (!navOn) return;
+      if (navFixAt > asked + 500) return;
+      onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude);
+    },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 1500, timeout: 4000 },
+  );
+}
+
+// iOS delivers the caught-up map only after the app is shown again, because
+// the camera ease was waiting on a frame that never ran. Wake the lock on
+// resume, and also while the page stays visible, so it does not sit there.
+function wakeNavLock() {
+  if (!navOn || document.visibilityState === "hidden") return;
+  const now = Date.now();
+  if (now - navWakeAt < 400) return;
+  navWakeAt = now;
+  if (!navFixAt || now - navFixAt > 2000) {
+    restartNavWatch();
+    pokeNavFix();
+  }
+  if (routeFull) fitRouteCover();
+  else routeMap?.resize();
+  snapNavLock();
 }
 
 function startNavWatch() {
@@ -9601,7 +9665,21 @@ export function initPlanner(el) {
     if (document.visibilityState !== "visible") return;
     watchSignIn();
     tickLeaveNow();
+    wakeNavLock();
   });
+  window.addEventListener("pageshow", () => wakeNavLock());
+  window.addEventListener("focus", () => wakeNavLock());
+  window.addEventListener("resize", () => {
+    if (navOn && document.visibilityState === "visible") snapNavLock();
+  });
+  window.setInterval(() => {
+    if (!navOn || document.visibilityState === "hidden") return;
+    if (!navFixAt || Date.now() - navFixAt > 3000) {
+      restartNavWatch();
+      pokeNavFix();
+    }
+    snapNavLock();
+  }, 1000);
   setInterval(() => {
     if (state.signedIn) watchSignIn();
   }, 15000);
