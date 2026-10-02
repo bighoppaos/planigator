@@ -48,7 +48,7 @@ function extract(name) {
 
 const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
-  "withoutGo", "maneuverText", "inDistance", "approachPhrase", "directionWithMilesLeft", "upcomingDirection",
+  "withoutGo", "maneuverText", "inDistance", "approachPhrase", "spokenApproach", "directionWithMilesLeft", "upcomingDirection",
   "speakNavProgress", "speakNav", "navVoiceLocked", "onVoiceGesture",
 ];
 const APP_CODE = APP_FUNCTIONS.map(extract).join("\n\n");
@@ -173,6 +173,91 @@ console.log("\nTap while not navigating");
   pg.navProgressResume = true;
   pg.onVoiceGesture({ type: "click" });
   expect("a tap while the drive is resuming unlocks", pg.voiceGestureSeen, true);
+}
+
+// Two legs: a rest stop 3 miles in, then PACTIV. The list highlights the
+// rest stop's last row once you are parked there, and that row names the
+// first move of the next leg ("Head west").
+const restPath = road.slice(0, 49);
+const pactivPath = road.slice(48, 59);
+const restStop = {
+  id: "rest",
+  directions: [
+    { text: "Head east on I-76 E (Pennsylvania Tpke)", miles: 2.4 },
+    { text: "Take exit 2 toward Rest Area", miles: 0.5 },
+    { text: "Arrive at your destination on the left.", miles: 0 },
+  ],
+};
+const pactivStop = {
+  id: "pactiv",
+  directions: [
+    { text: "Head west. Go for 0.1 mi.", miles: 0.1 },
+    { text: "Turn right onto Woodbine Rd. Go for 0.5 mi.", miles: 0.5 },
+    { text: "Arrive at PACTIV", miles: 0 },
+  ],
+};
+
+function tripPage(voice) {
+  const pg = page(voice);
+  const restEnd = pg.polylineMeters(restPath);
+  pg.restLeg = { start: 0, end: restEnd, path: restPath, stop: restStop };
+  pg.pactivLeg = { start: restEnd, end: restEnd + pg.polylineMeters(pactivPath), path: pactivPath, stop: pactivStop };
+  pg.navLegs = [pg.restLeg, pg.pactivLeg];
+  return pg;
+}
+
+// A GPS fix this many miles before the end of a leg (negative is past it).
+function legFix(pg, leg, milesToEnd) {
+  const along = leg.end - milesToEnd * MILE;
+  pg.speakNavProgress(leg, pg.navStep(leg, Math.max(0, along - leg.start)), along);
+}
+
+function noFeet(pg) {
+  return pg.said.filter((text) => /\b(?:foot|feet)\b/i.test(text));
+}
+
+console.log("\nDrive into the rest stop and park (no refresh)");
+{
+  const pg = tripPage("us");
+  pg.voiceGestureSeen = true;
+  for (let m = 2.9; m >= 0.05; m -= 0.05) legFix(pg, pg.restLeg, Math.round(m * 1000) / 1000);
+  for (const m of [0.01, 0, 0, -0.002, 0]) legFix(pg, pg.restLeg, m);
+  const arrive = pg.said.filter((text) => /arrive/i.test(text));
+  expect("the arrival is said once on the way in", arrive, ["In 0.5 miles, Arrive at your destination on the left."]);
+  expect("parked: says the highlighted next move, once", pg.said.slice(-1), ["Head west"]);
+  expect("no foot or feet lines", noFeet(pg), []);
+}
+
+for (const voice of ["us", "phone"]) {
+  console.log(`\nRefresh while parked at the rest stop, then tap (${voice} voice)`);
+  const pg = tripPage(voice);
+  for (const m of [0, 0, -0.001]) legFix(pg, pg.restLeg, m);
+  expect("nothing while locked", pg.said, []);
+  pg.onVoiceGesture({ type: "touchend" });
+  for (const m of [0, 0, 0, -0.001]) legFix(pg, pg.restLeg, m);
+  expect("the tap says the highlighted step, not the arrival", pg.said, ["Head west"]);
+  expect("no foot or feet lines", noFeet(pg), []);
+}
+
+console.log("\nRefresh while parked at the last stop, then tap");
+{
+  const pg = tripPage("us");
+  legFix(pg, pg.pactivLeg, 0);
+  pg.onVoiceGesture({ type: "click" });
+  for (const m of [0, 0, -0.001]) legFix(pg, pg.pactivLeg, m);
+  expect("an arrival that already happened is not said again", pg.said, []);
+}
+
+console.log("\nA turn closer than 0.1 mi");
+{
+  const pg = tripPage("us");
+  pg.voiceGestureSeen = true;
+  legFix(pg, pg.pactivLeg, 0.6);
+  expect("no feet, just the turn", pg.said, ["Turn right onto Woodbine Rd"]);
+  const near = tripPage("us");
+  near.voiceGestureSeen = true;
+  legFix(near, near.restLeg, 0.03);
+  expect("arriving in under 0.1 mi says just the arrival", near.said, ["Arrive at your destination on the left."]);
 }
 
 console.log(failures ? `\n${failures} check(s) failed.` : "\nAll checks passed.");
