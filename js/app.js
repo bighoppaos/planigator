@@ -5241,12 +5241,33 @@ function preferMix() {
   }
 }
 
+// The page voices' mixer. iOS suspends it, or marks it "interrupted" after a
+// call or another app's audio, and it stays quiet until a tap resumes it.
+function readyMix() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!mixCtx || mixCtx.state === "closed") {
+    const ctx = new AudioCtx();
+    mixCtx = ctx;
+    ctx.onstatechange = () => {
+      if (ctx !== mixCtx || !navOn) return;
+      if (ctx.state === "running") paintVoiceHint();
+      else if ((ctx.state === "suspended" || ctx.state === "interrupted") && navVoiceId() !== "phone") relockNavVoice();
+    };
+  }
+  if (mixCtx.state !== "running") {
+    try {
+      Promise.resolve(mixCtx.resume()).catch(() => {});
+    } catch {
+      // Still locked. The next tap tries again.
+    }
+  }
+  return mixCtx;
+}
+
 function unlockMix() {
   preferMix();
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
-  if (!mixCtx) mixCtx = new AudioCtx();
-  if (mixCtx.state === "suspended") mixCtx.resume();
+  if (!readyMix()) return;
   try {
     const buf = mixCtx.createBuffer(1, 1, 22050);
     const src = mixCtx.createBufferSource();
@@ -5258,6 +5279,10 @@ function unlockMix() {
   }
 }
 
+// Ends the line being spoken now. Its promise settles here too, because iOS
+// does not always send onend/onerror after cancel().
+let settleSpeech = null;
+
 function stopNavUtterance() {
   if (navVoiceNode) {
     try { navVoiceNode.stop(); } catch { /* already stopped */ }
@@ -5265,28 +5290,44 @@ function stopNavUtterance() {
   }
   phoneUtter = null;
   window.speechSynthesis?.cancel();
+  const settle = settleSpeech;
+  settleSpeech = null;
+  settle?.();
+}
+
+// iOS can leave a line that never sends onend (paused synth, audio taken by a
+// call, page hidden). Past this, the line is dropped so the next one is not
+// stuck behind it and it does not play late.
+function speechWatchMs(text) {
+  return 6000 + String(text || "").length * 150;
 }
 
 function playSamples(samples, rate) {
   return new Promise((resolve) => {
     preferMix();
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx || !samples?.length) {
+    const ctx = samples?.length ? readyMix() : null;
+    if (!ctx) {
       resolve();
       return;
     }
-    if (!mixCtx) mixCtx = new AudioCtx();
-    if (mixCtx.state === "suspended") mixCtx.resume();
-    const buffer = mixCtx.createBuffer(1, samples.length, rate);
+    const buffer = ctx.createBuffer(1, samples.length, rate);
     buffer.getChannelData(0).set(samples);
-    const source = mixCtx.createBufferSource();
+    const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(mixCtx.destination);
+    source.connect(ctx.destination);
     navVoiceNode = source;
+    let watch = 0;
     const done = () => {
+      window.clearTimeout(watch);
       if (navVoiceNode === source) navVoiceNode = null;
+      if (settleSpeech === done) settleSpeech = null;
       resolve();
     };
+    settleSpeech = done;
+    watch = window.setTimeout(() => {
+      try { source.stop(); } catch { /* never started */ }
+      done();
+    }, (samples.length / rate) * 1000 + 3000);
     source.onended = done;
     try {
       source.start();
@@ -5336,16 +5377,17 @@ function clearVoiceLoad() {
 
 function previewChosenVoice() {
   preferMix();
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (AudioCtx && !mixCtx) {
-    mixCtx = new AudioCtx();
-    mixCtx.resume();
-  }
+  readyMix();
   const label = navVoiceLabel();
   playChosenVoice(`This is ${label}.`);
 }
 
 let phoneUtter = null;
+// Kept until checkPhoneVoice reads it. Safari sends no events for an
+// utterance that was garbage collected.
+let phoneProbe = null;
+// Last time the phone voice started or finished a line.
+let phoneHeardAt = 0;
 let speakChain = Promise.resolve();
 let speakGen = 0;
 
@@ -5360,16 +5402,29 @@ function speakPhone(text, gen) {
       resolve();
       return;
     }
+    clearStuckSpeech(synth);
     const utter = new SpeechSynthesisUtterance(text);
     phoneUtter = utter;
     // Do not set utter.voice. Leaving it alone uses the voice from iPhone
     // Settings, including a premium voice. Picking a localService voice
     // overrides that and sounds like a different person.
+    let watch = 0;
     const done = () => {
+      window.clearTimeout(watch);
       if (phoneUtter === utter) phoneUtter = null;
+      if (settleSpeech === done) settleSpeech = null;
       resolve();
     };
-    utter.onend = done;
+    settleSpeech = done;
+    watch = window.setTimeout(() => {
+      if (phoneUtter === utter) synth.cancel();
+      done();
+    }, speechWatchMs(text));
+    utter.onstart = () => { phoneHeardAt = Date.now(); };
+    utter.onend = () => {
+      phoneHeardAt = Date.now();
+      done();
+    };
     utter.onerror = done;
     try {
       synth.speak(utter);
@@ -5378,6 +5433,18 @@ function speakPhone(text, gen) {
       done();
     }
   });
+}
+
+// A paused synth, or one holding a line it never finished, keeps a new
+// line queued behind it, and the old one plays when iOS lets it go.
+function clearStuckSpeech(synth) {
+  if (!synth || !(synth.paused || synth.pending || synth.speaking)) return;
+  try {
+    synth.cancel();
+    synth.resume();
+  } catch {
+    // speak() below still runs.
+  }
 }
 
 // `text` can be a function. It is read just before the line is spoken.
@@ -5390,6 +5457,13 @@ function playChosenVoice(text, { barge = true } = {}) {
     speakChain = Promise.resolve();
   }
   const gen = speakGen;
+  if (barge && navVoiceId() === "phone") {
+    // iOS only lets speak() start inside the tap, not after a promise hop.
+    const said = lineNow();
+    const job = said ? speakPhone(said, gen) : Promise.resolve();
+    speakChain = job;
+    return job;
+  }
   const job = speakChain.then(async () => {
     if (gen !== speakGen) return;
     if (navVoiceId() === "phone") {
@@ -5459,18 +5533,24 @@ function navVoiceLabel() {
 }
 
 let navVoiceIntroPending = false;
-// iOS keeps a page silent after every load until a tap. A refresh resumes
-// navigation with no tap, so the voice waits for the first touch anywhere.
+// iOS keeps a page silent after every load until a tap, and again after he
+// leaves the app, takes a call, or the screen locks. The tap listener stays on
+// for the whole drive: every tap unlocks the voice and says the direction.
 let voiceGestureSeen = false;
 let navVoiceMissed = false;
 const VOICE_GESTURES = ["pointerdown", "touchend", "click", "keydown"];
+// One tap sends pointerdown, touchend, and click. Only one of them speaks.
+const VOICE_TAP_MS = 600;
+let voiceTapAt = 0;
+let voicePress = null;
+// These say their own line when tapped.
+const VOICE_OWN_LINE = "#voicePrev, #voiceNext, #startNav, #routeSwitch, [data-aim-stop]";
 
 function unlockNavVoice() {
   // Unlock audio on this tap, then say the line in the chosen voice. The first
   // direction queues after this so it does not cut in with a different voice.
   unlockMix();
   voiceGestureSeen = true;
-  disarmVoiceGesture();
   navVoiceIntroPending = true;
   playChosenVoice("Navigation on.", { barge: true }).finally(() => {
     navVoiceIntroPending = false;
@@ -5496,22 +5576,87 @@ function warmPhoneVoice() {
   }
 }
 
+// Dragging or pinching the map ends in a touchend too. That is not a tap.
+function tapMoved(event) {
+  if (event?.type !== "touchend") return false;
+  // Another finger is still down: a pinch.
+  if (event.touches?.length) return true;
+  const press = voicePress;
+  voicePress = null;
+  const lift = event.changedTouches?.[0];
+  if (!press || !lift) return false;
+  return Boolean(press.multi) || Math.hypot(lift.clientX - press.x, lift.clientY - press.y) > 12;
+}
+
 function onVoiceGesture(event) {
   if (!navOn && !navProgressResume) return;
   unlockMix();
   // A finger going down is not a tap to iOS yet. Wait for it to lift.
-  if (event?.type === "pointerdown" && event.pointerType !== "mouse") return;
-  if (navVoiceId() === "phone") warmPhoneVoice();
+  if (event?.type === "pointerdown" && event.pointerType !== "mouse") {
+    if (event.isPrimary === false) {
+      if (voicePress) voicePress.multi = true;
+    } else voicePress = { x: event.clientX, y: event.clientY };
+    return;
+  }
+  if (event?.repeat || tapMoved(event)) return;
+  const now = Date.now();
+  if (now - voiceTapAt < VOICE_TAP_MS) return;
+  voiceTapAt = now;
   voiceGestureSeen = true;
-  disarmVoiceGesture();
-  if (navVoiceMissed) {
-    // Lines that came due while the page could not talk were never heard.
-    // Say the current direction again on the next fresh fix.
+  const ownLine = event?.target?.closest?.(VOICE_OWN_LINE);
+  if (navOn && !ownLine && sayTapLine()) {
     navVoiceMissed = false;
+  } else {
+    if (navVoiceId() === "phone") warmPhoneVoice();
+    if (navVoiceMissed) {
+      // Lines that came due while the page could not talk were never heard.
+      // Say the current direction again on the next fresh fix.
+      navVoiceMissed = false;
+      spokenStepKey = "";
+      spokenMiles.clear();
+    }
+  }
+  paintVoiceHint();
+}
+
+// The step the banner shows, from the latest fix even when it is older than
+// NAV_FRESH_MS. A tap says it; GPS callouts still wait for a fresh fix.
+let navVoiceNow = null;
+
+function currentNavStep() {
+  const now = navVoiceNow;
+  const inLeg = now ? now.along - now.leg.start : 0;
+  const found = now ? navStep(now.leg, Math.max(0, inLeg)) : null;
+  if (!found) return null;
+  return { leg: now.leg, found, meters: metersLeftInStep(now.leg, inLeg, found.index) };
+}
+
+function currentStepLine() {
+  const at = currentNavStep();
+  return at ? stepLine(at.leg, at.found, at.meters) : "";
+}
+
+// Says the current direction on a tap, cutting off anything playing or
+// queued. Returns false when there is nothing to say.
+function sayTapLine() {
+  if (!navVoiceNow) {
+    const title = String(document.getElementById("routeNavTitle")?.textContent || "").trim();
+    if (!title) return false;
+    playChosenVoice(title, { barge: true });
+    return true;
+  }
+  const at = currentNavStep();
+  if (!at || !stepLine(at.leg, at.found, at.meters)) return false;
+  if (navFixFresh()) {
+    // GPS fixes do not say this step again. The next mile mark still speaks.
+    holdStepLine(`${at.leg.stop.id}:${at.found.index}`, at.meters / 1609.344);
+  } else {
+    // Said from an old spot. The next fresh fix says it with the live miles.
     spokenStepKey = "";
     spokenMiles.clear();
   }
-  paintVoiceHint();
+  playChosenVoice(currentStepLine, { barge: true });
+  return true;
 }
 
 function armVoiceGesture() {
@@ -5520,15 +5665,33 @@ function armVoiceGesture() {
   }
 }
 
-function disarmVoiceGesture() {
-  for (const type of VOICE_GESTURES) {
-    document.removeEventListener(type, onVoiceGesture, { capture: true });
-  }
+function relockNavVoice() {
+  if (!navOn) return;
+  voiceGestureSeen = false;
+  armVoiceGesture();
+  paintVoiceHint();
+}
+
+// Hidden: iOS holds the audio, and whatever was queued would all play when
+// he comes back. Drop it; the next line is said from where he is then.
+function hushNavVoice() {
+  speakGen += 1;
+  speakChain = Promise.resolve();
+  navVoiceIntroPending = false;
+  stopNavUtterance();
 }
 
 function rewarmNavVoice() {
   if (!navOn || document.visibilityState !== "visible") return;
-  if (navVoiceId() === "phone" || !mixCtx || mixCtx.state === "running") return;
+  if (navVoiceId() === "phone") {
+    checkPhoneVoice();
+    return;
+  }
+  if (!mixCtx) {
+    relockNavVoice();
+    return;
+  }
+  if (mixCtx.state === "running") return;
   const ctx = mixCtx;
   try {
     Promise.resolve(ctx.resume()).catch(() => {});
@@ -5537,10 +5700,34 @@ function rewarmNavVoice() {
   }
   window.setTimeout(() => {
     if (!navOn || ctx !== mixCtx || ctx.state === "running") return;
-    voiceGestureSeen = false;
-    armVoiceGesture();
-    paintVoiceHint();
+    relockNavVoice();
   }, 800);
+}
+
+// The phone voice has no locked state to read. A silent line that never
+// starts means iOS is holding the voice, so wait for a tap.
+function checkPhoneVoice() {
+  const synth = window.speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance !== "function") return;
+  clearStuckSpeech(synth);
+  const asked = Date.now();
+  try {
+    const utter = new SpeechSynthesisUtterance(" ");
+    utter.volume = 0;
+    utter.onstart = () => { phoneHeardAt = Date.now(); };
+    utter.onend = utter.onstart;
+    phoneProbe = utter;
+    synth.speak(utter);
+    synth.resume();
+  } catch {
+    // Checked below.
+  }
+  window.setTimeout(() => {
+    phoneProbe = null;
+    if (!navOn || navVoiceId() !== "phone" || phoneHeardAt >= asked) return;
+    if (!phoneUtter) synth.cancel();
+    relockNavVoice();
+  }, 1500);
 }
 
 function paintVoiceHint() {
@@ -5632,7 +5819,7 @@ function spokenAloud(text) {
 
 function speakNav(text) {
   if (!navOn || !text) return;
-  if (navVoiceLocked()) {
+  if (navVoiceLocked() || document.visibilityState === "hidden") {
     // A clip started now would sit in the paused mixer and play late.
     navVoiceMissed = true;
     paintVoiceHint();
@@ -5648,6 +5835,7 @@ function resetNavVoice() {
   spokenTurnKey = "";
   spokenMiles.clear();
   navVoiceMissed = false;
+  navVoiceNow = null;
   stopNavUtterance();
 }
 
@@ -5735,32 +5923,46 @@ function upcomingDirection(leg, index) {
 
 let navVoiceHere = null;
 
+function stepLine(leg, found, meters) {
+  const next = upcomingDirection(leg, found.index);
+  const text = String(found.step?.text || "").trim();
+  // Under 0.1 mi with nothing ahead, this row is a stop already reached.
+  return (next && spokenApproach(next, meters))
+    || (text && meters / 1609.344 >= 0.1 ? directionWithMilesLeft(text, meters) : "");
+}
+
+// This step's line was said. Mile marks it is already inside are not said.
+function holdStepLine(stepKey, miles) {
+  spokenStepKey = stepKey;
+  spokenMiles.clear();
+  for (const band of [5, 4, 3, 2, 1, 0.5]) {
+    if (miles <= band) spokenMiles.add(band);
+  }
+}
+
 function speakNavProgress(leg, found, hereAlong) {
   if (!found || !leg?.stop?.id) return;
+  navVoiceNow = { leg, along: hereAlong };
   // Not where he is now. The next fresh fix says it.
   if (!navFixFresh()) return;
   navVoiceHere = { stopId: leg.stop.id, along: hereAlong };
   const stepKey = `${leg.stop.id}:${found.index}`;
   const leftMeters = metersLeftInStep(leg, hereAlong - leg.start, found.index);
   const miles = leftMeters / 1609.344;
-  const text = String(found.step?.text || "").trim();
   const bands = [5, 4, 3, 2, 1, 0.5];
+  // Miles left in this step at the latest fresh fix, or null once he is past it.
+  const leftNow = () => {
+    const here = navVoiceHere?.stopId === leg.stop.id ? navVoiceHere.along : hereAlong;
+    if (navStep(leg, Math.max(0, here - leg.start))?.index !== found.index) return null;
+    return metersLeftInStep(leg, here - leg.start, found.index);
+  };
   if (stepKey !== spokenStepKey) {
-    spokenStepKey = stepKey;
-    spokenMiles.clear();
-    for (const band of bands) {
-      if (miles <= band) spokenMiles.add(band);
-    }
-    const next = upcomingDirection(leg, found.index);
-    // Under 0.1 mi with nothing ahead, this row is a stop already reached.
-    const line = (meters) => (next && spokenApproach(next, meters))
-      || (text && meters / 1609.344 >= 0.1 ? directionWithMilesLeft(text, meters) : "");
+    holdStepLine(stepKey, miles);
     // Read when the voice is ready to talk, from the latest fix, so a line
     // that waited on the voice still has the miles from where he is then.
-    if (line(leftMeters)) speakNav(() => {
-      const here = navVoiceHere?.stopId === leg.stop.id ? navVoiceHere.along : hereAlong;
-      if (navStep(leg, Math.max(0, here - leg.start))?.index !== found.index) return "";
-      return line(metersLeftInStep(leg, here - leg.start, found.index));
+    if (stepLine(leg, found, leftMeters)) speakNav(() => {
+      const meters = leftNow();
+      return meters == null ? "" : stepLine(leg, found, meters);
     });
   }
   for (const band of bands) {
@@ -5774,7 +5976,11 @@ function speakNavProgress(leg, found, hereAlong) {
     if (!next) break;
     const said = approachPhrase(next, band * 1609.344);
     if (!said) break;
-    speakNav(said);
+    // A mark that waited past the next one is old news by then.
+    speakNav(() => {
+      const meters = leftNow();
+      return meters != null && meters / 1609.344 > band - 0.4 ? said : "";
+    });
     break;
   }
 }
@@ -8918,6 +9124,7 @@ function onNavFix(lat, lon, at = null) {
   rebuildNavLegs();
   paintRouteLines();
   noteArrivedStops(lat, lon);
+  navVoiceNow = null;
   if (navLine.length < 2) {
     paintDrive(null);
     setStopChip(-1, "");
@@ -10707,7 +10914,10 @@ export function initPlanner(el) {
   document.addEventListener("scroll", mark, true);
   armVoiceGesture();
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== "visible") {
+      hushNavVoice();
+      return;
+    }
     watchSignIn();
     tickLeaveNow();
     wakeNavLock();

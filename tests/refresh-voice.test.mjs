@@ -50,8 +50,18 @@ const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
   "withoutGo", "maneuverText", "inDistance", "approachPhrase", "spokenApproach", "directionWithMilesLeft", "upcomingDirection",
   "speakNavProgress", "speakNav", "navVoiceLocked", "onVoiceGesture",
+  "stepLine", "holdStepLine", "tapMoved", "currentNavStep", "currentStepLine", "sayTapLine",
 ];
-const APP_CODE = APP_FUNCTIONS.map(extract).join("\n\n");
+function constLine(name) {
+  const hit = new RegExp(`^const ${name} = [^;]+;`, "m").exec(appSource);
+  if (!hit) throw new Error(`app.js has no const ${name}`);
+  return hit[0].replace(/^const /, "var ");
+}
+const APP_CODE = [
+  constLine("VOICE_TAP_MS"),
+  constLine("VOICE_OWN_LINE"),
+  ...APP_FUNCTIONS.map(extract),
+].join("\n\n");
 
 // A straight road east with three directions. The exit is 7 miles in.
 const road = [];
@@ -76,7 +86,8 @@ function page(voice) {
     spokenStepKey: "", spokenTurnKey: "", spokenMiles: new Set(),
     // A context made before the tap stays suspended on iPhone.
     mixCtx: voice === "phone" ? null : { state: "suspended" },
-    navLegs: [], navVoiceHere: null,
+    navLegs: [], navVoiceHere: null, navVoiceNow: null, voiceTapAt: 0, voicePress: null,
+    document: { visibilityState: "visible", getElementById: () => null },
     // Every fix here is one the GPS just took.
     navFixFresh: () => true,
     navVoiceId: () => voice,
