@@ -6812,24 +6812,47 @@ function noHandsSlots() {
     userY = Math.max(turnY + buttonH * 1.8, userY);
     return { width, height, userY, turnY, buttonH, visibleTop, safeTop };
   }
-  // Page Turn zoom — leave this path alone.
-  let turnY = Math.max(visibleTop + 8, Math.round(visibleTop + buttonH * 2));
-  if (compass && mapBox && mapBox.height > 10) {
-    const box = compass.getBoundingClientRect();
-    if (box.height > 10) turnY = box.top + box.height / 2 - mapBox.top;
+  // Page Turn zoom: the next turn sits mid-way along a line across the tops
+  // of Detour and the compass. You sit just above the ETA chip.
+  const shown = (el) => {
+    const box = el?.getBoundingClientRect();
+    return box && box.width > 2 && box.height > 2 ? box : null;
+  };
+  const hasMap = mapBox && mapBox.height > 10;
+  const detourBox = shown(document.getElementById("routeDetour"));
+  const compassBox = shown(compass);
+  let turnX = width / 2;
+  let turnY = Math.round(visibleTop + buttonH * 2);
+  if (hasMap) {
+    const ends = [detourBox, compassBox].filter(Boolean);
+    if (ends.length) turnY = ends.reduce((sum, box) => sum + box.top, 0) / ends.length - mapBox.top;
+    if (ends.length === 2) {
+      turnX = (detourBox.left + detourBox.width / 2 + compassBox.left + compassBox.width / 2) / 2 - mapBox.left;
+    }
   }
-  turnY = Math.max(visibleTop + 8, Math.min(height * 0.42, turnY));
-  // You: Recalculate height — never under the place chips / ETA stack.
+  turnY = Math.max(visibleTop + 8, turnY);
+  const dotBox = shown(typeof navYou?.getElement === "function" ? navYou.getElement() : null);
+  const dotR = (dotBox ? dotBox.height / 2 : 12) + NAV_DOT_HALO_PX;
   let userY = height - Math.max(pad.bottom, 24) - 12;
-  if (recalc && mapBox && mapBox.height > 10) {
-    const box = recalc.getBoundingClientRect();
-    if (box.height > 10) userY = box.top + box.height / 2 - mapBox.top;
+  if (hasMap) {
+    let chip = shown(document.getElementById("routeStopMiles"));
+    if (!chip) {
+      chip = ["routeDrive", "routePlace"]
+        .map((id) => shown(document.getElementById(id)))
+        .filter(Boolean)
+        .sort((a, b) => a.top - b.top)[0] || null;
+    }
+    const chipTop = chip ? chip.top - mapBox.top : NaN;
+    if (chipTop > 0 && chipTop <= height) userY = chipTop - dotR - NAV_DOT_CHIP_GAP_PX;
   }
-  const clearBottom = height - Math.max(pad.bottom, 24) - 12;
-  userY = Math.min(userY, clearBottom);
-  userY = Math.max(turnY + buttonH * 1.8, userY);
-  return { width, height, userY, turnY, buttonH };
+  userY = Math.min(userY, height - dotR - 4);
+  if (userY - turnY < 48) turnY = Math.max(visibleTop + 8, userY - 48);
+  return { width, height, userY, turnY, turnX, buttonH, visibleTop };
 }
+
+// The blue dot's box-shadow ring, and the gap it keeps from the ETA chip.
+const NAV_DOT_HALO_PX = 6;
+const NAV_DOT_CHIP_GAP_PX = 6;
 
 // Meters forward (along bearing) and right of the truck. Coords are [lon, lat].
 function stretchMeters(originLat, originLon, bearing, coords) {
@@ -6859,12 +6882,18 @@ function stretchMeters(originLat, originLon, bearing, coords) {
 
 // Zoom so every point of the stretch sits above the truck, between the side
 // buttons and above the directions. The truck stays on the bottom slot.
-function cameraForStretch(bearing, coords, slots) {
+// On the page, a turn ahead is pinned to the turn slot. Road past the turn
+// may use the room above it, and the zoom only goes out past the pin when
+// some of the road would leave the map.
+function cameraForStretch(bearing, coords, slots, turn) {
   const clear = railClearance();
   const margin = 12;
   const left = clear.left + margin;
   const rightEdge = Math.max(left + 48, slots.width - clear.right - margin);
-  const top = Math.max(margin, slots.turnY);
+  const pin = !routeFull && Array.isArray(turn) && Number.isFinite(slots.turnX);
+  const top = pin
+    ? Math.max(margin, (slots.visibleTop || 0) + margin)
+    : Math.max(margin, slots.turnY);
   const aheadPx = Math.max(72, slots.userY - top - margin);
   const widePx = Math.max(48, rightEdge - left);
   const belowPx = Math.max(20, slots.height - slots.userY - margin);
@@ -6876,6 +6905,10 @@ function cameraForStretch(bearing, coords, slots) {
   let mppNeed = aheadM / aheadPx;
   if (sideM > 1) mppNeed = Math.max(mppNeed, sideM / widePx);
   if (behindM > 1) mppNeed = Math.max(mppNeed, behindM / belowPx);
+  if (pin) {
+    const turnM = stretchMeters(navFix[0], navFix[1], bearing, [turn]).maxF;
+    if (turnM > 1) mppNeed = Math.max(mppNeed, turnM / Math.max(48, slots.userY - slots.turnY));
+  }
   const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
   let zoom = Math.log2((MERCATOR_MPP0 * cos) / mppNeed);
   zoom = Math.max(3, Math.min(routeFull ? 17.2 : 16.4, zoom));
@@ -6883,7 +6916,7 @@ function cameraForStretch(bearing, coords, slots) {
     const mpp = mercatorMpp(useZoom, navFix[0]);
     const minTruckX = left - frame.minR / mpp;
     const maxTruckX = rightEdge - frame.maxR / mpp;
-    const prefer = (left + rightEdge) / 2;
+    const prefer = pin ? slots.turnX : (left + rightEdge) / 2;
     let truckX = prefer;
     if (minTruckX <= maxTruckX) truckX = Math.min(maxTruckX, Math.max(minTruckX, prefer));
     const upM = (slots.userY - slots.height / 2) * mpp;
@@ -7032,7 +7065,7 @@ function frameNextTurn() {
   coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
   const camera = routeFull && ahead
     ? cameraForFullTurn(bearing, coords, [at.lon, at.lat], slots)
-    : cameraForStretch(bearing, coords, slots);
+    : cameraForStretch(bearing, coords, slots, ahead ? [at.lon, at.lat] : null);
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
