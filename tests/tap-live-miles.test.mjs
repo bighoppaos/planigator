@@ -80,7 +80,7 @@ const APP_FUNCTIONS = [
   "hoursForMeters", "paintDrive", "driveLeftText",
 ];
 // Not in the old page. It runs without them, so this test can show it failing.
-const OPTIONAL_FUNCTIONS = ["fixTime", "navFixFresh", "stopDriveText", "nextStopMeters"];
+const OPTIONAL_FUNCTIONS = ["fixTime", "navFixFresh", "stopDriveText", "nextStopMeters", "pageDriveText"];
 const APP_CODE = [
   constLine("NAV_PROGRESS_KEY"),
   constLine("NAV_PROGRESS_TRIPS"),

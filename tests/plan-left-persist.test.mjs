@@ -199,7 +199,7 @@ function page({ storage = memoryStorage(), delayMinutes = 0, settings = {}, acti
     navWatch: null, navYou: null, routeMap: null, dirBrowseTimer: 0, onNavCompass: noop,
     clearDirectionPin: noop, clearStopNote: noop, setStopChip: noop, stopNavMotion: noop, resetNavVoice: noop,
     stopMixNavVoice: noop, clearTurnFrame: noop, freezeTyping: noop, syncTripFitButton: noop, showWholeTrip: noop,
-    syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop,
+    syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop, paintDrive: noop,
     // Done, open trip, and Clear trip side effects.
     paintDoneStop: noop, paintDirectionToward: noop, keepDoneOnSavedTrip: noop, persist: noop,
     parkSpeedNote: noop, showTripSpeedNote: noop, blankSpeedNote: noop, settleLoadedStops: noop,
