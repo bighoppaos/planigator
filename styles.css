@@ -706,6 +706,27 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-bottom: 0;
 }
 
+.directions > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.directions > summary .dir-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.directions > summary .dir-toward {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
 .call-log {
   list-style: none;
   padding: 0;

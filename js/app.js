@@ -28,7 +28,7 @@ import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
 import { parseStopPaste } from "./paste-stop.js?v=3";
-import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M } from "./nav-match.js?v=2";
+import { directionWindow, matchAlong, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=5";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
 import { loadTowns, townAt } from "./town.js?v=1";
@@ -2060,6 +2060,7 @@ function markStopDone(stop, { switched = false } = {}) {
     state.driveProgress = { stopId: next.id, remainFraction: 1, leftAt: Date.now() };
   }
   rebuildPlanAfterDone();
+  paintDirectionToward();
 }
 
 function closerLegEnd(leg, hit) {
@@ -3574,6 +3575,38 @@ function directionFocus(stop, index) {
   return { lat: at.lat, lon: at.lon, coords };
 }
 
+function directionTowardName() {
+  if (navAimStopId) {
+    const aimed = state.stops.find((stop) => (
+      stop.id === navAimStopId && !stop.done && !stop.skipRoute && !stop.useCurrentLocation
+    ));
+    if (aimed) return navStopTitle(aimed);
+  }
+  if (navOn && !navLegs.length) rebuildNavLegs();
+  if (navOn || navLegs.length) {
+    const leg = activeNavLeg();
+    if (leg?.stop) return navStopTitle(leg.stop);
+  }
+  for (let index = 0; index < state.stops.length; index += 1) {
+    const stop = state.stops[index];
+    if (!stop || stop.useCurrentLocation || stop.done || stop.skipRoute) continue;
+    if (isOriginStop(state.stops, index)) continue;
+    if (!Array.isArray(stop.directions) || !stop.directions.length) continue;
+    return navStopTitle(stop);
+  }
+  return "";
+}
+
+function paintDirectionToward() {
+  const name = directionTowardName();
+  const node = document.getElementById("dirToward");
+  if (!node) return;
+  if (node.textContent !== name) node.textContent = name;
+  node.hidden = !name;
+  if (name) node.setAttribute("title", name);
+  else node.removeAttribute("title");
+}
+
 function directionsBlock() {
   const groups = [];
   for (const stop of state.stops) {
@@ -3592,8 +3625,12 @@ function directionsBlock() {
     const leg = item.index === 0 ? `<li class="dir-leg">${escapeAttr(item.group.title)}</li>` : "";
     return `${leg}<li value="${item.index + 1}"><button type="button" class="dir-step" data-dir-stop="${escapeAttr(item.group.id)}" data-dir-index="${item.index}"><span class="dir-link" data-original="${escapeAttr(text)}">${escapeAttr(shown)}</span></button></li>`;
   }).join("");
+  const toward = directionTowardName();
+  const towardHtml = toward
+    ? `<span class="dir-toward" id="dirToward" title="${escapeAttr(toward)}">${escapeAttr(toward)}</span>`
+    : `<span class="dir-toward" id="dirToward" hidden></span>`;
   return `<details class="directions call-log-box" id="routeDirections" open>
-    <summary>auto zooming directions</summary>
+    <summary><span class="dir-label">auto zooming directions</span>${towardHtml}</summary>
     <div class="dir-scroll">
       <ol>${items}</ol>
     </div>
@@ -4411,6 +4448,8 @@ let navMapTouch = false;
 let navZoom = 15;
 let navZoomHold = 0;
 let navWatch = null;
+let navFixAt = 0;
+let navWakeAt = 0;
 let navYou = null;
 let navFix = null;
 let navMotion = 0;
@@ -5873,6 +5912,7 @@ function aimNavAtStop(stopId, confirmed) {
   navStopCursor = pos;
   navAimStopId = stopId;
   navStopPicked = true;
+  paintDirectionToward();
   navGuideFromId = "";
   navStopAwaitNear = false;
   navStopAnnounce = false;
@@ -6367,10 +6407,20 @@ function zoomForCenterToTop(meters, lat, height) {
   return Math.max(3, Math.min(17.5, zoom));
 }
 
+// MapLibre's world is 512px at zoom 0. The older 256px constant
+// (156543) is twice this. Turn zoom uses this one so a screen slot
+// and the truck land on the pixels we asked for.
+const MERCATOR_MPP0 = 78271.516964;
+
+function mercatorMpp(zoom, lat) {
+  const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
+  return (MERCATOR_MPP0 * cos) / (2 ** zoom);
+}
+
 function zoomForPixelSpan(meters, pixels, lat) {
   const mpp = Math.max(30, meters) / Math.max(48, pixels);
   const cos = Math.max(0.2, Math.cos((Number(lat) || 0) * Math.PI / 180));
-  const zoom = Math.log2((156543.03392 * cos) / mpp);
+  const zoom = Math.log2((MERCATOR_MPP0 * cos) / mpp);
   return Math.max(3, Math.min(18, zoom));
 }
 
@@ -6387,80 +6437,22 @@ function pointAhead(lat, lon, bearingDeg, meters) {
   return [phi2 * 180 / Math.PI, ((lambda2 * 180 / Math.PI + 540) % 360) - 180];
 }
 
+// MapLibre normally paints on requestAnimationFrame. iOS drops that frame
+// when the ringer, a banner, or an app switch covers the page, and then
+// ignores later paints until the next resume. redraw() paints now and
+// clears the dropped frame, so the lock keeps up while the app is open.
+function showNavCamera(camera) {
+  if (!routeMap || !camera) return;
+  routeMap.jumpTo(camera);
+  if (typeof routeMap.redraw === "function") routeMap.redraw();
+}
+
 function travelBearing(along) {
   const here = pointAlong(navLine, along);
   const ahead = pointAlong(navLine, along + 50);
   if (here && ahead) return navBearing([here.lat, here.lon], [ahead.lat, ahead.lon]);
   if (typeof navTravel === "number") return navTravel;
   return routeMap?.getBearing() || 0;
-}
-
-// Full-screen only. Page Turn zoom never calls this.
-// Padding keeps you and the next turn above the ETA chip and the directions
-// panel at its current height (collapsed or open), under the top, and off
-// the side buttons.
-function fullscreenTurnPadding(width, height, overlayTop, railLeft, railRight, safeTop) {
-  const margin = 28;
-  const minWindow = 96;
-  let top = Math.max(36, Math.round((Number(safeTop) || 0) + 16));
-  let bottom = !Number.isFinite(overlayTop)
-    ? Math.round(height * 0.28)
-    : Math.round(Math.max(0, height - overlayTop) + margin);
-  let left = Math.max(48, Math.round(railLeft || 72));
-  let right = Math.max(48, Math.round(railRight || 72));
-  const maxX = Math.max(24, Math.floor((width - minWindow) / 2));
-  left = Math.min(left, maxX);
-  right = Math.min(right, maxX);
-  if (top + bottom > height - minWindow) {
-    top = Math.max(12, Math.min(top, Math.max(12, height - bottom - minWindow)));
-    if (top + bottom > height - minWindow) bottom = Math.max(12, height - top - minWindow);
-  }
-  return { top, bottom, left, right };
-}
-
-function fullscreenTurnCamera(at, along, target, bearing) {
-  const maplibre = window.maplibregl;
-  const map = routeMap?.getContainer();
-  if (!maplibre || !map || !navFix || !at) return null;
-  const mapBox = map.getBoundingClientRect();
-  const width = map.clientWidth || mapBox.width || 360;
-  const height = map.clientHeight || mapBox.height || 640;
-  if (width < 80 || height < 80) return null;
-  const overlayTop = fullscreenOverlayTop(mapBox);
-  const clear = railClearance();
-  const padding = fullscreenTurnPadding(width, height, overlayTop, clear.left, clear.right, safeTopPad());
-  const from = Math.min(along, target);
-  const to = Math.max(along, target);
-  const coords = navRemaining(from, to);
-  coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
-  if (coords.length < 2) return null;
-  const bounds = coords.reduce(
-    (box, coord) => box.extend(coord),
-    new maplibre.LngLatBounds(coords[0], coords[0]),
-  );
-  let fitted = null;
-  try {
-    fitted = routeMap.cameraForBounds(bounds, { padding, bearing, maxZoom: 17.2 });
-  } catch {
-    fitted = null;
-  }
-  if (!fitted || fitted.center == null || !Number.isFinite(fitted.zoom)) return null;
-  return { center: fitted.center, zoom: Math.min(17.2, fitted.zoom) };
-}
-
-function fullscreenOverlayTop(mapBox) {
-  if (!mapBox || mapBox.height < 2) return null;
-  const stack = document.querySelector("#routeStage .route-bottom");
-  const sheet = document.getElementById("routeDirections");
-  let top = null;
-  for (const el of [stack, sheet]) {
-    if (!el || el.hidden) continue;
-    const box = el.getBoundingClientRect();
-    if (box.height < 2 || box.bottom <= mapBox.top || box.top >= mapBox.bottom) continue;
-    const y = box.top - mapBox.top;
-    if (top == null || y < top) top = y;
-  }
-  return top;
 }
 
 let framingTurn = false;
@@ -6521,6 +6513,93 @@ function noHandsSlots() {
   return { width, height, userY, turnY, buttonH };
 }
 
+// Meters forward (along bearing) and right of the truck. Coords are [lon, lat].
+function stretchMeters(originLat, originLon, bearing, coords) {
+  const theta = bearing * Math.PI / 180;
+  const sin = Math.sin(theta);
+  const cos = Math.cos(theta);
+  const cosLat = Math.cos(originLat * Math.PI / 180);
+  let minF = 0;
+  let maxF = 0;
+  let minR = 0;
+  let maxR = 0;
+  for (const coord of coords) {
+    const lon = Number(coord?.[0]);
+    const lat = Number(coord?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const dNorth = (lat - originLat) * Math.PI / 180 * 6378137;
+    const dEast = (lon - originLon) * Math.PI / 180 * 6378137 * cosLat;
+    const forward = dEast * sin + dNorth * cos;
+    const right = dEast * cos - dNorth * sin;
+    if (forward < minF) minF = forward;
+    if (forward > maxF) maxF = forward;
+    if (right < minR) minR = right;
+    if (right > maxR) maxR = right;
+  }
+  return { minF, maxF, minR, maxR };
+}
+
+// Zoom so every point of the stretch sits above the truck, between the side
+// buttons and above the directions. The truck stays on the bottom slot.
+function cameraForStretch(bearing, coords, slots) {
+  const clear = railClearance();
+  const margin = 12;
+  const left = clear.left + margin;
+  const rightEdge = Math.max(left + 48, slots.width - clear.right - margin);
+  const top = Math.max(margin, slots.turnY);
+  const aheadPx = Math.max(72, slots.userY - top - margin);
+  const widePx = Math.max(48, rightEdge - left);
+  const belowPx = Math.max(20, slots.height - slots.userY - margin);
+  const frame = stretchMeters(navFix[0], navFix[1], bearing, coords);
+  const floor = routeFull ? 70 : 110;
+  const aheadM = Math.max(floor, frame.maxF);
+  const behindM = Math.max(0, -frame.minF);
+  const sideM = Math.max(0, frame.maxR - frame.minR);
+  let mppNeed = aheadM / aheadPx;
+  if (sideM > 1) mppNeed = Math.max(mppNeed, sideM / widePx);
+  if (behindM > 1) mppNeed = Math.max(mppNeed, behindM / belowPx);
+  const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
+  let zoom = Math.log2((MERCATOR_MPP0 * cos) / mppNeed);
+  zoom = Math.max(3, Math.min(routeFull ? 17.2 : 16.4, zoom));
+  const place = (useZoom) => {
+    const mpp = mercatorMpp(useZoom, navFix[0]);
+    const minTruckX = left - frame.minR / mpp;
+    const maxTruckX = rightEdge - frame.maxR / mpp;
+    const prefer = (left + rightEdge) / 2;
+    let truckX = prefer;
+    if (minTruckX <= maxTruckX) truckX = Math.min(maxTruckX, Math.max(minTruckX, prefer));
+    const upM = (slots.userY - slots.height / 2) * mpp;
+    const rightM = (slots.width / 2 - truckX) * mpp;
+    const raised = pointAhead(navFix[0], navFix[1], bearing, upM);
+    const center = pointAhead(raised[0], raised[1], bearing + 90, rightM);
+    return { center: [center[1], center[0]], zoom: useZoom, bearing };
+  };
+  let camera = place(zoom);
+  // The flat-earth fit is a first guess. One real projection pass zooms out
+  // if a curve still crosses a button or the top of the map.
+  showNavCamera(camera);
+  const box = { left, right: rightEdge, top, bottom: slots.userY + 14 };
+  let overflow = 0;
+  const step = Math.max(1, Math.floor(coords.length / 80));
+  for (let i = 0; i < coords.length; i += step) {
+    const coord = coords[i];
+    if (!coord) continue;
+    const p = routeMap.project(coord);
+    overflow = Math.max(overflow, box.left - p.x, p.x - box.right, box.top - p.y, p.y - box.bottom);
+  }
+  const last = coords[coords.length - 1];
+  if (last) {
+    const p = routeMap.project(last);
+    overflow = Math.max(overflow, box.left - p.x, p.x - box.right, box.top - p.y, p.y - box.bottom);
+  }
+  if (overflow > 2 && zoom > 3) {
+    const shrink = aheadPx / (aheadPx + overflow);
+    zoom = Math.max(3, zoom + Math.log2(Math.min(0.92, Math.max(0.45, shrink))));
+    camera = place(zoom);
+  }
+  return camera;
+}
+
 function frameNextTurn() {
   if (!routeMap || framingTurn) return;
   framingTurn = true;
@@ -6530,16 +6609,12 @@ function frameNextTurn() {
   // Seat rails above the live ETA / directions stack before reading slots.
   if (routeFull) seatRails();
   const along = turnGuideAlong();
-  const mile = 1609.344;
   if (turnLockAlong == null) turnLockAlong = currentDirectionEnd(along);
-  if (turnLockAlong != null && along >= turnLockAlong - 12) {
-    const next = currentDirectionEnd(turnLockAlong + 35);
-    const gap = next == null ? Infinity : next - turnLockAlong;
-    if (gap < mile || along >= turnLockAlong + mile) {
-      const jumped = next != null && next > along + 20 ? next : currentDirectionEnd(along + 20);
-      if (jumped != null) turnLockAlong = jumped;
-    }
-  } else if (turnLockAlong != null) {
+  const nextAtLock = turnLockAlong == null ? null : currentDirectionEnd(turnLockAlong + 35);
+  if (turnLockShouldAdvance(along, turnLockAlong, nextAtLock)) {
+    const jumped = nextAtLock != null && nextAtLock > along + 20 ? nextAtLock : currentDirectionEnd(along + 20);
+    if (jumped != null) turnLockAlong = jumped;
+  } else if (turnLockAlong != null && along < turnLockAlong - 12) {
     const sooner = currentDirectionEnd(along);
     if (sooner != null && sooner + 30 < turnLockAlong) turnLockAlong = sooner;
   }
@@ -6549,44 +6624,29 @@ function frameNextTurn() {
   if (!at) return;
   const slots = noHandsSlots();
   const ahead = target >= along - 15;
-  // Keep the map pointed down the road under you. Aiming at a side turn
-  // would swing the locked slots off center.
-  let bearing = northLock ? 0 : travelBearing(along);
-  if (!Number.isFinite(bearing)) {
-    bearing = ahead ? navBearing(navFix, [at.lat, at.lon]) : (routeMap.getBearing() || 0);
+  // Point the stretch up the screen: the line from you to the next turn,
+  // not the few feet of road under the truck. A long curve aimed only at
+  // the local heading runs off the side before the turn.
+  let bearing = routeMap.getBearing() || 0;
+  if (northLock) bearing = 0;
+  else if (ahead && metersBetween(navFix, [at.lat, at.lon]) > 30) bearing = navBearing(navFix, [at.lat, at.lon]);
+  else {
+    const travel = travelBearing(along);
+    if (Number.isFinite(travel)) bearing = travel;
   }
-  if (!Number.isFinite(bearing)) bearing = routeMap.getBearing() || 0;
-  const dist = metersBetween(navFix, [at.lat, at.lon]);
-  const pixels = Math.max(72, slots.userY - slots.turnY);
-  // Lock you and the turn on those screen slots. Zoom to fit the real
-  // distance (a floor keeps a close turn from burying the pavement).
-  const floor = routeFull ? 70 : 110;
-  const span = Math.max(floor, ahead ? dist : Math.max(dist, floor));
-  let zoom = zoomForPixelSpan(span, pixels, navFix[0]);
-  zoom = Math.min(zoom, routeFull ? 17.2 : 16.4);
-  const cos = Math.max(0.2, Math.cos(navFix[0] * Math.PI / 180));
-  const mpp = (156543.03392 * cos) / (2 ** zoom);
-  // Page Turn zoom locks you on the Recalculate slot. Leave that center alone.
-  const center = pointAhead(navFix[0], navFix[1], bearing, (slots.userY - slots.height / 2) * mpp);
-  let cameraCenter = [center[1], center[0]];
-  if (routeFull) {
-    const framed = fullscreenTurnCamera(at, along, target, bearing);
-    if (framed) {
-      cameraCenter = framed.center;
-      zoom = framed.zoom;
-    }
-  }
+  if (!Number.isFinite(bearing)) bearing = 0;
+  const from = Math.min(along, target);
+  const to = Math.max(along, target);
+  const coords = navRemaining(from, to);
+  coords.push([navFix[1], navFix[0]], [at.lon, at.lat]);
+  const camera = cameraForStretch(bearing, coords, slots);
   placeTurnPin(target);
   turnShownAlong = target;
   placeNavDot(navFix[0], navFix[1]);
-  routeMap.stop();
-  routeMap.easeTo({
-    center: cameraCenter,
-    zoom,
-    bearing,
-    duration: 450,
-    easing: (x) => x,
-  });
+  // Jump, do not ease. The ease waits on a frame iOS drops when a banner
+  // or an app switch covers the page, and the map then stays on the old
+  // north-up view until he comes back.
+  showNavCamera(camera);
   } finally {
     framingTurn = false;
   }
@@ -8085,6 +8145,7 @@ function startNavMotion() {
 function onNavFix(lat, lon) {
   const maplibre = window.maplibregl;
   if (!routeMap || !maplibre || !navOn) return;
+  navFixAt = Date.now();
   // Always keep the blue circle on the map when GPS updates.
   if (!navYou) placeNavDot(lat, lon);
   else aimNavDot(lat, lon);
@@ -8156,6 +8217,7 @@ function onNavFix(lat, lon) {
       speakNavProgress(leg, found, hit.along);
     }
   }
+  paintDirectionToward();
   if (tripFit === "nextTurn") {
     if (Date.now() < navZoomHold) return;
     frameNextTurn();
@@ -8651,6 +8713,61 @@ async function beginRouteNav() {
   startNavMotion();
 }
 
+function snapNavLock() {
+  if (!navOn || !routeMap || !navFix || document.visibilityState === "hidden") return;
+  if (Date.now() < navZoomHold) return;
+  if (tripFit === "nextTurn") {
+    frameNextTurn();
+    return;
+  }
+  if (navFollowing && tripFit === "off" && !navMapTouch) {
+    const camera = { center: [navFix[1], navFix[0]], zoom: routeMap.getZoom() };
+    const bearing = followBearing();
+    if (bearing != null) camera.bearing = bearing;
+    showNavCamera(camera);
+  }
+}
+
+function restartNavWatch() {
+  if (!navigator.geolocation || !navOn) return;
+  if (navWatch != null) {
+    navigator.geolocation.clearWatch(navWatch);
+    navWatch = null;
+  }
+  startNavWatch();
+}
+
+function pokeNavFix() {
+  if (!navigator.geolocation || !navOn) return;
+  const asked = Date.now();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      if (!navOn) return;
+      if (navFixAt > asked + 500) return;
+      onNavFix(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude);
+    },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 1500, timeout: 4000 },
+  );
+}
+
+// iOS delivers the caught-up map only after the app is shown again, because
+// the camera ease was waiting on a frame that never ran. Wake the lock on
+// resume, and also while the page stays visible, so it does not sit there.
+function wakeNavLock() {
+  if (!navOn || document.visibilityState === "hidden") return;
+  const now = Date.now();
+  if (now - navWakeAt < 400) return;
+  navWakeAt = now;
+  if (!navFixAt || now - navFixAt > 2000) {
+    restartNavWatch();
+    pokeNavFix();
+  }
+  if (routeFull) fitRouteCover();
+  else routeMap?.resize();
+  snapNavLock();
+}
+
 function startNavWatch() {
   if (!navigator.geolocation) {
     sayNav("Allow location", "Planigator needs location to show you on this trip.", "");
@@ -8813,6 +8930,7 @@ function paintLiveDirections() {
   const leftInStep = metersLeftInStep(leg, alongInLeg, found.index) + gap;
   markDirection(leg.stop.id, found.index);
   paintDirectionMiles(hit.along, { stopId: leg.stop.id, index: found.index });
+  paintDirectionToward();
   const leftOnLeg = Math.max(0, leg.end - hit.along);
   setStopChip(leftOnLeg, navStopTitle(leg.stop));
   paintSwitchOffer(hit);
@@ -9631,7 +9749,21 @@ export function initPlanner(el) {
     if (document.visibilityState !== "visible") return;
     watchSignIn();
     tickLeaveNow();
+    wakeNavLock();
   });
+  window.addEventListener("pageshow", () => wakeNavLock());
+  window.addEventListener("focus", () => wakeNavLock());
+  window.addEventListener("resize", () => {
+    if (navOn && document.visibilityState === "visible") snapNavLock();
+  });
+  window.setInterval(() => {
+    if (!navOn || document.visibilityState === "hidden") return;
+    if (!navFixAt || Date.now() - navFixAt > 3000) {
+      restartNavWatch();
+      pokeNavFix();
+    }
+    snapNavLock();
+  }, 1000);
   setInterval(() => {
     if (state.signedIn) watchSignIn();
   }, 15000);
