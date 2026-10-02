@@ -76,9 +76,11 @@ function page(voice) {
     spokenStepKey: "", spokenTurnKey: "", spokenMiles: new Set(),
     // A context made before the tap stays suspended on iPhone.
     mixCtx: voice === "phone" ? null : { state: "suspended" },
-    navLegs: [],
+    navLegs: [], navVoiceHere: null,
+    // Every fix here is one the GPS just took.
+    navFixFresh: () => true,
     navVoiceId: () => voice,
-    playChosenVoice: (text) => { said.push(text); return Promise.resolve(); },
+    playChosenVoice: (text) => { said.push(typeof text === "function" ? text() : text); return Promise.resolve(); },
     paintVoiceHint: () => {},
     disarmVoiceGesture: () => {},
     warmPhoneVoice: () => {},
