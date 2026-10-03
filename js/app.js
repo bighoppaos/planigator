@@ -4024,7 +4024,8 @@ function paintDirectionToward() {
   const name = directionTowardName();
   const node = document.getElementById("dirToward");
   if (!node) return;
-  if (node.textContent !== name) node.textContent = name;
+  const shown = name ? `(${name})` : "";
+  if (node.textContent !== shown) node.textContent = shown;
   node.hidden = !name;
   if (name) node.setAttribute("title", name);
   else node.removeAttribute("title");
@@ -4050,7 +4051,7 @@ function directionsBlock() {
   }).join("");
   const toward = directionTowardName();
   const towardHtml = toward
-    ? `<span class="dir-toward" id="dirToward" title="${escapeAttr(toward)}">${escapeAttr(toward)}</span>`
+    ? `<span class="dir-toward" id="dirToward" title="${escapeAttr(toward)}">(${escapeAttr(toward)})</span>`
     : `<span class="dir-toward" id="dirToward" hidden></span>`;
   return `<details class="directions call-log-box" id="routeDirections" open>
     <summary><span class="dir-label">auto zooming directions</span>${towardHtml}</summary>
@@ -4075,11 +4076,11 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       <div id="routeMap" class="route-map">
       <aside class="route-rail route-rail-left">
         <div class="rail-pop" id="railStopsPop">
-          <button type="button" id="routeStops" aria-expanded="false" aria-label="Stops"><span>Stop</span></button>
+          <button type="button" id="routeStops" aria-expanded="false" aria-label="Stops"><span>Stops</span></button>
           <div class="rail-col-menu" id="railStopsMenu" hidden></div>
         </div>
         <div class="rail-pop" id="railDetourPop">
-          <button type="button" id="routeDetour" aria-expanded="false" aria-label="Detour"><span>Detour</span></button>
+          <button type="button" id="routeDetour" aria-expanded="false" aria-label="Detours"><span>Detours</span></button>
           <div class="rail-col-menu" id="railDetourMenu" hidden>
             <button type="button" data-detour="truck">Truck stop</button>
             <button type="button" data-detour="swift">Swift terminals</button>
@@ -4094,7 +4095,7 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
       </aside>
       <aside class="route-rail">
         <button type="button" id="routeFull" aria-label="Full screen"><span>Full</span><span>screen</span></button>
-        <button type="button" id="routeExit" hidden>Exit</button>
+        <button type="button" id="routeExit" hidden aria-label="Exit full screen"><span>Exit</span><span>full</span></button>
         <button type="button" id="routeCompass" aria-label="Lock map to true north" aria-pressed="false">
           <span class="compass-rose" aria-hidden="true"><span class="compass-n">N</span><span class="compass-e">E</span><span class="compass-s">S</span><span class="compass-w">W</span></span>
           <svg class="compass-needle compass-fill" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 17.8 20.2 12 16.2 6.2 20.2Z"/></svg>

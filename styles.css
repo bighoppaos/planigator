@@ -1908,7 +1908,6 @@ html.route-full body > :not(#routeStage) {
 .compass-rose {
   position: absolute;
   inset: 0;
-  transform: rotate(calc(var(--compass) * -1deg));
   pointer-events: none;
 }
 .compass-rose span {
@@ -1917,7 +1916,7 @@ html.route-full body > :not(#routeStage) {
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
-  transform: translate(-50%, -50%) rotate(calc(var(--compass) * 1deg));
+  transform: translate(-50%, -50%);
 }
 .compass-rose .compass-n { left: 50%; top: 17%; color: #3dcaa0; }
 .compass-rose .compass-e { left: 83%; top: 50%; }
@@ -1930,7 +1929,7 @@ html.route-full body > :not(#routeStage) {
   top: 50%;
   width: 14px;
   height: 14px;
-  transform: translate(-50%, -50%) rotate(calc((var(--heading) - var(--compass)) * 1deg));
+  transform: translate(-50%, -50%) rotate(calc(var(--heading) * 1deg));
   pointer-events: none;
 }
 .route-stage.is-full #routeCompass .compass-needle { width: 16px; height: 16px; }
@@ -2091,6 +2090,8 @@ html.route-full body > :not(#routeStage) {
 }
 #routeWhole { font-size: 8px; }
 .route-stage.is-full #routeWhole { font-size: 10px; }
+#routeDetour span { font-size: 8.5px; }
+.route-stage.is-full #routeDetour span { font-size: 11px; }
 .route-stage.is-full .route-rail button {
   width: 60px;
   max-width: 60px;

@@ -103,16 +103,17 @@
       text-align: center;
     }
     .book-rail button.on { border-color: #3dcaa0; }
-    .book-compass { position: relative; padding: 0; --compass: 0; --heading: 90; }
+    .book-compass { position: relative; padding: 0; --heading: 90; }
+    .book-rail .book-detours span { font-size: 8.5px; }
     .book-compass.on { background: rgb(61 202 160 / 0.32); }
-    .book-rose { position: absolute; inset: 0; transform: rotate(calc(var(--compass) * -1deg)); pointer-events: none; }
+    .book-rose { position: absolute; inset: 0; pointer-events: none; }
     .book-rose span {
       position: absolute;
       color: #fff;
       font-size: 11px;
       font-weight: 800;
       line-height: 1;
-      transform: translate(-50%, -50%) rotate(calc(var(--compass) * 1deg));
+      transform: translate(-50%, -50%);
     }
     .book-rose .n { left: 50%; top: 17%; color: #3dcaa0; }
     .book-rose .e { left: 83%; top: 50%; }
@@ -124,7 +125,7 @@
       top: 50%;
       width: 16px;
       height: 16px;
-      transform: translate(-50%, -50%) rotate(calc((var(--heading) - var(--compass)) * 1deg));
+      transform: translate(-50%, -50%) rotate(calc(var(--heading) * 1deg));
       pointer-events: none;
     }
     .book-compass.on .book-fill { display: none; }
@@ -155,7 +156,7 @@
   </header>
   <main class="manual">
     <h1>Manual</h1>
-    <p class="build-line"><span>Build#612 10.3.26.</span><a href="./releases.html">Release notes</a></p>
+    <p class="build-line"><span>Build#613 10.3.26.</span><a href="./releases.html">Release notes</a></p>
     <p>This page shows the buttons on <a href="./">the planner</a> and what each one does. The pictures are the same buttons, drawn here so you can match them. They are not a live map, and they are not a saved trip.</p>
     <p>Planigator plans a truck trip in the browser, then navigates that route on the same page. The clocks are a planning aid. They are not legal advice and they are not a substitute for your ELD.</p>
     <ul class="toc">
@@ -314,14 +315,14 @@
       </div>
       <p class="caption">Not full screen. Top to bottom: Full screen, compass, Trip zoom (default before navigation), Recalculate. Follow me appears after Start navigation.</p>
 
-      <p>Full screen while you are navigating adds Exit, elevation, wind, Stop, Detour, and the place buttons on the left. The zoom button cycles. This picture is Turn zoom, which is how navigation starts.</p>
+      <p>Full screen while you are navigating adds Exit full, elevation, wind, Stops, Detours, and the place buttons on the left. The zoom button cycles. This picture is Turn zoom, which is how navigation starts.</p>
       <div class="book-map tall" aria-hidden="true">
         <div class="book-road"></div>
         <div class="book-you"></div>
         <div class="book-pin"></div>
         <div class="book-rail left">
-          <button type="button" tabindex="-1"><span>Stop</span></button>
-          <button type="button" tabindex="-1"><span>Detour</span></button>
+          <button type="button" tabindex="-1"><span>Stops</span></button>
+          <button type="button" class="book-detours" tabindex="-1"><span>Detours</span></button>
           <button type="button" tabindex="-1"><span>Love's</span></button>
           <button type="button" tabindex="-1"><span>Wal</span><span>mart</span></button>
           <button type="button" tabindex="-1"><span>Truck</span><span>stop</span></button>
@@ -331,7 +332,7 @@
           <button type="button" tabindex="-1"><span>Zoom</span><span>out</span></button>
         </div>
         <div class="book-rail">
-          <button type="button" tabindex="-1">Exit</button>
+          <button type="button" tabindex="-1"><span>Exit</span><span>full</span></button>
           <button type="button" tabindex="-1"><span>1125</span><span>Down</span></button>
           <button type="button" tabindex="-1"><span>8</span><span>mph</span></button>
           <button type="button" class="book-compass" tabindex="-1" style="--heading:90">
@@ -345,7 +346,7 @@
       </div>
       <p class="caption">Full screen, navigating, on an eastbound road. North stays at the top of the compass. The arrow points at E, the way the road goes. Elevation here is 1,125 feet and going down. Wind is 8 mph. A green ring means that button is on. Follow me is separate from Turn zoom.</p>
       <ul>
-        <li><strong>Full screen</strong> fills the page with the map. <strong>Exit</strong> leaves full screen. Exit is only there in full screen.</li>
+        <li><strong>Full screen</strong> fills the page with the map. <strong>Exit full</strong> leaves full screen. Exit full is only there in full screen.</li>
         <li><strong>Elevation</strong> shows only in full screen. Before the phone reports a height, the button says Elev and a dash. Then it shows feet from the phone GPS. Until that number changes, the second line stays a dash. One foot lower says Down. One foot higher says Up. It is not sent to Planigator.</li>
         <li><strong>Wind</strong> shows only in full screen. Before it loads, the button says Wind and a dash. Then it shows the speed and mph. The number comes from a weather service, not from Planigator, and it is not sent to Planigator. It refreshes about every 10 minutes or about 5 miles, when you enter full screen, and when you tap the wind button.</li>
         <li><strong>Street map</strong> and <strong>Satellite</strong> are the same button. Tap it to switch. The green ring is the map you are on. In a tunnel the switch waits, then happens when the phone has a signal again.</li>
@@ -377,11 +378,11 @@
       <ul>
         <li><strong>Trip zoom</strong> shows the whole route, north up, clear of the directions and the side buttons. This is the default before you start navigation, and again after End navigation.</li>
         <li><strong>Left zoom</strong> shows what is left, north up.</li>
-        <li><strong>Turn zoom</strong> is the default once navigation is running. You stay at the bottom of the map, at Recalculate height. In full screen that is just above the directions. The map fits the whole road from you to the next turn, even when that turn is a long highway run many miles ahead. That road runs up the screen from you, including when it curves, and the whole stretch stays on the map between the side buttons and above the directions. In full screen the next turn stays about an inch from the top of the screen, below the notch. The map only shows it lower when that is the only way to keep all of the road to it on the screen, or in the last 60 feet or so before the turn. The map tightens as the turn gets closer. In Turn zoom your dot and the next-turn dot stay in the same place on the screen; the map moves and zooms under them. You and the turn stay clear of the buttons, the ETA chip, and the directions. After you pass a turn, you stay low on the map. The next turn moves to the top of the view once it is under a mile away, or once you have driven a mile, whichever comes first. The map turns so that stretch points up unless north is locked. It keeps that lock while Planigator is on screen, including after a notification. You do not have to leave the app and come back for the map to catch up. In landscape, each side has two rails of three buttons beside the directions. Exit sits at the top.</li>
+        <li><strong>Turn zoom</strong> is the default once navigation is running. You stay at the bottom of the map, at Recalculate height. In full screen that is just above the directions. The map fits the whole road from you to the next turn, even when that turn is a long highway run many miles ahead. That road runs up the screen from you, including when it curves, and the whole stretch stays on the map between the side buttons and above the directions. In full screen the next turn stays about an inch from the top of the screen, below the notch. The map only shows it lower when that is the only way to keep all of the road to it on the screen, or in the last 60 feet or so before the turn. The map tightens as the turn gets closer. In Turn zoom your dot and the next-turn dot stay in the same place on the screen; the map moves and zooms under them. You and the turn stay clear of the buttons, the ETA chip, and the directions. After you pass a turn, you stay low on the map. The next turn moves to the top of the view once it is under a mile away, or once you have driven a mile, whichever comes first. The map turns so that stretch points up unless north is locked. It keeps that lock while Planigator is on screen, including after a notification. You do not have to leave the app and come back for the map to catch up. In landscape, each side has two rails of three buttons beside the directions. Exit full sits at the top.</li>
         <li><strong>Stop zoom</strong> shows you and the next stop, north up.</li>
         <li><strong>Follow me</strong> is a separate button. It is only the close view on you. It does not turn into Turn zoom.</li>
       </ul>
-      <p>While you are driving, the directions show the step you are on, the one before it, and the one after it. The header shows the stop you are driving toward, to the right of the word directions. A long name stays on one line and is cut off. It changes only when you pick the next stop and say the one you were on is done. Each line names the next move. The miles on the step you are on count down from where you are, to the tenth of a mile, and they come first. The next step stays at the miles it will be when you reach it. It starts counting down once that step is the current one. A turn you already passed does not keep a mileage. The voice uses the step you are on. Stop on the left side of the map opens the stops in a column. Tap one to start toward that stop. If that stop is not the one you were on, the map asks if the stop you were on is done. Press Stop again to close the column. Detour opens Swift terminals, Love's, Walmart, a truck stop, and Cat scale the same way. Tapping a direction holds that line still for a few seconds. Voice is with Start navigation and End navigation. The arrows step through Phone, US, Clear, Ann, Cal, Scot, and North. Phone is the voice on the phone and pauses the song. The others talk when you tap them and keep the song playing. It also says the next move at 5, 4, 3, 2, 1, and 0.5 miles. While you are navigating, tapping the direction you are on says it again, with the miles left from where you are. Tapping any other direction, or anything else, on the map or a button, is quiet. If the phone went quiet after you left the app, took a call, or the screen locked, the "Tap to turn on voice" note shows. The first tap anywhere, even on another direction, turns the voice back on and says the current direction once. A whole mile is said as 5 miles, not 5.0. The screen may say Tpke. The voice says Turnpike. A dash in a route number, such as US-220A, is not spoken. The city and state come from the phone's location. That lookup stays on the phone. It does not ask HERE and it does not use a credit.</p>
+      <p>While you are driving, the directions show the step you are on, the one before it, and the one after it. The header shows the stop you are driving toward in parentheses, to the right of the word directions, like Directions (WALMARdo). This is the same on the page and in full screen. A long name stays on one line and is cut off. It changes only when you pick the next stop and say the one you were on is done. Each line names the next move. The miles on the step you are on count down from where you are, to the tenth of a mile, and they come first. The next step stays at the miles it will be when you reach it. It starts counting down once that step is the current one. A turn you already passed does not keep a mileage. The voice uses the step you are on. Stops on the left side of the map opens the stops in a column. Tap one to start toward that stop. If that stop is not the one you were on, the map asks if the stop you were on is done. Press Stops again to close the column. Detours opens Swift terminals, Love's, Walmart, a truck stop, and Cat scale the same way. Tapping a direction holds that line still for a few seconds. Voice is with Start navigation and End navigation. The arrows step through Phone, US, Clear, Ann, Cal, Scot, and North. Phone is the voice on the phone and pauses the song. The others talk when you tap them and keep the song playing. It also says the next move at 5, 4, 3, 2, 1, and 0.5 miles. While you are navigating, tapping the direction you are on says it again, with the miles left from where you are. Tapping any other direction, or anything else, on the map or a button, is quiet. If the phone went quiet after you left the app, took a call, or the screen locked, the "Tap to turn on voice" note shows. The first tap anywhere, even on another direction, turns the voice back on and says the current direction once. A whole mile is said as 5 miles, not 5.0. The screen may say Tpke. The voice says Turnpike. A dash in a route number, such as US-220A, is not spoken. The city and state come from the phone's location. That lookup stays on the phone. It does not ask HERE and it does not use a credit.</p>
 
       <h3>Compass</h3>
       <div class="samples" aria-hidden="true">
@@ -397,7 +398,7 @@
         </button>
       </div>
       <p class="caption">Left: driving east on a north-up map. N is at the top. The arrow points at E. Right: north is locked. The ring is green and the arrow is an outline.</p>
-      <p>N on the compass is north on the map. The arrow is the way you are driving, not a second north. On an eastbound road with north up, N stays at the top and the arrow points at E.</p>
+      <p>The letters on the compass stay put: N at the top, E on the right, S at the bottom, and W on the left. They do not turn when the map turns. Only the arrow in the middle turns. It points at the way you are heading, so driving east it points at E, and driving north it points at N. The arrow is the way you are driving, not a second north.</p>
       <p>Tap the compass to lock the map to true north. Tap it again to follow the road. Locking north does not change Trip, Left, Turn, or Stop zoom. Trip, Left, and Stop stay north up either way. Turn zoom follows the road until you lock north.</p>
     </div>
 
@@ -412,7 +413,7 @@
         <span class="flag-box">Add and recalculate</span>
       </div>
       <p>The four Next buttons sit under the directions. They do nothing until Start navigation. Love's, Walmart, and Cat scale are searched from lists stored with this site, in this browser, and do not use a credit. Love's, Walmart, and truck stop locations are from OpenStreetMap contributors. Cat scale locations are from the public CAT Scale list. A brand-new store can be missing until that list is updated. None of those lists use a credit. The place has to be within about 5 miles of the route ahead.</p>
-      <p>Detour also has Swift terminals. It does not use a credit. Every terminal within about 5 miles of the route ahead is pinned. Move the map and Search here shows the terminals in that view, including ones off the route.</p>
+      <p>Detours also has Swift terminals. It does not use a credit. Every terminal within about 5 miles of the route ahead is pinned. Move the map and Search here shows the terminals in that view, including ones off the route.</p>
       <p>Next Love's, Next Walmart, and Next Cat scale show up to five places ahead. The nearest one is selected. Tap another line, or another pin, to choose it. On the map each pin shows the name, town, miles ahead, and miles off the route. Add and recalculate is on the pin you chose. Clear takes the pins off the map and returns to Turn zoom. After Love's, Walmart, Cat scale, or a truck stop, Search here looks in the part of the map you are looking at, including places that are not on the route. On the full-screen map, Search here and Clear sit together at the top after you press one of those buttons. Clear stays there after you choose a stop. Search here for a truck stop uses the saved list and does not use a credit. Add as next stop uses the one you chose. Next truck stop still shows one.</p>
       <p>Add as next stop puts that place on the stop list. You still Calculate to put it on the road.</p>
       <p>In full screen the same four places are round buttons on the left. After one is selected, Add and recalculate on that pin routes it in as the next stop and returns the map to Turn zoom. That uses 2 credits: from where you are to that place, then from that place to the stop you were driving toward. You need 2 credits left. The new stop is Anytime. Clear removes the pins if you do not want them.</p>
