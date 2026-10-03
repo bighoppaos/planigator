@@ -2466,6 +2466,12 @@ button.lookup.lookup-flash {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
+/* Stop zoom: the stop you are driving to. */
+.route-pin.is-target {
+  padding: 4px 10px;
+  font-size: 13px;
+  box-shadow: 0 0 0 2px rgb(7 21 37 / 0.85), 0 1px 4px rgba(0, 0, 0, 0.45);
+}
 .route-map .maplibregl-ctrl-attrib { font-size: 10px; background: rgba(0, 0, 0, 0.55); }
 .route-map .maplibregl-ctrl-attrib, .route-map .maplibregl-ctrl-attrib a { color: #fff; }
 
