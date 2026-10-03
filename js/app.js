@@ -9700,6 +9700,10 @@ function addTruckAndRecalculate() {
   window.setTimeout(() => {
     truckHits = [];
     placeListMode = false;
+    placeSeek = "";
+    placeSeekFull = false;
+    placeMapMoved = false;
+    placeHereNote = "";
     clearTruckPins();
     paintPlaceList();
     void addPlaceAsNextStop(hit);
@@ -9809,6 +9813,19 @@ async function addPlaceAsNextStop(hit) {
   }
   const cursor = navDestList().findIndex((item) => item.stop.id === next.id);
   if (cursor >= 0) navStopCursor = cursor;
+  if (navOn || navAimStopId) {
+    navAimStopId = next.id;
+    rememberNavProgress();
+  }
+  navStopPicked = false;
+  navGuideFromId = "";
+  navStopAwaitNear = false;
+  navStopAnnounce = false;
+  navStopSpeakKey = "";
+  // The along-lock is a spot on the old line. The page map's rebuild keeps it.
+  navAlongLock = null;
+  navResumeGuard = null;
+  clearStopNote(true);
   clearDriveProgress();
   state.estimating = false;
   state.notice = `Added ${navStopTitle(next)} as the next stop.`;
