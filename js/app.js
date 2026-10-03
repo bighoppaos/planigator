@@ -1468,7 +1468,7 @@ function applySharedTrip(data, { notice } = {}) {
   const incomingIds = (Array.isArray(data.stops) ? data.stops : []).map((stop) => stop?.id).filter(Boolean).join(",");
   const currentIds = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
   if (incomingIds && incomingIds !== currentIds) {
-    if (navOn) endRouteNav({ paint: false, startHere: false });
+    if (navOn) endRouteNav({ paint: false });
     else leaveNavSession();
   }
   state.settings = { ...state.settings, ...(data.settings || {}) };
@@ -1693,14 +1693,13 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
   }
   state.chooseStart = false;
   if (!silent) {
-    const here = await arrivedFix();
+    const again = Boolean(state.plan);
+    const here = again ? await currentFix({ fresh: true }) : await arrivedFix();
     if (here) {
       rebuildNavLegs();
       noteArrivedStops(here.lat, here.lon);
-      const spot = { latitude: here.lat, longitude: here.lon };
-      if (!navOn && state.stops[0]?.useCurrentLocation && (!state.origin || movedEnough(state.origin, spot))) {
-        startTripAt(here, { notice: false });
-      }
+      // "Recalculate from <stop>" routes only the new legs after that stop.
+      if (again && legsToCalculate(state.stops).mode !== "suffix") startRecalcHere(here);
     }
     if (billableStops().length === 0) {
       state.estimating = false;
@@ -2034,7 +2033,7 @@ function rollOpenExample() {
 }
 
 function loadExample() {
-  if (navOn) endRouteNav({ paint: false, startHere: false });
+  if (navOn) endRouteNav({ paint: false });
   else leaveNavSession();
   parkSpeedNote();
   const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
@@ -2822,12 +2821,11 @@ function movedEnough(origin, coords) {
   return Math.hypot(dlat, dlon) > 0.00015;
 }
 
-// What Start from my location does with a fix. `passStart`: the address the
-// trip started from is behind him, so it is not put back as a stop to drive to.
-function startTripAt(fix, { passStart = false, notice = true } = {}) {
+// What Start from my location does with a fix.
+function startTripAt(fix) {
   const saved = readNavProgress();
   const left = openLeftLeg(saved);
-  const dropped = dropAddressStart();
+  dropAddressStart();
   const coords = { latitude: fix.lat, longitude: fix.lon };
   const hadOrigin = Boolean(state.origin);
   const moved = movedEnough(state.origin, coords);
@@ -2835,14 +2833,6 @@ function startTripAt(fix, { passStart = false, notice = true } = {}) {
   const heading = fix.heading;
   if (typeof heading === "number" && Number.isFinite(heading) && heading >= 0) state.origin.heading = heading;
   if (!state.stops[0]?.useCurrentLocation) {
-    const first = state.stops[0];
-    if (passStart && !dropped && first) {
-      first.skipRoute = true;
-      first.miles = "";
-      first.hours = "";
-      first.path = [];
-      first.directions = [];
-    }
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
       name: "Current location",
@@ -2853,7 +2843,7 @@ function startTripAt(fix, { passStart = false, notice = true } = {}) {
   rememberOrigin();
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = !notice || !hadOrigin
+  state.locationNotice = !hadOrigin
     ? ""
     : moved
       ? (state.plan ? "Location updated. Calculate again to move the route line." : "Location updated.")
@@ -2880,57 +2870,6 @@ function locateSucceeded(pos, attempt) {
   endLocateWatch();
   startTripAt({ lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading });
   render();
-}
-
-// End navigation: the trip starts at his last fix on the route, then at a
-// newer one if this page may already read the location. Never prompts.
-function startTripAfterNav(fix) {
-  if (fix) {
-    startTripAt(fix, { passStart: true });
-    if (routeMap && routeMapReady) addRoutePins();
-  }
-  if (!navigator.geolocation || !window.isSecureContext) return;
-  if (fix) {
-    refreshTripStart({ since: navFixTime, passStart: true });
-    return;
-  }
-  Promise.resolve()
-    .then(() => navigator.permissions?.query({ name: "geolocation" }))
-    .then((status) => { if (status?.state === "granted") refreshTripStart({ since: 0, passStart: false }); })
-    .catch(() => {});
-}
-
-// Start from my location's refreshing watch, with no progress text and no
-// error. A miss leaves the start where it is.
-function refreshTripStart({ since, passStart }) {
-  if (navOn) return;
-  const attempt = ++locateAttempt;
-  endLocateWatch();
-  const startId = state.stops[0]?.id;
-  const previous = state.origin ? { ...state.origin } : null;
-  const started = Date.now();
-  let last = null;
-  const settle = (pos) => {
-    if (attempt !== locateAttempt) return;
-    locateAttempt += 1;
-    endLocateWatch();
-    if (!pos || navOn || state.estimating || state.stops[0]?.id !== startId) return;
-    startTripAt({ lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading }, { passStart });
-    if (routeMap && routeMapReady) addRoutePins();
-    if (routeFull) routePageStale = true;
-    else if (!editorBusy()) render();
-  };
-  locateWatchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      if (attempt !== locateAttempt || fixTime(pos) <= since) return;
-      last = pos;
-      const age = Date.now() - Number(pos.timestamp || 0);
-      if (age < 4000 || movedEnough(previous, pos.coords) || Date.now() - started > 8000) settle(pos);
-    },
-    (error) => { if (error?.code === 1) settle(null); },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-  );
-  locateWatchTimer = setTimeout(() => settle(last), 12000);
 }
 
 function locateFailed(error, attempt) {
@@ -8866,18 +8805,81 @@ function upcomingRoutedStop() {
   return leg?.stop || null;
 }
 
+// Added since the last route: no leg on the map and no saved miles.
+function stopUnrouted(stop) {
+  return !stopHasSavedLeg(stop) && !(Array.isArray(stop?.path) && stop.path.length >= 2);
+}
+
+// Recalculate drives to the first stop still ahead. A stop added since the
+// last route has no leg yet, so it is never passed over on the way to a later one.
+function recalcTarget() {
+  const routed = upcomingRoutedStop();
+  const end = routed ? state.stops.indexOf(routed) : state.stops.length;
+  const added = state.stops.slice(0, end).filter((stop, index) => (
+    !stop.useCurrentLocation && !stop.done && !stop.skipRoute && !isOriginStop(state.stops, index) && stopUnrouted(stop)
+  ));
+  const unready = added.find((stop) => !pointReady(stop));
+  if (unready) return { unready };
+  return { stop: added[0] || routed };
+}
+
+// After a stop that had no route, the legs start at it: each one up to and
+// including the first stop that was already routed.
+function legsOnFrom(stop) {
+  const legs = [];
+  let from = stopPoint(stop);
+  for (let i = state.stops.indexOf(stop) + 1; from && i < state.stops.length; i += 1) {
+    const next = state.stops[i];
+    if (next.useCurrentLocation || next.skipRoute || next.done) continue;
+    const to = stopPoint(next);
+    if (!to) break;
+    legs.push({ stop: next, from, to });
+    if (!stopUnrouted(next)) break;
+    from = to;
+  }
+  return legs;
+}
+
+// The page's Recalculate starts where he is, as the map's Recalculate does: a
+// Current location start, and the stops before the first one still ahead are
+// behind him.
+function startRecalcHere(here) {
+  const saved = readNavProgress();
+  const kept = state.stops.filter((stop) => !stop.useCurrentLocation);
+  const ahead = kept.findIndex((stop) => (
+    !stop.skipRoute && !stop.done && !isOriginStop(state.stops, state.stops.indexOf(stop))
+  ));
+  if (ahead < 0) return;
+  kept.slice(0, ahead).forEach(passStop);
+  state.origin = { lat: here.lat, lon: here.lon };
+  if (!state.stops[0]?.useCurrentLocation) {
+    state.stops = [
+      defaultStop({ name: "Current location", useCurrentLocation: true, lat: here.lat, lon: here.lon, address: "" }),
+      ...kept,
+    ];
+  }
+  rememberOrigin();
+  carryNavProgress(saved, null);
+  persist();
+}
+
+function passStop(stop) {
+  stop.skipRoute = true;
+  stop.miles = "";
+  stop.hours = "";
+  stop.path = [];
+  stop.directions = [];
+}
+
 function applyAheadLeg(here, stopId, leg) {
   const kept = state.stops.filter((stop) => !stop.useCurrentLocation);
   const chosenPos = kept.findIndex((stop) => stop.id === stopId);
   if (chosenPos < 0) return false;
   kept.forEach((stop, index) => {
-    const passed = index < chosenPos;
-    stop.skipRoute = passed;
-    if (!passed) return;
-    stop.miles = "";
-    stop.hours = "";
-    stop.path = [];
-    stop.directions = [];
+    const behind = index < chosenPos && (stop.done || stop.skipRoute
+      || isOriginStop(state.stops, state.stops.indexOf(stop)) || !stopUnrouted(stop));
+    if (behind) passStop(stop);
+    else stop.skipRoute = false;
   });
   const targetStop = kept[chosenPos];
   targetStop.skipRoute = false;
@@ -8949,7 +8951,11 @@ async function recalculateFromHere() {
     return;
   }
   noteArrivedStops(here.lat, here.lon);
-  const target = upcomingRoutedStop(here.lat, here.lon);
+  const { stop: target, unready } = recalcTarget();
+  if (unready) {
+    abortRecalc(`Press lookup address on ${cardTitle(state.stops.indexOf(unready), state.stops)} and choose an address before pressing Recalculate.`);
+    return;
+  }
   if (!target) {
     abortRecalc("No stop ahead to recalculate.");
     return;
@@ -8958,12 +8964,20 @@ async function recalculateFromHere() {
     abortRecalc(creditEmptyMessage());
     return;
   }
+  const added = stopUnrouted(target);
+  const onward = added ? legsOnFrom(target) : [];
+  if (onward.length && !state.unlimited && Number.isFinite(Number(state.credits)) && state.credits < 1 + onward.length) {
+    abortRecalc("Not enough credits to put the stop you added on the route.");
+    return;
+  }
   const name = navStopTitle(target);
   let leg;
+  const onwardLegs = [];
   try {
     const routed = await routeFromHere(here, { lat: Number(target.lat), lon: Number(target.lon) });
     leg = routed.leg;
     here.heading = routed.pick.course;
+    for (const step of onward) onwardLegs.push(await routeTruckLeg(step.from, step.to, undefined, { avoidUTurns: true }));
   } catch (error) {
     if (error.credits != null) state.credits = error.credits;
     abortRecalc(error.message || `Could not get a HERE© ${transportModeTitle().toLowerCase()} route.`);
@@ -8972,6 +8986,11 @@ async function recalculateFromHere() {
   if (!applyAheadLeg(here, target.id, leg)) {
     abortRecalc("No stop ahead to recalculate.");
     return;
+  }
+  onward.forEach((step, index) => writeRoutedLeg(step.stop, onwardLegs[index]));
+  if (added && navAimStopId && navAimStopId !== target.id) {
+    navAimStopId = target.id;
+    rememberNavProgress();
   }
   clearDriveProgress();
   clearDirectionPin();
@@ -10128,11 +10147,7 @@ function resumeNavIfNeeded() {
   void beginRouteNav({ resume: true });
 }
 
-// `startHere`: false when another trip is about to replace this one.
-function endRouteNav({ paint = true, startHere = true } = {}) {
-  const lastFix = startHere && Array.isArray(navFix)
-    ? { lat: navFix[0], lon: navFix[1], heading: navTravel }
-    : null;
+function endRouteNav({ paint = true } = {}) {
   saveLeftLeg();
   navOn = false;
   leaveNavSession();
@@ -10179,7 +10194,6 @@ function endRouteNav({ paint = true, startHere = true } = {}) {
     navYou = null;
   }
   window.removeEventListener("deviceorientation", onNavCompass);
-  if (startHere) startTripAfterNav(lastFix);
   const source = routeMap?.getSource("left");
   if (source) {
     source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });

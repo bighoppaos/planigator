@@ -156,7 +156,7 @@
   </header>
   <main class="manual">
     <h1>Manual</h1>
-    <p class="build-line"><span>Build#619 10.3.26.</span><a href="./releases.html">Release notes</a></p>
+    <p class="build-line"><span>Build#620 10.3.26.</span><a href="./releases.html">Release notes</a></p>
     <p>This page shows the buttons on <a href="./">the planner</a> and what each one does. The pictures are the same buttons, drawn here so you can match them. They are not a live map, and they are not a saved trip.</p>
     <p>Planigator plans a truck trip in the browser, then navigates that route on the same page. The clocks are a planning aid. They are not legal advice and they are not a substitute for your ELD.</p>
     <ul class="toc">
@@ -202,7 +202,7 @@
         <span class="set-box">Start from an address</span>
       </div>
       <p class="caption">Green means that choice is on.</p>
-      <p>Start from my location uses the phone or computer location. The browser asks first. That lookup is free. Start from an address is a normal stop: you type it, then look it up, and that lookup is 1 credit. If you press Calculate before choosing one of these, the page moves up to this step. When you press End navigation, the trip starts from where you are, the same as Start from my location, so Recalculate routes from there and not from where the trip first started.</p>
+      <p>Start from my location uses the phone or computer location. The browser asks first. That lookup is free. Start from an address is a normal stop: you type it, then look it up, and that lookup is 1 credit. If you press Calculate before choosing one of these, the page moves up to this step. End navigation does not change this choice, but Recalculate (the map's button, or Calculate once it says just Recalculate) routes from where you are and switches the start to your location there; a start address stays on its card, marked passed.</p>
 
       <h3>Step 3. Sign in</h3>
       <p>Sign in with Google. A new account gets 40 credits. After you sign in, Saved trips shows under this step and those trips stay with that account. Signed out, this page does not show that account’s trip or location, and it does not keep them in this browser. Clear trip sits at the top of Add each stop, and only after an address is typed.</p>
@@ -353,7 +353,7 @@
         <li><strong>Wind</strong> shows only in full screen. Before it loads, the button says Wind and a dash. Then it shows the speed and mph. The number comes from a weather service, not from Planigator, and it is not sent to Planigator. It refreshes about every 10 minutes or about 5 miles, when you enter full screen, and when you tap the wind button.</li>
         <li><strong>Street map</strong> and <strong>Satellite</strong> are the same button. Tap it to switch. The green ring is the map you are on. In a tunnel the switch waits, then happens when the phone has a signal again.</li>
         <li><strong>Zoom in</strong> and <strong>Zoom out</strong> change how close the map is.</li>
-        <li><strong>Recalculate</strong> on the map needs location. It asks HERE<sup>©</sup> for a new truck route from where you are to the next stop that is not done. That is 1 credit. It does not offer a U-turn. Recalculate starts the new route the way you are driving, from your last stretch of road, not the way the old route went. Stops you already passed are left behind.</li>
+        <li><strong>Recalculate</strong> on the map needs location. It asks HERE<sup>©</sup> for a new truck route from where you are to the next stop that is not done. That is 1 credit. It does not offer a U-turn. Recalculate starts the new route the way you are driving, from your last stretch of road, not the way the old route went. Stops you already passed are left behind. A stop you added that has no route yet is never skipped: Recalculate routes to it first, then from it to the next stop, and each of those legs is 1 credit.</li>
         <li><strong>Follow me</strong> appears after Start navigation. It is only the close view on you. It is not Turn zoom. The green ring means the map is following you. Dragging the map turns that off. Tap Follow me to follow again.</li>
       </ul>
     </div>
