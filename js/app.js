@@ -5564,7 +5564,7 @@ let navVoiceIntroPending = false;
 // iOS keeps a page silent after every load until a tap, and again after he
 // leaves the app, takes a call, or the screen locks. The tap listener stays on
 // for the whole drive: every tap quietly unlocks the voice. Only the tap that
-// turns a held voice back on, or a tap on the directions, says the direction.
+// turns a held voice back on, or a tap on the direction he is on, says it.
 let voiceGestureSeen = false;
 let navVoiceMissed = false;
 const VOICE_GESTURES = ["pointerdown", "touchend", "click", "keydown"];
@@ -5574,9 +5574,9 @@ let voiceTapAt = 0;
 let voicePress = null;
 // These say their own line when tapped.
 const VOICE_OWN_LINE = "#voicePrev, #voiceNext, #startNav, #routeSwitch, [data-aim-stop]";
-// Tapping these says the current direction again. The <summary> inside opens
-// and closes the box and stays quiet.
-const VOICE_REPEAT = "#routeDirections, #routeNavTitle";
+// Tapping the row of the step he is on says it again. Other rows and the rest
+// of the directions box stay quiet.
+const VOICE_REPEAT = ".dir-step[data-dir-stop]";
 
 function unlockNavVoice() {
   // Unlock audio on this tap, then say the line in the chosen voice. The first
@@ -5621,7 +5621,11 @@ function tapMoved(event) {
 }
 
 function repeatTap(target) {
-  return Boolean(target?.closest?.(VOICE_REPEAT)) && !target.closest("summary");
+  const row = target?.closest?.(VOICE_REPEAT);
+  const at = row ? currentNavStep() : null;
+  return Boolean(at)
+    && row.getAttribute("data-dir-stop") === at.leg.stop.id
+    && Number(row.getAttribute("data-dir-index")) === at.found.index;
 }
 
 function onVoiceGesture(event) {

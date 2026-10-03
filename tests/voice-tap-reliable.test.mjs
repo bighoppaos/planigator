@@ -1,6 +1,7 @@
 // During navigation taps are quiet. Every tap still unlocks the voice, the tap
 // that turns a held voice back on says the current direction once, and a tap on
-// the directions says it again every time. Old lines never pile up and play
+// the row of the direction he is on says it again every time. Other rows and
+// the rest of the directions box are quiet. Old lines never pile up and play
 // late when he comes back to the app.
 // Not loaded by the site. Run: node tests/voice-tap-reliable.test.mjs
 // Against another copy of app.js: APP_JS=/path/to/app.js node tests/voice-tap-reliable.test.mjs
@@ -86,6 +87,8 @@ const APP_FUNCTIONS = [
   // The voice itself.
   "preferMix", "unlockMix", "stopNavUtterance", "playSamples", "speakPhone", "playChosenVoice", "navVoiceLocked",
   "warmPhoneVoice", "onVoiceGesture", "armVoiceGesture", "rewarmNavVoice", "paintVoiceHint", "unlockNavVoice",
+  // A step row's own click: pin that line and hold the map on it.
+  "bindDirectionSteps", "pinDirection", "armDirectionReturn", "pauseFollowForDirection",
 ];
 // Not in the #605 page. It runs without them, so this test can show it failing.
 const OPTIONAL_FUNCTIONS = [
@@ -108,6 +111,7 @@ const APP_CODE = [
   constLine("VOICE_TAP_MS", true),
   constLine("VOICE_OWN_LINE", true),
   constLine("VOICE_REPEAT", true),
+  constLine("DIR_RETURN_MS"),
   ...APP_FUNCTIONS.map((name) => extract(name)),
   ...OPTIONAL_FUNCTIONS.map((name) => extract(name, true)),
 ].join("\n\n");
@@ -332,13 +336,20 @@ function matches(node, selector) {
   }
   return true;
 }
-function node(tag, { id = "", cls = [], attrs = [] } = {}, parent = null) {
+function node(tag, { id = "", cls = [], attrs = [], values = {} } = {}, parent = null) {
   const self = {
-    tag, id, cls, attrs, parent,
+    tag, id, cls, attrs, parent, dataset: {}, clicks: [], textContent: "",
     closest(selector) {
       const list = String(selector).split(",");
       for (let at = self; at; at = at.parent) if (list.some((one) => matches(at, one))) return at;
       return null;
+    },
+    getAttribute: (name) => (name in values ? String(values[name]) : null),
+    addEventListener(type, fn) {
+      if (type === "click") self.clicks.push(fn);
+    },
+    click() {
+      for (const fn of self.clicks) fn({ type: "click", target: self });
     },
   };
   return self;
@@ -349,12 +360,23 @@ const mapTarget = node("canvas", { cls: ["maplibregl-canvas"] }, node("div", { i
 const dirBox = node("details", { id: "routeDirections", cls: ["directions"] }, body);
 const dirSummary = node("summary", {}, dirBox);
 const dirLabel = node("span", { cls: ["dir-label"] }, dirSummary);
-const dirList = node("ol", {}, node("div", { cls: ["dir-scroll"] }, dirBox));
-const stepRow = () => node("button", { cls: ["dir-step"], attrs: ["data-dir-stop", "data-dir-index"] }, node("li", {}, dirList));
-const dirPrevStep = stepRow();
-const dirStep = stepRow();
+const dirScroll = node("div", { cls: ["dir-scroll"] }, dirBox);
+const dirList = node("ol", {}, dirScroll);
+// Rows as directionsBlock renders them: a leg header, then one button per step.
+const stepRow = (stopId, index) => node("button", {
+  cls: ["dir-step"], attrs: ["data-dir-stop", "data-dir-index"],
+  values: { "data-dir-stop": stopId, "data-dir-index": index },
+}, node("li", {}, dirList));
+const dirPactivLeg = node("li", { cls: ["dir-leg"] }, dirList);
+// "Head east on I-76 E": the step he is on from 0 to 15 mi.
+const dirStep = stepRow("pactiv", 0);
 const dirStepText = node("span", { cls: ["dir-link"] }, dirStep);
+// "Take exit 312 toward Downingtown": next, then current from 15 to 20 mi.
+const dirNextStep = stepRow("pactiv", 1);
+const dirArriveStep = stepRow("pactiv", 2);
 const dirLeg = node("li", { cls: ["dir-leg"] }, dirList);
+const dirLaterStep = stepRow("walmart", 0);
+const dirRows = [dirStep, dirNextStep, dirArriveStep, dirLaterStep];
 const navTitle = node("p", { id: "routeNavTitle" }, body);
 const voiceHint = node("button", { id: "routeVoiceHint", cls: ["route-voice-hint"] }, stage);
 const button = (id, inner = "span") => node(inner, {}, node("button", { id }, stage));
@@ -414,7 +436,7 @@ async function startNav(voice) {
     navVoiceNow: null, voiceTapAt: 0, voicePress: null,
     spokenStepKey: "", spokenTurnKey: "", spokenMiles: new Set(),
     mixCtx: null, navVoiceNode: null, phoneUtter: null, phoneProbe: null, phoneHeardAt: 0, settleSpeech: null,
-    speakGen: 0, speakChain: Promise.resolve(),
+    speakGen: 0, speakChain: Promise.resolve(), dirPinned: null, dirPinTimer: 0,
     sayNav: (title) => { elements.routeNavTitle = { textContent: title }; },
     navVoiceId: () => voice,
     mph: () => 50,
@@ -426,7 +448,7 @@ async function startNav(voice) {
     "placeNavDot", "aimNavDot", "startNavMotion", "resumeTurnZoom", "paintCompassRose", "queueBasemap", "refreshPlace",
     "paintRouteLines", "paintSwitchOffer", "paintNavLine", "clearStopNote", "trackLiveDrive", "paintDirectionMiles",
     "openDirectionsNear", "paintDirectionToward", "frameNextTurn", "frameNextStop", "persist", "markDirection",
-    "showStopNote", "clearDirectionPin",
+    "showStopNote", "clearDirectionPin", "zoomToDirection", "syncRouteChrome", "returnFromDirectionTap",
   ]) context[name] = noop;
   context.styleIsBasemap = () => true;
   vm.createContext(context);
@@ -434,6 +456,12 @@ async function startNav(voice) {
   const pg = context;
   // What initPlanner does once.
   pg.armVoiceGesture();
+  // The directions box is painted: each step row gets its click handler.
+  for (const row of dirRows) {
+    row.dataset = {};
+    row.clicks = [];
+  }
+  pg.bindDirectionSteps({ querySelectorAll: () => dirRows });
   // Start navigation: the Start button's click.
   pg.navOn = true;
   pg.navAimStopId = "pactiv";
@@ -452,13 +480,15 @@ function dispatch(pg, type, event) {
 }
 
 // A finger tap: pointerdown, touchend, click. `control` runs as the button's
-// own click handler, after the document capture listener.
+// own click handler, after the document capture listener. A step row's click
+// reaches its own handler too.
 async function tap(pg, target = mapTarget, control = null) {
   gesture.active = true;
   dispatch(pg, "pointerdown", { pointerType: "touch", clientX: 120, clientY: 300, target });
   dispatch(pg, "touchend", { changedTouches: [{ clientX: 121, clientY: 301 }], touches: [], target });
   dispatch(pg, "click", { target });
-  control?.();
+  if (control) control();
+  else target.closest?.(".dir-step")?.click();
   gesture.active = false;
   await flush();
 }
@@ -574,26 +604,34 @@ for (const voice of ["phone", "us"]) {
 }
 
 for (const voice of ["phone", "us"]) {
-  console.log(`\nA tap on the directions says the current direction, every time (${voice} voice)`);
+  console.log(`\nA tap on the direction he is on says it, every time (${voice} voice)`);
   const pg = await startNav(voice);
   await drive(pg, 0.2, 5);
   await advance(3000);
   const results = [];
-  for (const target of [dirStep, dirStepText, dirPrevStep, navTitle, dirLeg, dirStep]) {
+  for (const target of [dirStep, dirStepText, dirStep]) {
     const mark = pg.heard.length;
     await tap(pg, target);
     await parked(pg, 5);
     results.push(since(pg, mark));
   }
   const want = exitLine(5);
-  expect("each tap on a step row, the title, or the box says it once",
+  expect("each tap on the current step row (or its text) says it once",
     results.every((lines) => lines.length === 1 && lines[0] === want), show(results));
   await drive(pg, 5.05, 5.5);
   await advance(3000);
+  // The row still shows the miles from the last time it was painted.
+  dirStepText.textContent = exitLine(5);
   let mark = pg.heard.length;
   await tap(pg, dirStep);
   await parked(pg, 5.5);
-  expect("with the miles from where he is now", show(since(pg, mark)) === show([exitLine(5.5)]), show(since(pg, mark)));
+  expect("with the miles from where he is now, not the row's old text",
+    show(since(pg, mark)) === show([exitLine(5.5)]), show(since(pg, mark)));
+  mark = pg.heard.length;
+  await advance(1000);
+  await tap(pg, dirStep);
+  await parked(pg, 5.5);
+  expect("tapping it again after the one-tap window says it again", show(since(pg, mark)) === show([exitLine(5.5)]), show(since(pg, mark)));
   mark = pg.heard.length;
   await tap(pg, dirStep);
   await advance(200);
@@ -604,6 +642,121 @@ for (const voice of ["phone", "us"]) {
   await drive(pg, 5.55, 5.9);
   await advance(3000);
   expect("GPS fixes after the taps do not repeat it", since(pg, mark).length === 0, show(since(pg, mark)));
+}
+
+for (const voice of ["phone", "us"]) {
+  console.log(`\nTaps on other direction rows are quiet (${voice} voice)`);
+  const pg = await startNav(voice);
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  const spoke = [];
+  for (const [label, target] of [["next row", dirNextStep], ["row after that", dirArriveStep], ["next stop's row", dirLaterStep]]) {
+    const mark = pg.heard.length;
+    await tap(pg, target);
+    await parked(pg, 5);
+    if (since(pg, mark).length) spoke.push(`${label}: ${show(since(pg, mark))}`);
+  }
+  expect("the next and later rows say nothing", spoke.length === 0, spoke.join("; "));
+
+  pg.speakNav("In 10 miles, Take exit 312 toward Downingtown");
+  await flush();
+  const cancels = pg.synth.cancels;
+  const playing = voice === "phone" ? pg.synth.current : pg.navVoiceNode;
+  expect("a line is playing", Boolean(playing));
+  const mark = pg.heard.length;
+  await advance(200);
+  await tap(pg, dirNextStep);
+  await advance(200);
+  const still = voice === "phone" ? pg.synth.current : pg.navVoiceNode;
+  expect("a tap on the next row does not cut off the line playing", Boolean(playing) && still === playing && !playing.stopped);
+  expect("the tap cancelled nothing", pg.synth.cancels === cancels, `${pg.synth.cancels - cancels} cancel(s)`);
+  await advance(3000);
+  expect("nothing else was said", since(pg, mark).length === 0, show(since(pg, mark)));
+
+  // Past the exit: "Take exit 312" is the step he is on, "Head east" is behind him.
+  await drive(pg, 5.05, 16);
+  await advance(3000);
+  let tapMark = pg.heard.length;
+  await tap(pg, dirStep);
+  await parked(pg, 16);
+  expect("a passed row says nothing", since(pg, tapMark).length === 0, show(since(pg, tapMark)));
+  tapMark = pg.heard.length;
+  await tap(pg, dirNextStep);
+  await parked(pg, 16);
+  expect("the row he is on now speaks, once, with the live miles",
+    show(since(pg, tapMark)) === show(["In 4 miles, Arrive at PACTIV"]), show(since(pg, tapMark)));
+}
+
+for (const voice of ["phone", "us"]) {
+  console.log(`\nTaps elsewhere in the directions box are quiet (${voice} voice)`);
+  const pg = await startNav(voice);
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  const spoke = [];
+  const places = [
+    ["the box itself", dirBox], ["the list padding", dirScroll], ["the list", dirList],
+    ["a stop header", dirPactivLeg], ["the next stop's header", dirLeg],
+    ["the open/close toggle", dirSummary], ["the toggle's label", dirLabel],
+    ["the banner title", navTitle],
+  ];
+  for (const [label, target] of places) {
+    const mark = pg.heard.length;
+    await tap(pg, target);
+    await parked(pg, 5);
+    if (since(pg, mark).length) spoke.push(`${label}: ${show(since(pg, mark))}`);
+  }
+  expect("the box, list, stop headers, toggle, and banner title say nothing", spoke.length === 0, spoke.join("; "));
+}
+
+console.log("\nA tap on a step row still holds that line on the map");
+{
+  const pg = await startNav("phone");
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  const pins = [];
+  for (const row of [dirStep, dirNextStep, dirLaterStep]) {
+    pg.dirPinned = null;
+    pg.dirPinTimer = 0;
+    pg.navFollowing = true;
+    await advance(1000);
+    await tap(pg, row);
+    const want = { stopId: row.getAttribute("data-dir-stop"), index: Number(row.getAttribute("data-dir-index")) };
+    pins.push(show(pg.dirPinned) === show(want) && pg.dirPinTimer > 0
+      && pg.navZoomHold === clock.now + pg.DIR_RETURN_MS && pg.navFollowing === false);
+  }
+  expect("the current, next, and later rows each pin their line and hold the map", pins.every(Boolean), show(pins));
+}
+
+for (const voice of ["phone", "us"]) {
+  console.log(`\nVoice held: the first tap on any row says the current direction once (${voice} voice)`);
+  for (const row of [dirNextStep, dirStep]) {
+    const pg = await startNav(voice);
+    await drive(pg, 0.2, 9.8);
+    await advance(3000);
+    if (voice === "phone") pg.synth.refuse = true;
+    else pg.mixCtx.interrupt();
+    await drive(pg, 9.85, 10.2);
+    await advance(1000);
+    expect("the voice is held", pg.navVoiceLocked() === true && pg.elements.routeVoiceHint?.hidden === false);
+    let mark = pg.heard.length;
+    await tap(pg, row);
+    await parked(pg, 10.2);
+    expect(`a tap on the ${row === dirStep ? "current" : "next"} row says the current direction, one line`,
+      show(since(pg, mark)) === show([exitLine(10.2)]), show(since(pg, mark)));
+    expect("the note is gone", pg.elements.routeVoiceHint?.hidden !== false);
+    mark = pg.heard.length;
+    await tap(pg, dirNextStep);
+    await parked(pg, 10.2);
+    expect("then a tap on the next row is quiet", since(pg, mark).length === 0, show(since(pg, mark)));
+    mark = pg.heard.length;
+    await tap(pg, mapTarget);
+    await parked(pg, 10.2);
+    expect("and a tap on the map is quiet", since(pg, mark).length === 0, show(since(pg, mark)));
+    mark = pg.heard.length;
+    await tap(pg, dirStep);
+    await parked(pg, 10.2);
+    expect("and the current row says it again", show(since(pg, mark)) === show([exitLine(10.2)]), show(since(pg, mark)));
+  }
 }
 
 console.log("\nTap the directions when the newest fix is a minute old");
