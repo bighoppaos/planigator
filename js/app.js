@@ -1922,7 +1922,7 @@ function paintClearTrip() {
 }
 
 function clearTripButton() {
-  return `<p class="trips-clear" id="clearTripSlot"${addressEditStarted ? "" : " hidden"}><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
+  return `<p class="trips-clear" id="clearTripSlot"${addressEditStarted ? "" : " hidden"}><button type="button" class="flag-box" id="newTrip"${navOn ? ' disabled data-nav-lock="1" aria-disabled="true" data-nav-aria="1"' : ""}>Clear trip</button></p>`;
 }
 
 function tripNameRow() {
@@ -1930,7 +1930,7 @@ function tripNameRow() {
     <label class="flag-box trip-name">Trip name
       <textarea id="tripName" rows="1" placeholder="Optional — Dallas to Atlanta" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeAttr(state.tripName)}</textarea>
     </label>
-    <button type="button" class="flag-box" id="saveTrip"${navOn ? " disabled" : ""}>Save</button>
+    <button type="button" class="flag-box" id="saveTrip"${navOn ? ' disabled data-nav-lock="1" aria-disabled="true" data-nav-aria="1"' : ""}>Save</button>
   </div>${state.saveNote ? `<p class="fine save-note">${escapeAttr(state.saveNote)}</p>` : ""}`;
 }
 
@@ -2653,6 +2653,7 @@ function updateStop(id, patch) {
 }
 
 function startFromAddress() {
+  if (navOn) return;
   state.chooseStart = false;
   state.origin = null;
   state.locationError = "";
@@ -2894,6 +2895,7 @@ function showLocateProgress(label, notice) {
 }
 
 function locate() {
+  if (navOn) return;
   state.chooseStart = false;
   if (!window.isSecureContext) {
     state.locationError = "Location needs HTTPS. Type an address, or open the live site.";
@@ -3890,16 +3892,16 @@ function openedTripNote() {
 }
 
 function savedTripsBlock({ clear = true } = {}) {
-  const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? " disabled" : ""}>Clear trip</button></p>`;
+  const clearButton = `<p class="trips-clear"><button type="button" class="flag-box" id="newTrip"${navOn ? ' disabled data-nav-lock="1" aria-disabled="true" data-nav-aria="1"' : ""}>Clear trip</button></p>`;
   if (!state.signedIn) return clear ? clearButton : "";
   const loading = state.tripsLoading ? `<p class="fine">Loading saved trips…</p>` : "";
   const list = state.trips.length ? `<ul>
       ${state.trips.map((trip) => `<li class="${trip.id === state.activeTripId ? "active" : ""}">
-        <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>
+        <button type="button" class="flag-box${trip.id === state.activeTripId ? " on" : ""}" data-load="${escapeAttr(trip.id)}"${navOn ? ' disabled data-nav-lock="1" aria-disabled="true" data-nav-aria="1"' : ""}>
           ${escapeAttr(trip.name || trip.tripName || "Trip")}
           <span>${formatShort(trip.savedAt)}</span>
         </button>
-        <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}"${navOn ? " disabled" : ""}>${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
+        <button type="button" class="flag-box" data-delete="${escapeAttr(trip.id)}"${navOn ? ' disabled data-nav-lock="1" aria-disabled="true" data-nav-aria="1"' : ""}>${state.confirmDeleteId === trip.id ? "Confirm delete" : "Delete"}</button>
       </li>`).join("")}
     </ul>` : "";
   return `<section class="trips">
@@ -6341,12 +6343,51 @@ function syncRouteChrome() {
   else freezeTyping(false);
   syncTripNavLocks();
   syncStopCardNavLock();
+  syncStepNavLock();
   requestAnimationFrame(seatRails);
 }
 
+// A Delete already busy deleting stays disabled when navigation ends.
 function syncTripNavLocks() {
-  document.querySelectorAll("#newTrip, #saveTrip, [data-load], [data-delete]").forEach((button) => {
-    button.disabled = navOn;
+  const lock = navOn === true;
+  document.querySelectorAll(".trips").forEach((section) => section.classList.toggle("nav-locked", lock));
+  navLockControls(document.querySelectorAll("#newTrip, #saveTrip, [data-load], [data-delete]"), lock);
+}
+
+// "Choose where the trip starts" and "Set speed, hours, and when you leave",
+// whatever Step number the layout gives them. #locate stays disabled while it
+// is still waiting for permission.
+function syncStepNavLock() {
+  const lock = navOn === true;
+  const controls = [];
+  document.querySelectorAll('[data-block="start"], [data-block="hours"]').forEach((section) => {
+    section.classList.toggle("nav-locked", lock);
+    section.querySelectorAll("button, select").forEach((el) => controls.push(el));
+  });
+  navLockControls(controls, lock);
+}
+
+function navLockControls(controls, lock) {
+  controls.forEach((el) => {
+    if (lock) {
+      if (!el.disabled) {
+        el.disabled = true;
+        el.dataset.navLock = "1";
+      }
+      if (!el.hasAttribute("aria-disabled")) {
+        el.setAttribute("aria-disabled", "true");
+        el.dataset.navAria = "1";
+      }
+      return;
+    }
+    if (el.dataset.navLock === "1") {
+      delete el.dataset.navLock;
+      if (!el.inert) el.disabled = false;
+    }
+    if (el.dataset.navAria === "1") {
+      delete el.dataset.navAria;
+      el.removeAttribute("aria-disabled");
+    }
   });
 }
 
@@ -11754,7 +11795,7 @@ function arrangedPage({ s, routeFrom, id }) {
   const blocks = {
     example: () => exampleBlock(),
     sign: () => `<section class="step"><h2>${h("Sign in")}</h2>${authBlock()}</section>`,
-    start: () => `<section class="hos step" id="stepStart" style="--box-font: ${state.boxFont}px">
+    start: () => `<section class="hos step" id="stepStart" data-block="start" style="--box-font: ${state.boxFont}px">
       <h2>${h("Choose where the trip starts")}</h2>
       <div class="settings-grid action-grid">
         <button type="button" class="set-box${state.stops[0]?.useCurrentLocation ? " on" : ""}${state.chooseStart ? " choose-start" : ""}" id="locate" ${state.locating ? "disabled" : ""}>${state.locating ? "Waiting for permission…" : "Start from my location"}</button>
@@ -11765,7 +11806,7 @@ function arrangedPage({ s, routeFrom, id }) {
       </div>
       <p id="locate-status" class="${state.locationError ? "error" : state.locationNotice && state.locationNotice !== "That's still the latest location." ? "ok" : ""}">${escapeAttr(state.locationError || (state.locationNotice === "That's still the latest location." ? "" : state.locationNotice) || "")}</p>
     </section>`,
-    hours: () => `<section class="hos step" style="--box-font: ${state.boxFont}px">
+    hours: () => `<section class="hos step" data-block="hours" style="--box-font: ${state.boxFont}px">
       <h2>${h("Set speed, hours, and when you leave")}</h2>
       <div class="settings-pairs">
         <div class="set-pair">
@@ -12089,6 +12130,12 @@ function writeStopWhen(ms) {
 }
 
 function commitPicker() {
+  if (navOn) {
+    state.picker = "";
+    state.pickerTarget = null;
+    render();
+    return;
+  }
   const id = state.picker;
   if (id === "leaveAt") {
     state.settings.leaveAtOffset = clockOffset(state.settings.leaveAtOffset);
@@ -12308,6 +12355,7 @@ function bindTypingFields() {
 function bindSettings() {
   document.querySelectorAll("[data-toggle]").forEach((el) => {
     el.addEventListener("click", () => {
+      if (navOn && el.closest("[data-block]")) return;
       const id = el.getAttribute("data-toggle");
       if (id === "governed") {
         const before = speedChoiceLabel();
@@ -12340,6 +12388,7 @@ function bindSettings() {
   document.getElementById("voiceNext")?.addEventListener("click", () => stepNavVoice(1));
   document.querySelectorAll("button[data-pick]").forEach((el) => {
     el.addEventListener("click", () => {
+      if (navOn && el.closest("[data-block]")) return;
       const id = el.getAttribute("data-pick");
       if (id === "mph") {
         const before = speedChoiceLabel();
@@ -12644,6 +12693,7 @@ function bind() {
   });
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (navOn) return;
       const id = button.getAttribute("data-delete");
       if (state.confirmDeleteId !== id) {
         armDelete(id);

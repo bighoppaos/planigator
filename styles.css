@@ -873,6 +873,7 @@ button.set-box::before {
 @keyframes arrival-spin { to { transform: rotate(360deg); } }
 button.set-box[data-toggle="arrival"]:disabled { opacity: 1; cursor: wait; }
 button[data-delete]:disabled { opacity: 1; cursor: wait; }
+.trips.nav-locked button[data-delete]:disabled { opacity: 0.4; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .arrival-spin { animation: none; border-right-color: currentColor; opacity: 0.45; }
 }
@@ -1268,6 +1269,19 @@ input.compact {
 .delay-box.nav-locked .delay-read {
   opacity: 0.4;
   cursor: not-allowed;
+}
+[data-block].nav-locked button:disabled,
+[data-block].nav-locked select:disabled,
+[data-block].nav-locked #locate:disabled,
+[data-block].nav-locked #fromAddress:disabled,
+[data-block].nav-locked div.set-box {
+  opacity: 0.4;
+  cursor: not-allowed;
+  animation: none;
+}
+/* Governed speed: the box is dimmed, so its two buttons are not dimmed twice. */
+[data-block].nav-locked div.set-box button:disabled {
+  opacity: 1;
 }
 
 .chip-sec + .chip-sec {
