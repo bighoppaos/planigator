@@ -27,7 +27,7 @@ import {
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
-import { parseStopPaste } from "./paste-stop.js?v=4";
+import { parseStopPaste } from "./paste-stop.js?v=5";
 import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=9";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";

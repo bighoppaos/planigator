@@ -14,15 +14,44 @@ function cleanPaste(text) {
     .trim();
 }
 
+const STATES = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "));
+
+function isApptLine(line) {
+  return /^(?:[A-Za-z.'\/]+\s+){0,2}(?:appts?|appointments?)\b/i.test(line);
+}
+
+// Phone/contact lines ("SHIPPER PHONE#") and APPT lines ("PICKUP APPT") belong
+// to the stop they sit in; they never start a new one.
+function startsStop(line) {
+  return /^(?:stop\s*\d+\s*[-–:]?\s*)?(?:pick(?:\s*up)?|pickup|shipper|delivery|deliver(?:y)?(?:\s+to)?|consignee|receiver|drop(?:\s*-?\s*off)?)\b/i.test(line)
+    && !isRawMetaLine(line)
+    && !isApptLine(line);
+}
+
+function isStopCityLine(line) {
+  if (isRawMetaLine(line) || isMetaLine(line)) return false;
+  const flat = line.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim();
+  if (isCityLine(flat)) return true;
+  const bare = flat.match(/^[A-Za-z][A-Za-z .'-]*\s([A-Z]{2})$/);
+  return Boolean(bare && STATES.has(bare[1]));
+}
+
 function splitSections(src) {
-  const lines = src.split("\n");
-  const header = /^(?:stop\s*\d+\s*[-–:]?\s*)?(?:pick(?:\s*up)?|pickup|shipper|delivery|deliver(?:y)?(?:\s+to)?|consignee|receiver|drop(?:\s*-?\s*off)?)\b/i;
+  const raw = src.split("\n");
+  const lines = raw.map((line) => line.trim());
   const at = [];
   lines.forEach((line, index) => {
-    if (header.test(line.trim())) at.push(index);
+    if (startsStop(line)) at.push(index);
   });
-  if (at.length < 2) return { text: src, usedFirst: false };
-  return { text: lines.slice(0, at[1]).join("\n").trim(), usedFirst: true };
+  let cut = at.length >= 2 ? at[1] : -1;
+  // Dispatch blocks have no headers: a block ends at its dated APPT line when
+  // its city line came before it and another city line comes after it.
+  const apptEnd = lines.findIndex((line, index) => isApptLine(line) && /\d/.test(line)
+    && lines.slice(0, index).some(isStopCityLine)
+    && lines.slice(index + 1).some(isStopCityLine));
+  if (apptEnd >= 0 && (cut < 0 || apptEnd + 1 < cut)) cut = apptEnd + 1;
+  if (cut < 0) return { text: src, usedFirst: false };
+  return { text: raw.slice(0, cut).join("\n").trim(), usedFirst: true };
 }
 
 function hasAnytime(src) {
@@ -401,8 +430,8 @@ function blankSpans(src, spans) {
 function isRawMetaLine(line) {
   return /^\*+$/.test(line)
     || /^\*+[^*].*\*+$/.test(line)
-    || /^(?:[A-Za-z.'&\/]+\s+){0,3}(?:phone|ph|tel|telephone|cell|fax|contact)\s*(?:#\s*:?|:)/i.test(line)
-    || /^(?:load\s+at|consign(?:ee)?|shipper|receiver|pick\s*up|pickup|pu|delivery|delivry|delv|del|origin|dest(?:ination)?)\s+(?:phone|contact)\b/i.test(line);
+    || /^(?:[A-Za-z.'&\/]+\s+){0,3}(?:phone|ph|tel|telephone|cell|fax|contact|e-?mail)\s*(?:#\s*:?|:)/i.test(line)
+    || /^(?:load\s+at|consign(?:ee)?|shipper|receiver|pick\s*up|pickup|pu|delivery|delivry|delv|del|origin|dest(?:ination)?)\s+(?:phone|ph|tel|telephone|cell|fax|contact|e-?mail)\b/i.test(line);
 }
 
 function isApptLeftover(line) {
