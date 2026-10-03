@@ -101,6 +101,7 @@ function throughApp(text, nowMs) {
     Intl,
     console,
     parseStopPaste,
+    navOn: false,
     state: { settings: { military: true }, stops: [stop], plan: null },
     lookupOpen: new Set(),
     setLookupMessage() {},

@@ -100,6 +100,7 @@ function page(stops = trip()) {
     requestAnimationFrame() {},
     render() { counts.render += 1; },
     calculate() { counts.calculate += 1; return Promise.resolve(); },
+    navOn: false,
     state: {
       estimating: false,
       settings: {},

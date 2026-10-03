@@ -2284,6 +2284,7 @@ async function pullAccountTrips() {
 }
 
 function addStop(afterId) {
+  if (navOn) return;
   const next = defaultStop();
   let atEnd = true;
   if (afterId) {
@@ -2307,6 +2308,7 @@ function addStop(afterId) {
 }
 
 function addStopBefore(beforeId) {
+  if (navOn) return;
   const next = defaultStop();
   const index = state.stops.findIndex((stop) => stop.id === beforeId);
   const at = index < 0 ? 0 : index;
@@ -2470,6 +2472,7 @@ function patchPlanAfterDone() {
     planStep.outerHTML = planTimeline(heading);
   }
   patchPlanOnCards();
+  syncStopCardNavLock();
 }
 
 function markStopDone(stop, { switched = false } = {}) {
@@ -2559,6 +2562,7 @@ function stopHasSavedLeg(stop) {
 }
 
 async function removeStop(id) {
+  if (navOn) return;
   const index = state.stops.findIndex((stop) => stop.id === id);
   if (index < 0 || !stopCanRemove(index)) return;
   const removed = state.stops[index];
@@ -2596,6 +2600,7 @@ async function removeStop(id) {
 }
 
 function moveStop(id, delta) {
+  if (navOn) return;
   const dest = state.stops.map((stop, i) => i).filter((i) => !state.stops[i].useCurrentLocation);
   const position = dest.findIndex((i) => state.stops[i].id === id);
   const next = position + delta;
@@ -3143,6 +3148,7 @@ function armUsingNote(id) {
 }
 
 async function lookupAddress(id) {
+  if (navOn) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
   const query = (stop.address || "").trim();
@@ -3215,6 +3221,7 @@ function pasteNote(parsed) {
 }
 
 function applyStopPaste(id, text) {
+  if (navOn) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
   const parsed = parseStopPaste(text, Date.now());
@@ -3253,6 +3260,7 @@ function applyStopPaste(id, text) {
 }
 
 async function pasteAddress(id) {
+  if (navOn) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
   if (!navigator.clipboard?.readText) {
@@ -3272,6 +3280,7 @@ async function pasteAddress(id) {
 }
 
 function chooseSuggestion(id, index) {
+  if (navOn) return;
   const stop = state.stops.find((item) => item.id === id);
   const item = stop?.suggestions?.[index];
   if (!stop || !item) return;
@@ -4620,6 +4629,7 @@ function paintMapSearchPins() {
 }
 
 function applyMapHit(item) {
+  if (navOn) return;
   const id = state.openLookupStopId;
   const stop = state.stops.find((entry) => entry.id === id);
   const lat = Number(item?.lat);
@@ -4866,6 +4876,7 @@ function lookupCenter(stop) {
 }
 
 async function openChooseMap(id) {
+  if (navOn) return;
   const button = document.querySelector(`[data-stop="${id}"] [data-act=map]`);
   if (button) {
     button.disabled = true;
@@ -4928,6 +4939,7 @@ function bindMapPick(map) {
 }
 
 async function useChosenSpot() {
+  if (navOn) return;
   if (mapChosenHit) {
     applyMapHit(mapChosenHit);
     return;
@@ -6328,12 +6340,50 @@ function syncRouteChrome() {
   if (navOn) freezeTyping(true);
   else freezeTyping(false);
   syncTripNavLocks();
+  syncStopCardNavLock();
   requestAnimationFrame(seatRails);
 }
 
 function syncTripNavLocks() {
   document.querySelectorAll("#newTrip, #saveTrip, [data-load], [data-delete]").forEach((button) => {
     button.disabled = navOn;
+  });
+}
+
+// Undoes only its own disables, so a control that was already disabled for
+// its own reason (delay − at 0 min, a done stop's arrows) stays disabled.
+function syncStopCardNavLock() {
+  const lock = navOn === true;
+  document.querySelectorAll("section.stops").forEach((section) => section.classList.toggle("nav-locked", lock));
+  document.querySelectorAll(".delay-box").forEach((box) => box.classList.toggle("nav-locked", lock));
+  if (!lock) {
+    document.querySelectorAll("[data-nav-lock], [data-nav-aria]").forEach((el) => {
+      if (el.dataset.navLock === "1") {
+        delete el.dataset.navLock;
+        // A stop marked done mid-drive went inert and stays disabled.
+        if (!el.inert) el.disabled = false;
+      }
+      if (el.dataset.navAria === "1") {
+        delete el.dataset.navAria;
+        el.removeAttribute("aria-disabled");
+      }
+    });
+    return;
+  }
+  const controls = new Set();
+  document.querySelectorAll(".stop-card").forEach((card) => {
+    card.querySelectorAll("button, select").forEach((el) => controls.add(el));
+  });
+  document.querySelectorAll("[data-after], [data-before], [data-delay]").forEach((el) => controls.add(el));
+  controls.forEach((el) => {
+    if (!el.disabled) {
+      el.disabled = true;
+      el.dataset.navLock = "1";
+    }
+    if (!el.hasAttribute("aria-disabled")) {
+      el.setAttribute("aria-disabled", "true");
+      el.dataset.navAria = "1";
+    }
   });
 }
 
@@ -11210,7 +11260,7 @@ function clearLaterDelays(stop, piece, finish) {
 }
 
 function changeDelay(id, pieceIndex, delta, finish = false) {
-  if (state.estimating) return;
+  if (state.estimating || navOn) return;
   const stop = state.stops.find((item) => item.id === id);
   if (!stop) return;
   // iPhone Safari zooms when a control under the finger is replaced mid-tap.
@@ -12016,6 +12066,12 @@ function readLeaveDate() {
 }
 
 function writeStopWhen(ms) {
+  if (navOn) {
+    state.picker = "";
+    state.pickerTarget = null;
+    render();
+    return;
+  }
   const target = state.pickerTarget;
   const stop = pickerStop();
   if (!target || !stop) return;
@@ -12461,6 +12517,7 @@ function bind() {
   $("#buyPack")?.addEventListener("click", () => buyPack());
   document.querySelectorAll("[data-open-map]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (navOn) return;
       state.openLookupStopId = button.getAttribute("data-open-map") || "";
       render();
     });
@@ -12604,6 +12661,7 @@ function bind() {
     card.querySelector("[data-act=up]")?.addEventListener("click", () => moveStop(id, -1));
     card.querySelector("[data-act=down]")?.addEventListener("click", () => moveStop(id, 1));
     card.querySelector("[data-act=remove]")?.addEventListener("click", () => {
+      if (navOn) return;
       if (state.confirmRemoveId !== id) {
         armRemove(id);
         return;
@@ -12615,6 +12673,7 @@ function bind() {
     });
     card.querySelectorAll("[data-stop-when]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (navOn) return;
         state.pickerTarget = { id, field: button.getAttribute("data-stop-field") };
         state.picker = "stopDate";
         render();
@@ -12622,6 +12681,7 @@ function bind() {
     });
     card.querySelectorAll("[data-toggle-field]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (navOn) return;
         const field = button.getAttribute("data-toggle-field");
         const stop = state.stops.find((item) => item.id === id);
         if (!stop) return;
