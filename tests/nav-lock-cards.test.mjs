@@ -187,6 +187,7 @@ const RENDER_CODE = [
   ...["escapeAttr", "stopCard", "delayBox", "delayLabel", "driveDelayAt", "whenRow", "whenBox", "stopCanRemove",
     "pointReady", "lookupMapPreview", "clearTripButton", "tripNameRow", "syncTripNavLocks"].map(extract),
   optional("syncStopCardNavLock"),
+  optional("navLockControls"),
 ].join("\n\n");
 
 const HOUR = 3600 * 1000;
