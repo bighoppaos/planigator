@@ -79,7 +79,10 @@ const OPTIONAL_FUNCTIONS = [
   "turnPinFrame", "syncTurnMaxZoom", "hookTurnPinGlide", "settleTurnPin", "framePinnedTurn", "showPinnedTurn",
 ];
 const APP_CONSTS = ["MERCATOR_MPP0", "FULL_TURN_TOP_PX", "FULL_TURN_MAX_ZOOM", "NAV_DOT_HALO_PX", "NAV_DOT_CHIP_GAP_PX"];
-const OPTIONAL_CONSTS = ["TURN_PIN_MAX_ZOOM", "TURN_PIN_HOLD_M", "TURN_PIN_HOLD_OUT_M", "TURN_PIN_PAST_M", "TURN_PIN_EASE_MS"];
+const OPTIONAL_CONSTS = [
+  "TURN_PIN_MAX_ZOOM", "TURN_PIN_HOLD_M", "TURN_PIN_HOLD_OUT_M", "TURN_PIN_PAST_M", "TURN_PIN_EASE_MS",
+  "TURN_PIN_AFTER_MIN_M", "TURN_PIN_AFTER_MAX_M",
+];
 const APP_CODE = [
   ...APP_CONSTS.map((name) => constLine(name)),
   ...OPTIONAL_CONSTS.map((name) => constLine(name, true)),
@@ -342,6 +345,32 @@ function sameSpot(a, b) {
   return a && b && Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
 }
 
+// #621: Turn zoom also keeps the road past the turn on screen. When that road
+// (or the road to the turn) would leave the box, it zooms out about your dot
+// and the turn dot slides down the line toward you, only as far as the road
+// needs, so some of it touches the box edge. At the street-level max zoom the
+// turn dot is where the turn really is, on that same line. #620 and before
+// have no such rule: there the turn must be on its spot.
+// How far (px) the turn dot is from where that rule puts it.
+function turnMiss(pg, got) {
+  const { ctx, map, L } = pg;
+  if (!got.turn) return Infinity;
+  const onSpot = off(got.turn, L.turn);
+  if (onSpot <= 2 || !(ctx.TURN_PIN_AFTER_MIN_M > 0)) return onSpot;
+  const k = (got.turn.y - L.you.y) / (L.turn.y - L.you.y);
+  if (k < -0.01 || k > 1.01) return onSpot;
+  const lineMiss = Math.abs(got.turn.x - (L.you.x + (L.turn.x - L.you.x) * k));
+  if (map.zoom >= ctx.TURN_PIN_MAX_ZOOM - 1e-6) return lineMiss;
+  const along = ctx.turnGuideAlong();
+  const target = ctx.turnLockAlong;
+  const after = Math.max(ctx.TURN_PIN_AFTER_MIN_M, Math.min(ctx.TURN_PIN_AFTER_MAX_M, 0.5 * Math.max(0, target - along)));
+  const road = ctx.navRemaining(along, target + after).map((c) => map.project(c));
+  const outside = road.some((p) => p.x < L.box.left - 2 || p.x > L.box.right + 2 || p.y < L.box.top - 2 || p.y > L.box.bottom + 2);
+  const tight = Math.min(...road.map((p) => Math.min(
+    Math.abs(p.x - L.box.left), Math.abs(p.x - L.box.right), Math.abs(p.y - L.box.top), Math.abs(p.y - L.box.bottom))));
+  return !outside && tight <= 2 ? lineMiss : onSpot;
+}
+
 const llObj = (x, y) => ({ lat: ll(x, y)[0], lng: ll(x, y)[1] });
 const VIEWS = ["page", "full"];
 
@@ -381,15 +410,15 @@ for (const view of VIEWS) {
       const got = fix(pg, 0, -d);
       if (!sameSpot(got.turnAt, llObj(...T1))) wrongTurn += 1;
       const ey = off(got.you, L.you);
-      const et = got.turn ? off(got.turn, L.turn) : Infinity;
+      const et = turnMiss(pg, got);
       if (ey > worstYou) worstYou = ey;
       if (et > worstTurn) { worstTurn = et; worstAt = `${Math.round(d)} m out, turn at ${px(got.turn)}`; }
       const name = Object.keys(marks).find((key) => marks[key] === d);
-      if (name) expect(`${name}: you and the turn on their spots`, ey <= 2 && et <= 2, `you ${px(got.you)}, turn ${px(got.turn)}, zoom ${pg.map.zoom.toFixed(2)}`);
+      if (name) expect(`${name}: you on your spot, the turn on its spot or slid toward you for the road`, ey <= 2 && et <= 2, `you ${px(got.you)}, turn ${px(got.turn)}, zoom ${pg.map.zoom.toFixed(2)}`);
     }
     expect("the turn dot is the first turn the whole way", wrongTurn === 0, `${wrongTurn} fixes on another turn`);
     expect("every fix: you within 2 px of your spot", worstYou <= 2, `worst ${worstYou.toFixed(2)} px`);
-    expect("every fix: the turn within 2 px of its spot", worstTurn <= 2, `worst ${worstTurn.toFixed(2)} px (${worstAt})`);
+    expect("every fix: the turn within 2 px of where the rule puts it", worstTurn <= 2, `worst ${worstTurn.toFixed(2)} px (${worstAt})`);
   }
 
   console.log(`\n${label}: the turn is 30° off the way you are driving`);
@@ -403,7 +432,7 @@ for (const view of VIEWS) {
     const travel = pg.ctx.navTravel;
     const toTurn = pg.ctx.navBearing(ll(0, -700), ll(...turn));
     expect("set-up: the turn is well off your heading", Math.abs(toTurn - travel) > 15, `travel ${travel.toFixed(0)}°, to the turn ${toTurn.toFixed(0)}°`);
-    expect("you and the turn on their spots", off(got.you, L.you) <= 2 && off(got.turn, L.turn) <= 2, `you ${px(got.you)}, turn ${px(got.turn)}`);
+    expect("you on your spot, the turn on its spot or slid toward you for the road", off(got.you, L.you) <= 2 && turnMiss(pg, got) <= 2, `you ${px(got.you)}, turn ${px(got.turn)}`);
   }
 
   console.log(`\n${label}: 100 mi of interstate to the next turn`);
@@ -439,7 +468,7 @@ for (const view of VIEWS) {
     expect("every point of that road is inside the box", outside.length === 0, `${outside.length} outside, e.g. ${outside[0] ? px(outside[0]) : ""}`);
     expect("zoomed out just enough: the curve touches the box edge", tight <= 2, `closest ${tight.toFixed(2)} px from an edge`);
     const after = fix(pg, 0, -350);
-    expect("once the curve is behind you, the turn is back on its spot", off(after.you, L.you) <= 2 && off(after.turn, L.turn) <= 2, `you ${px(after.you)}, turn ${px(after.turn)}`);
+    expect("once the curve is behind you, the turn is back on its spot (or slid only for the road past it)", off(after.you, L.you) <= 2 && turnMiss(pg, after) <= 2, `you ${px(after.you)}, turn ${px(after.turn)}`);
   }
 
   console.log(`\n${label}: through the turn; the next one (0.6 mi on) takes the spot`);
@@ -448,12 +477,14 @@ for (const view of VIEWS) {
     let worstYou = 0;
     let glideTurn = 0;
     let glideFrames = 0;
+    let glideMiss = 0;
+    let gliding = [];
     pg.map.onFrame = () => {
       const you = pg.map.project(pg.ctx.navYou.getLngLat());
       worstYou = Math.max(worstYou, off(you, L.you));
       if (pg.ctx.turnPin?.glide && pg.ctx.turnMarker) {
         glideFrames += 1;
-        glideTurn = Math.max(glideTurn, off(pg.map.project(pg.ctx.turnMarker.getLngLat()), L.turn));
+        gliding.push(pg.map.project(pg.ctx.turnMarker.getLngLat()));
       }
     };
     const path = [];
@@ -466,6 +497,7 @@ for (const view of VIEWS) {
     for (const [x, y] of path) {
       const easesBefore = pg.map.eases;
       const lockBefore = pg.ctx.turnLockAlong;
+      gliding = [];
       const got = fix(pg, x, y);
       if (pg.map.eases > easesBefore) eases += 1;
       worstYou = Math.max(worstYou, off(got.you, L.you));
@@ -475,16 +507,21 @@ for (const view of VIEWS) {
         if (!held) held = { zoom: pg.map.zoom, bearing: pg.map.bearing };
         else if (Math.abs(held.zoom - pg.map.zoom) > 1e-6 || Math.abs(held.bearing - pg.map.bearing) > 1e-6) heldMoved = true;
       }
-      if (onNext) afterAdvance.push({ x, y, got, lockBefore });
+      // The turn dot waits where the next turn lands once the map stops.
+      if (gliding.length) {
+        glideTurn = Math.max(glideTurn, ...gliding.map((p) => off(p, got.turn)));
+        glideMiss = Math.max(glideMiss, turnMiss(pg, got));
+      }
+      if (onNext) afterAdvance.push({ x, y, got, lockBefore, miss: turnMiss(pg, got) });
     }
     expect("your dot within 2 px of its spot at every fix and every eased frame", worstYou <= 2, `worst ${worstYou.toFixed(2)} px`);
     expect("the last 20 m before the turn hold the zoom and bearing", held && !heldMoved, held ? `zoom ${held.zoom.toFixed(2)}` : "never held");
     expect("the next turn took the spot", afterAdvance.length > 0);
     const settled = afterAdvance.slice(1);
-    const worstNext = Math.max(...settled.map((a) => off(a.got.turn, L.turn)));
-    expect("after the switch, the next turn is on its spot at every fix", settled.length > 5 && worstNext <= 2, `worst ${worstNext.toFixed(2)} px over ${settled.length} fixes`);
+    const worstNext = Math.max(...settled.map((a) => a.miss));
+    expect("after the switch, the next turn is on its spot (or slid for the road) at every fix", settled.length > 5 && worstNext <= 2, `worst ${worstNext.toFixed(2)} px over ${settled.length} fixes`);
     expect("the switch eased once (no jump)", eases === 1, `${eases} eases`);
-    expect("while the map moves to the next turn, the turn dot waits on its spot", glideFrames > 0 && glideTurn <= 2, `${glideFrames} frames, worst ${glideTurn.toFixed(2)} px`);
+    expect("while the map moves to the next turn, the turn dot waits where it lands, on its spot or slid for the road", glideFrames > 0 && glideTurn <= 2 && glideMiss <= 2, `${glideFrames} frames, worst ${glideTurn.toFixed(2)} px from where it lands, ${glideMiss.toFixed(2)} px off the rule`);
     const at = pg.ctx.turnMarker.getLngLat();
     expect("after the move, the turn dot is back on the real next turn", sameSpot(at, llObj(...T2)));
   }
@@ -503,13 +540,13 @@ for (const view of VIEWS) {
       const got = fix(pg, x, y);
       worstYou = Math.max(worstYou, off(got.you, L.you));
       if (x === 200) rotated = pg.map.bearing;
-      if (sameSpot(got.turnAt, llObj(3 * MILE, 0))) next.push(got);
+      if (sameSpot(got.turnAt, llObj(3 * MILE, 0))) next.push(turnMiss(pg, got));
     }
     expect("your dot within 2 px of its spot the whole way", worstYou <= 2, `worst ${worstYou.toFixed(2)} px`);
     expect("past the turn the map turns to the road you are on (east up)", rotated != null && Math.abs(rotated - 90) < 3, `bearing ${rotated?.toFixed(1)}`);
     const settled = next.slice(1);
-    const worst = settled.length ? Math.max(...settled.map((g) => off(g.turn, L.turn))) : Infinity;
-    expect("a mile on, the next turn has the spot", settled.length > 3 && worst <= 2, `worst ${worst.toFixed(2)} px over ${settled.length} fixes`);
+    const worst = settled.length ? Math.max(...settled) : Infinity;
+    expect("a mile on, the next turn has the spot (or slid for the road)", settled.length > 3 && worst <= 2, `worst ${worst.toFixed(2)} px over ${settled.length} fixes`);
   }
 
   console.log(`\n${label}: GPS wobble near the turn does not flip the hold on and off`);
@@ -552,7 +589,7 @@ for (const view of VIEWS) {
     const before = pg.map.getMaxZoom();
     fix(pg, 0, -60);
     const during = pg.map.getMaxZoom();
-    expect("Turn zoom raises the max zoom past 22", during > 22 && during <= 24, `${before} -> ${during}`);
+    expect("Turn zoom leaves the map's max zoom at 22 (it stops at street level itself)", during === before && pg.map.zoom <= 17 + 1e-9, `${before} -> ${during}, zoom ${pg.map.zoom.toFixed(2)}`);
     pg.ctx.cycleTripFit();
     expect("switching to the next-stop zoom restores 22 and frames the stop", pg.map.getMaxZoom() === before && pg.ctx.calls.includes("frameNextStop"), `max ${pg.map.getMaxZoom()}, calls [${pg.ctx.calls}]`);
     const zoomBefore = pg.map.zoom;
