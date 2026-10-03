@@ -1124,7 +1124,8 @@ export function timeline({
       stopID: gap.after >= 0 ? stops[gap.after].id : destinations[0] != null ? stops[destinations[0]].id : null,
     });
   });
-  const shown = events.filter((event) => {
+  const split = splitLeewayAroundBreaks(events);
+  const shown = split.filter((event) => {
     if (event.kind !== "finish") return true;
     const past = events.some((gap) => gap.kind === "leeway"
       && gap.stopID === event.stopID
@@ -1133,6 +1134,36 @@ export function timeline({
     return !past;
   });
   return { events: shown.sort((a, b) => a.start - b.start), blocks };
+}
+
+/** Leeway is spare time, so it never runs through an Off-duty/Sleeper Berth
+ *  or a 30-minute break. Each leeway is cut into the pieces between them. The
+ *  first piece keeps the id; later ones get -2, -3. Pieces under a minute go. */
+export function splitLeewayAroundBreaks(events) {
+  const breaks = events
+    .filter((event) => event.kind === "rest" || event.kind === "thirty")
+    .sort((a, b) => a.start - b.start);
+  if (!breaks.length) return events;
+  return events.flatMap((event) => {
+    if (event.kind !== "leeway") return [event];
+    const spans = [];
+    let from = event.start;
+    for (const pause of breaks) {
+      if (pause.end <= from || pause.start >= event.end) continue;
+      if (pause.start > from) spans.push([from, pause.start]);
+      from = Math.max(from, pause.end);
+    }
+    if (from < event.end) spans.push([from, event.end]);
+    const kept = spans.filter(([start, end]) => end - start >= 60 * 1000);
+    if (kept.length === 1 && kept[0][0] === event.start && kept[0][1] === event.end) return [event];
+    return kept.map(([start, end], at) => ({
+      ...event,
+      id: at ? `${event.id}-${at + 1}` : event.id,
+      start,
+      end,
+      tripHours: (end - start) / 3600 / 1000,
+    }));
+  });
 }
 
 function restEvent(rest, stopID) {
