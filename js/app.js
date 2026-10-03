@@ -7105,17 +7105,24 @@ function aimNavAtStop(stopId, confirmed) {
   const pos = dests.findIndex((item) => item.stop.id === stopId);
   if (pos < 0) return;
   if (!confirmed && navOn) {
-    const held = activeNavLeg();
-    if (held?.stop && held.stop.id !== stopId && !held.stop.done) {
+    const held = activeNavLeg()?.stop;
+    const at = state.stops.findIndex((stop) => stop?.id === stopId);
+    const marks = state.stops.filter((stop, index) => stop && stop.id !== stopId && !stop.done && (
+      stop.id === held?.id || (index < at && !isOriginStop(state.stops, index) && !stop.useCurrentLocation)
+    ));
+    if (marks.length) {
       pendingAimId = stopId;
       railMenu = "";
       paintRailMenus();
-      const name = navStopTitle(held.stop);
+      const names = marks.map(navStopTitle);
+      const ask = names.length === 1
+        ? `Is ${names[0]} done?`
+        : names.length === 2 ? `Mark ${names[0]} and ${names[1]} done?` : `Mark ${names.length} earlier stops done?`;
       const yes = document.getElementById("routeSwitch");
       const row = document.getElementById("routeSwitchRow");
-      if (yes) yes.textContent = `Is ${name} done?`;
+      if (yes) yes.textContent = ask;
       if (row) row.hidden = false;
-      speakNav(`Is ${name} done?`);
+      speakNav(ask);
       return;
     }
   }
@@ -8892,13 +8899,23 @@ function paintSwitchOffer() {
 
 function confirmStopSwitch() {
   const nextId = pendingAimId;
-  const held = activeNavLeg();
+  const held = activeNavLeg()?.stop;
   pendingAimId = "";
   const row = document.getElementById("routeSwitchRow");
   if (row) row.hidden = true;
-  if (held?.stop && !held.stop.done) {
-    markStopDone(held.stop, { switched: true });
+  const at = nextId ? state.stops.findIndex((stop) => stop?.id === nextId) : -1;
+  const marks = state.stops.filter((stop, index) => stop && stop.id !== nextId && !stop.done && (
+    stop.id === held?.id || (index < at && !isOriginStop(state.stops, index) && !stop.useCurrentLocation)
+  ));
+  // Same as markStopDone on each, with one plan rebuild and save.
+  const last = marks.pop();
+  for (const stop of marks) {
+    stop.done = true;
+    stop.switched = true;
+    stop.skipRoute = true;
+    paintDoneStop(stop.id);
   }
+  if (last) markStopDone(last, { switched: true });
   if (nextId) aimNavAtStop(nextId, true);
 }
 
