@@ -2357,6 +2357,11 @@ button.lookup.lookup-flash {
   top: calc(100% + 4px);
   bottom: auto;
 }
+/* While a tapped pin is zoomed in: left/top are set from the script. */
+.truck-pin-wrap.is-docked .truck-pin-label {
+  bottom: auto;
+  transform: none;
+}
 .truck-pin-text {
   max-width: 194px;
   white-space: normal;

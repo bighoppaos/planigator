@@ -1,17 +1,22 @@
-// Build #624: tapping a search result pin on the map zooms to about half a mile
-// around it for 5 s, with its box and Add and recalculate, then goes back to
-// the zoom mode he was in. GPS fixes do not move the map during those 5 s.
-// Another tap restarts the 5 s; Add and recalculate, Clear, the zoom button,
-// Follow me, End navigation and a map rebuild stop them.
+// Build #625: tapping a search result pin zooms to about a quarter mile (402 m)
+// around it, and for those 5 s its box (name, miles, Add and recalculate) is
+// docked out of the way: at the top of the clear area just under Search here /
+// Clear, centered between the rails, or just above the ETA when the top has no
+// room. The fit keeps the pin and its ±402 m area clear of the docked box, the
+// box stays still while the map moves, another pin tap shows that place in it,
+// and Add and recalculate in it still works. After the 5 s, and on Add and
+// recalculate, Clear, the zoom button, Follow me, Start / End navigation and a
+// map rebuild, the box goes back by its pin.
 // Not loaded by the site.
-// Run: node tests/pin-peek.test.mjs
-// Against other copies: APP_JS=/path/to/app.js node tests/pin-peek.test.mjs
+// Run: node tests/pin-peek-dock.test.mjs
+// Against other copies: APP_JS=/path/to/app.js CSS_FILE=/path/to/styles.css node tests/pin-peek-dock.test.mjs
 //
-// The real pin painters, trip-fit framing (Turn, Stop, Left, Trip zoom, Follow
-// me), onNavFix and the tap wiring (mountMap's map listeners and bind()'s
-// button handlers) are loaded from js/app.js by name into a vm sandbox, over a
-// fake MapLibre map doing real Web Mercator math (512px world) and a fake
-// clock with fake timers. The screen is the full-screen map (390x844).
+// Same sandbox as tests/pin-peek.test.mjs: the real pin painters, trip-fit
+// framing, the peek and the tap wiring (mountMap's map click and move
+// listeners, bind()'s button handlers) from js/app.js, over a fake MapLibre map
+// with real Web Mercator math, a fake clock and fake timers. Where the box
+// shows on screen comes from the .truck-pin-label rules in styles.css plus its
+// inline style. The screen is the full-screen map (390x844).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,6 +25,7 @@ import vm from "node:vm";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const appSource = readFileSync(process.env.APP_JS || path.join(root, "js/app.js"), "utf8");
+const cssSource = readFileSync(process.env.CSS_FILE || path.join(root, "styles.css"), "utf8");
 const navMatch = await import(pathToFileURL(path.join(root, "js/nav-match.js")).href);
 
 function find(source, name) {
@@ -74,13 +80,14 @@ function constLine(source, name, optional = false) {
   return hit[0].replace(/^const /, "var ");
 }
 
-// The arguments of `<prefix>"click", …)` inside `body`, e.g. `"click", () => cycleTripFit()`.
-function clickArgs(body, prefix) {
-  const at = body.indexOf(`${prefix}"click"`);
+// The arguments of `<prefix>"<type>", …)` inside `body`, e.g. `"click", () => cycleTripFit()`.
+function listenerArgs(body, prefix, type) {
+  const at = body.indexOf(`${prefix}"${type}"`);
   if (at < 0) return "";
   const open = at + prefix.length - 1;
   return body.slice(open + 1, skipBalanced(body, open, "(", ")") - 1);
 }
+const clickArgs = (body, prefix) => listenerArgs(body, prefix, "click");
 
 const APP_FUNCTIONS = [
   "metersBetween", "polylineMeters", "pointAlong", "stepLengthMeters", "scaledStepLengths", "navStep", "metersLeftInStep",
@@ -97,30 +104,34 @@ const APP_FUNCTIONS = [
   "fillPagePlaceList", "paintPlaceList", "selectTruckHit", "showTruckHits", "forgetTruckChoice", "syncTruckAdd",
   "clearPlacePins", "addTruckAndRecalculate",
 ];
-// Build #624 only. #623 runs without them, so this test can show it failing.
-const OPTIONAL_FUNCTIONS = ["onRouteMapClick", "peekTruckHit", "pinPeekPadding", "showPinPeek", "cancelPinPeek", "endPinPeek"];
+// The 5 s peek from Build #624.
+const PEEK_FUNCTIONS = ["onRouteMapClick", "peekTruckHit", "pinPeekPadding", "showPinPeek", "cancelPinPeek", "endPinPeek"];
 const APP_CONSTS = [
   "MERCATOR_MPP0", "FULL_TURN_TOP_PX", "FULL_TURN_MAX_ZOOM", "NAV_DOT_HALO_PX", "NAV_DOT_CHIP_GAP_PX",
   "TURN_PIN_MAX_ZOOM", "TURN_PIN_HOLD_M", "TURN_PIN_HOLD_OUT_M", "TURN_PIN_PAST_M", "TURN_PIN_EASE_MS",
   "TURN_PIN_AFTER_MIN_M", "TURN_PIN_AFTER_MAX_M",
 ];
-const OPTIONAL_CONSTS = ["PIN_PEEK_MS", "PIN_PEEK_M"];
+const PEEK_CONSTS = ["PIN_PEEK_MS", "PIN_PEEK_M"];
 
 const APP_CODE = [
   ...APP_CONSTS.map((name) => constLine(appSource, name)),
-  ...OPTIONAL_CONSTS.map((name) => constLine(appSource, name, true)),
+  ...PEEK_CONSTS.map((name) => constLine(appSource, name)),
   ...APP_FUNCTIONS.map((name) => extract(appSource, name)),
-  ...OPTIONAL_FUNCTIONS.map((name) => extract(appSource, name, true)),
+  ...PEEK_FUNCTIONS.map((name) => extract(appSource, name)),
 ].join("\n\n");
 
-// How the app wires the taps: bind()'s button handlers and mountMap's click listener on the map.
+// How the app wires the taps: bind()'s button handlers, and mountMap's click
+// listener on the map and its listener for every map move.
 const BIND = extract(appSource, "bind");
-const HANDLERS = Object.fromEntries(["routeWhole", "routeFollow", "routePlaceClear", "endNav"].map((id) => {
+const HANDLERS = Object.fromEntries(["routeWhole", "routeFollow", "routePlaceClear", "startNav", "endNav"].map((id) => {
   const args = clickArgs(BIND, `$("#${id}")?.addEventListener(`);
   if (!args) throw new Error(`bind() has no click handler for #${id}`);
   return [id, args];
 }));
-const MAP_CLICK = clickArgs(extract(appSource, "mountMap"), "el.addEventListener(");
+const MOUNT = extract(appSource, "mountMap");
+const MAP_CLICK = clickArgs(MOUNT, "el.addEventListener(");
+const MAP_MOVE = listenerArgs(MOUNT, "map.on(", "move");
+if (!MAP_CLICK || !MAP_MOVE) throw new Error("mountMap has no map click or move listener");
 
 let failures = 0;
 function expect(label, ok, detail = "") {
@@ -327,11 +338,19 @@ class FakeEl {
     const capture = options === true || Boolean(options?.capture);
     (this.listeners[type] ||= []).push({ fn, capture });
   }
+  // The box wraps its text at about 28 characters a line, over the 40px button row.
   get offsetHeight() {
-    if (this.classList.contains("truck-pin-label")) return 44;
+    if (this.classList.contains("truck-pin-label")) {
+      const text = this.querySelector(".truck-pin-text")?.textContent || "";
+      return 16 * Math.max(1, Math.ceil(text.length / 28)) + 40;
+    }
+    if (this.classList.contains("truck-pin-wrap")) return 26;
     return this.classList.contains("route-you") ? 24 : 0;
   }
-  get offsetWidth() { return this.classList.contains("truck-pin-label") ? 200 : 24; }
+  get offsetWidth() {
+    if (this.classList.contains("truck-pin-label")) return 200;
+    return this.classList.contains("truck-pin-wrap") ? 26 : 24;
+  }
   getBoundingClientRect() {
     if (this.box) return this.box();
     // A result pin: anchored at the bottom of its 26px dot.
@@ -339,6 +358,8 @@ class FakeEl {
       const at = this.marker.map.project(this.marker.getLngLat());
       return rect(at.x - 13, at.y - 26, 26, 26);
     }
+    const wrap = this.parent;
+    if (this.classList.contains("truck-pin-label") && wrap?.marker?.map) return placeBox(this, wrap);
     return rect(0, 0, this.offsetWidth, this.offsetHeight);
   }
   contains(el) {
@@ -393,6 +414,65 @@ function click(target) {
   }
 }
 
+// --- Where styles.css puts the box: its rules for .truck-pin-label, then the inline style ---
+
+function parseCss(source) {
+  const text = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [];
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf("{", i);
+    if (open < 0) break;
+    const head = text.slice(i, open).trim();
+    let close = open + 1;
+    for (let depth = 1; close < text.length && depth; close += 1) {
+      if (text[close] === "{") depth += 1;
+      else if (text[close] === "}") depth -= 1;
+    }
+    if (!head.startsWith("@")) {
+      const decls = {};
+      for (const part of text.slice(open + 1, close - 1).split(";")) {
+        const colon = part.indexOf(":");
+        if (colon > 0) decls[part.slice(0, colon).trim()] = part.slice(colon + 1).trim();
+      }
+      for (const selector of head.split(",").map((s) => s.trim().replace(/\s+/g, " "))) rules.push({ selector, decls });
+    }
+    i = close;
+  }
+  return rules;
+}
+const LABEL_RULES = parseCss(cssSource)
+  .filter((r) => /(^|\s)\.truck-pin-label$/.test(r.selector) && /^[\w\s.#-]+$/.test(r.selector))
+  .map((r, order) => ({ ...r, order, weight: (r.selector.match(/[.#]/g) || []).length }))
+  .sort((a, b) => a.weight - b.weight || a.order - b.order);
+
+// "50%", "12px", "calc(100% + 4px)" against the wrap's size; null for auto.
+function cssLength(value, size) {
+  if (value == null || value === "auto" || value === "") return null;
+  const v = String(value).replace(/^calc\((.*)\)$/, "$1");
+  let total = 0;
+  for (const m of v.matchAll(/([+-]?)\s*(-?[\d.]+)(px|%)/g)) {
+    const n = Number(m[2]) * (m[3] === "%" ? size / 100 : 1);
+    total += m[1] === "-" ? -n : n;
+  }
+  return total;
+}
+
+function placeBox(label, wrap) {
+  const css = {};
+  for (const r of LABEL_RULES) if (label.matches(r.selector)) Object.assign(css, r.decls);
+  for (const key of ["left", "top", "bottom", "transform"]) if (label.style[key]) css[key] = label.style[key];
+  const pin = wrap.getBoundingClientRect();
+  const w = label.offsetWidth;
+  const h = label.offsetHeight;
+  const shift = /translateX\(\s*-50%\s*\)/.test(css.transform || "") ? -w / 2 : 0;
+  const left = pin.left + (cssLength(css.left, pin.width) ?? 0) + shift;
+  const top = cssLength(css.top, pin.height);
+  const bottom = cssLength(css.bottom, pin.height);
+  const y = top != null ? pin.top + top : pin.top + pin.height - (bottom ?? 0) - h;
+  return rect(left, y, w, h);
+}
+
 // --- The full-screen map (390x844, notch 47px), Search here / Clear at the top ---
 
 const WIDTH = 390;
@@ -401,8 +481,6 @@ const SAFE_TOP = 47;
 const STACK_TOP = 580;
 const RAILS = [rect(8, 270, 60, 300), rect(322, 270, 60, 300)];
 const TOOLS = rect(76, SAFE_TOP + 8, 238, 36);
-// What nothing covers: between the rails, under Search here / Clear, above the ETA and the directions.
-const CLEAR = { left: RAILS[0].right, right: RAILS[1].left, top: TOOLS.bottom, bottom: STACK_TOP };
 
 // --- The trip: Harrisburg PA west on the turnpike past Pittsburgh to Columbus OH. ---
 
@@ -465,7 +543,7 @@ const ON_NAV_FIX_STUBS = [
   "paintDirectionMiles", "openDirectionsNear", "speakNavProgress", "paintDirectionToward",
 ];
 
-function world() {
+function world({ tools = TOOLS, stackTop = STACK_TOP } = {}) {
   const clock = { now: 1_780_000_000_000 };
   class FakeDate extends Date {
     static now() { return clock.now; }
@@ -478,21 +556,21 @@ function world() {
   mapEl.box = () => rect(0, 0, WIDTH, HEIGHT);
   const els = {
     routeMap: mapEl,
-    routePlaceTools: Object.assign(new FakeEl("div", "routePlaceTools"), { box: () => TOOLS }),
+    routePlaceTools: Object.assign(new FakeEl("div", "routePlaceTools"), { box: () => tools }),
     nextPlaceList: new FakeEl("div", "nextPlaceList"),
     routeRecalc: { getBoundingClientRect: () => rect(322, 450, 60, 60) },
     routeDetour: { getBoundingClientRect: () => rect(8, 330, 60, 60) },
     routeCompass: { getBoundingClientRect: () => rect(322, 330, 60, 60) },
-    routeStopMiles: { getBoundingClientRect: () => rect(100, STACK_TOP, 190, 26) },
-    routeDirections: { hidden: false, getBoundingClientRect: () => rect(8, STACK_TOP + 30, 374, HEIGHT - 8 - STACK_TOP - 30) },
+    routeStopMiles: { getBoundingClientRect: () => rect(100, stackTop, 190, 26) },
+    routeDirections: { hidden: false, getBoundingClientRect: () => rect(8, stackTop + 30, 374, HEIGHT - 8 - stackTop - 30) },
     routeWhole: { innerHTML: "", setAttribute: noop, classList: { toggle: noop } },
   };
-  const stack = { hidden: false, getBoundingClientRect: () => rect(8, STACK_TOP, 374, HEIGHT - 8 - STACK_TOP) };
+  const stack = { hidden: false, getBoundingClientRect: () => rect(8, stackTop, 374, HEIGHT - 8 - stackTop) };
   const rails = RAILS.map((box) => ({ getBoundingClientRect: () => box }));
   const map = new FakeMap(mapEl);
   const markerEls = () => (context.routeMap ? context.routeMap.markers.map((m) => m.el) : []);
   const all = () => [...Object.values(els).filter((el) => el instanceof FakeEl), ...markerEls()].flatMap((el) => [el, ...el.descendants()]);
-  const calls = { added: [], ended: 0 };
+  const calls = { added: [], ended: 0, started: 0 };
   const context = {
     console, Math, Number, String, JSON, Array, Object, Infinity, NaN, Set, Map, RegExp, Promise, Error, Boolean,
     Date: FakeDate,
@@ -538,6 +616,8 @@ function world() {
     syncRouteChrome: noop,
     enableNavCompass: async () => {},
     endRouteNav: () => { calls.ended += 1; context.navOn = false; },
+    unlockNavVoice: noop,
+    beginRouteNav: async () => { calls.started += 1; },
     addPlaceAsNextStop: async (hit) => { calls.added.push(hit); },
     routePoints: () => context.navLine.slice(),
     cardTitle: (index, stops) => stops[index].name,
@@ -550,12 +630,11 @@ function world() {
   vm.runInContext(APP_CODE, context);
   const handler = (args) => vm.runInContext(`[${args}]`, context);
   const buttons = Object.fromEntries(Object.entries(HANDLERS).map(([id, args]) => [id, handler(args)[1]]));
-  // mountMap: a click listener on the map container (Build #624), and the box re-seats on every move.
-  if (MAP_CLICK) {
-    const [type, fn, options] = handler(MAP_CLICK);
-    mapEl.addEventListener(type, fn, options);
-  }
-  map.on("move", () => context.seatTruckLabel?.());
+  // mountMap: the click listener on the map container and the listener for every map move.
+  const [type, fn, options] = handler(MAP_CLICK);
+  mapEl.addEventListener(type, fn, options);
+  const [moveType, onMove] = handler(MAP_MOVE);
+  map.on(moveType, onMove);
   context.rebuildNavLegs();
   const advance = (ms) => {
     const end = clock.now + ms;
@@ -569,17 +648,24 @@ function world() {
     }
     clock.now = end;
   };
-  return { ctx: context, map, timers, advance, buttons, mapEl };
+  // What nothing covers: between the rails, under Search here / Clear, above the ETA and the directions.
+  const clear = { left: RAILS[0].right, right: RAILS[1].left, top: tools.bottom, bottom: stackTop };
+  return { ctx: context, map, timers, advance, buttons, mapEl, tools, stackTop, clear, onMove };
 }
 
 // --- Helpers ---
 
+const RADIUS = 402;
 const cam = (w) => ({ lat: w.map.center.lat, lng: w.map.center.lng, zoom: w.map.zoom, bearing: w.map.bearing });
 const sameCam = (a, b) => navMatch.metersBetween([a.lat, a.lng], [b.lat, b.lng]) < 0.5
   && Math.abs(a.zoom - b.zoom) < 1e-6 && Math.abs(((a.bearing - b.bearing + 540) % 360) - 180) < 1e-6;
 const fmtCam = (c) => `center ${c.lat.toFixed(5)},${c.lng.toFixed(5)} zoom ${c.zoom.toFixed(3)} bearing ${c.bearing.toFixed(1)}`;
 const at = (w, hit) => w.map.project({ lat: hit.lat, lng: hit.lon });
 const metersPerPx = (w, lat) => (2 * Math.PI * 6378137 * Math.cos(lat * Math.PI / 180)) / (512 * 2 ** w.map.zoom);
+const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+const fmtBox = (b) => (b ? `(${b.left.toFixed(1)}, ${b.top.toFixed(1)})-(${b.right.toFixed(1)}, ${b.bottom.toFixed(1)})` : "none");
+const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+const pending = (w) => w.timers.filter((t) => t.at > w.ctx.clock.now).length;
 
 function pinOf(w, hit) {
   return w.ctx.truckMarkers.find((m) => {
@@ -595,23 +681,83 @@ function tapPin(w, hit) {
   click(wrap.querySelector(".truck-pin") || wrap);
 }
 
-// The pin sits in the middle of the clear area with about half a mile to the nearest edge.
-function peekOn(w, hit) {
-  const p = at(w, hit);
-  const mid = (CLEAR.left + CLEAR.right) / 2;
-  const tall = CLEAR.bottom - CLEAR.top;
-  const centered = Math.abs(p.x - mid) <= 3 && p.y >= CLEAR.top + 0.2 * tall && p.y <= CLEAR.bottom - 0.2 * tall;
-  const px = Math.min(p.x - CLEAR.left, CLEAR.right - p.x, p.y - CLEAR.top, CLEAR.bottom - p.y);
-  const radius = px * metersPerPx(w, hit.lat);
-  return { ok: centered && radius >= 0.85 * 402 && radius <= 1.3 * 402, p, radius, centered };
+// The chosen pin, its box, and where both are on screen.
+function chosen(w) {
+  const wrap = w.ctx.document.querySelector(".truck-pin-wrap.is-chosen");
+  const label = wrap?.querySelector(".truck-pin-label") || null;
+  return { wrap, label, box: label ? label.getBoundingClientRect() : null, pin: wrap ? wrap.getBoundingClientRect() : null };
 }
-const fmtPeek = (r) => `pin at (${r.p.x.toFixed(0)}, ${r.p.y.toFixed(0)}), ${r.radius.toFixed(0)} m to the nearest clear edge`;
 
-const pending = (w) => w.timers.filter((t) => t.at > w.ctx.clock.now).length;
+// The ±402 m square around a place, on screen.
+function square(w, hit, m = RADIUS) {
+  const dLat = m / 111320;
+  const dLon = m / (111320 * Math.cos(hit.lat * Math.PI / 180));
+  const pts = [[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([a, b]) => w.map.project({ lat: hit.lat + a * dLat, lng: hit.lon + b * dLon }));
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  return rect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+}
+
+// Docked: at the top just under Search here / Clear, or at the bottom just above
+// the ETA, centered between the rails either way.
+function docked(w, side = "top") {
+  const { box } = chosen(w);
+  if (!box) return { ok: false, detail: "no box" };
+  const mid = (w.clear.left + w.clear.right) / 2;
+  const level = side === "top"
+    ? box.top >= w.tools.bottom && box.top <= w.tools.bottom + 16
+    : box.bottom <= w.stackTop && box.bottom >= w.stackTop - 16;
+  const centered = near((box.left + box.right) / 2, mid, 2) && box.left >= w.clear.left && box.right <= w.clear.right;
+  const what = side === "top" ? `Search here / Clear end at y ${w.tools.bottom}` : `the ETA starts at y ${w.stackTop}`;
+  return { ok: level && centered, detail: `box ${fmtBox(box)}; ${what}; rails ${w.clear.left}..${w.clear.right}` };
+}
+
+// The pin and its ±402 m area are inside the clear area and not under the box.
+function areaClear(w, hit) {
+  const { box, pin } = chosen(w);
+  const sq = square(w, hit);
+  const c = w.clear;
+  const inside = sq.left >= c.left - 1 && sq.right <= c.right + 1 && sq.top >= c.top - 1 && sq.bottom <= c.bottom + 1;
+  const ok = Boolean(box) && inside && !overlap(sq, box) && !overlap(pin, box);
+  return { ok, detail: `±402 m ${fmtBox(sq)}, pin ${fmtBox(pin)}, box ${fmtBox(box)}, clear (${c.left}, ${c.top})-(${c.right}, ${c.bottom})` };
+}
+
+// About 402 m from the pin to the nearest edge of what is left open: the clear
+// area minus the box.
+function radiusOn(w, hit) {
+  const p = at(w, hit);
+  const { box } = chosen(w);
+  const c = w.clear;
+  const top = Math.max(c.top, box && box.bottom <= p.y ? box.bottom : -Infinity);
+  const bottom = Math.min(c.bottom, box && box.top >= p.y ? box.top : Infinity);
+  const px = Math.min(p.x - c.left, c.right - p.x, p.y - top, bottom - p.y);
+  const radius = px * metersPerPx(w, hit.lat);
+  const span = 2 * RADIUS / metersPerPx(w, hit.lat);
+  const ok = radius >= 0.85 * RADIUS && radius <= 1.3 * RADIUS && span >= 0.85 * (c.right - c.left - 32);
+  return { ok, detail: `pin at (${p.x.toFixed(0)}, ${p.y.toFixed(0)}), ${radius.toFixed(0)} m to the nearest open edge, ±402 m spans ${span.toFixed(0)} px` };
+}
+
+// Back by its pin the normal way: right above it (or under it when flipped),
+// centered on it, with nothing left of the dock.
+function byPin(w) {
+  const { wrap, label, box, pin } = chosen(w);
+  if (!box) return { ok: false, detail: "no box" };
+  const below = wrap.classList.contains("is-below");
+  const touching = below ? near(box.top, pin.bottom + 4) : near(box.bottom, pin.top - 4);
+  const centered = near((box.left + box.right) / 2, (pin.left + pin.right) / 2);
+  const clean = !wrap.classList.contains("is-docked") && !label.style.left && !label.style.top
+    && !w.mapEl.classList.contains("is-pin-dock");
+  return {
+    ok: touching && centered && clean,
+    detail: `box ${fmtBox(box)}, pin ${fmtBox(pin)} (${below ? "under" : "above"} it), class "${wrap.className}", inline left "${label.style.left || ""}" top "${label.style.top || ""}"`,
+  };
+}
+
+const boxText = (w) => chosen(w).label?.querySelector(".truck-pin-text")?.textContent || "";
 
 // Set up a mode the way he gets there, with the results on the map.
-async function enter(mode) {
-  const w = world();
+async function enter(mode, layout = {}) {
+  const w = world(layout);
   const { ctx } = w;
   ctx.navFix = HERE.slice();
   ctx.placeNavDot(HERE[0], HERE[1]);
@@ -634,232 +780,201 @@ async function enter(mode) {
 
 const NAMES = { nextTurn: "Turn zoom", nextStop: "Stop zoom", full: "Trip zoom", remaining: "Left zoom", follow: "Follow me", free: "free map (moved by hand)" };
 
-// --- a. Tap a pin: half a mile around it, in the clear area, box still there ---
-console.log("a. Tapping a result pin zooms to about half a mile around it, in the clear area");
+// Search here / Clear with the status line under them (two rows), and the
+// directions open higher up: the box would reach into a plain ±402 m fit.
+const BUSY = { tools: rect(76, SAFE_TOP + 8, 238, 80), stackTop: 480 };
+// Search here / Clear take up most of the top: no room for the box there.
+const CROWDED = { tools: rect(76, SAFE_TOP + 8, 238, 330), stackTop: STACK_TOP };
+
+// --- a. A quarter mile around the pin ---
+console.log("a. Tapping a result pin zooms to about a quarter mile (402 m) around it");
 {
   const w = await enter("nextTurn");
-  const before = cam(w);
+  const first = byPin(w);
+  expect("before the tap the chosen box sits by its pin as before", first.ok, first.detail);
   tapPin(w, HITS[1]);
-  const r = peekOn(w, HITS[1]);
-  expect("the camera moved off the Turn zoom view", !sameCam(cam(w), before), fmtCam(cam(w)));
-  expect(`pin 2 is centered between the rails (x ${(CLEAR.left + CLEAR.right) / 2}) and in the middle of the clear area (y ${CLEAR.top}..${CLEAR.bottom})`,
-    r.centered, fmtPeek(r));
-  expect("about a quarter mile (402 m) shows from the pin to the nearest clear edge", r.ok, fmtPeek(r));
-  const mpp = metersPerPx(w, HITS[1].lat);
-  const dLat = 402 / 111320;
-  const dLon = 402 / (111320 * Math.cos(HITS[1].lat * Math.PI / 180));
-  const corners = [[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([a, b]) => w.map.project({ lat: HITS[1].lat + a * dLat, lng: HITS[1].lon + b * dLon }));
-  const inClear = corners.every((c) => c.x >= CLEAR.left - 1 && c.x <= CLEAR.right + 1 && c.y >= CLEAR.top - 1 && c.y <= CLEAR.bottom + 1);
-  expect("the whole ±402 m square around the pin is inside the clear area", inClear,
-    corners.map((c) => `(${c.x.toFixed(0)}, ${c.y.toFixed(0)})`).join(" "));
-  expect("…and the map is not zoomed far past it (the square spans at least 85% of the room between the rails)",
-    (2 * 402 / mpp) >= 0.85 * (CLEAR.right - CLEAR.left - 32), `${(2 * 402 / mpp).toFixed(0)} px of ${CLEAR.right - CLEAR.left} px`);
-  const wrap = pinOf(w, HITS[1])?.getElement();
-  const box = wrap?.querySelector(".truck-pin-label");
-  expect("pin 2 is the chosen place and has its box with Add and recalculate",
-    w.ctx.truckHit === HITS[1] && box && box.querySelector(".truck-pin-add")?.textContent === "Add and recalculate",
-    box ? JSON.stringify(box.textContent) : "no box");
-  const pinTop = wrap.getBoundingClientRect().top;
-  const below = pinTop - 44 - 4 < Math.max(0, TOOLS.bottom) + 8;
-  expect("the box flip (above / under its pin) matches where the pin is after the move", wrap.classList.contains("is-below") === below,
-    `pin top ${pinTop.toFixed(0)}, is-below ${wrap.classList.contains("is-below")}`);
+  const r = radiusOn(w, HITS[1]);
+  expect("about 402 m shows from pin 2 to the nearest open edge, and ±402 m fills the room between the rails", r.ok, r.detail);
   expect("a 5 s timer is running", pending(w) === 1 && w.timers.some((t) => Math.abs(t.at - w.ctx.clock.now - 5000) < 1), `${pending(w)} timer(s)`);
+}
+
+// --- b. The box is docked during the 5 s, and the fit keeps the pin's area clear of it ---
+console.log("\nb. During the 5 seconds the box is docked out of the way, and the pin's area is clear of it");
+{
+  const w = await enter("nextTurn");
+  tapPin(w, HITS[1]);
+  const d = docked(w, "top");
+  expect("the box is at the top of the clear area, just under Search here / Clear, centered between the rails", d.ok, d.detail);
+  const c = areaClear(w, HITS[1]);
+  expect("…and the pin and its ±402 m area are below it, inside the clear area", c.ok, c.detail);
+  const { wrap, label } = chosen(w);
+  expect("…it is still pin 2's box, with its text and Add and recalculate",
+    pinOf(w, HITS[1])?.getElement() === wrap && /^2\. Walmart Supercenter · 88\.2 miles ahead · 1\.6 miles off the route$/.test(boxText(w))
+      && label?.querySelector(".truck-pin-add")?.textContent === "Add and recalculate",
+    JSON.stringify(boxText(w)));
+  w.advance(4900);
+  const still = docked(w, "top");
+  expect("…and it is still docked at 4.9 s", still.ok, still.detail);
+}
+{
+  const w = await enter("nextStop", BUSY);
+  tapPin(w, HITS[0]);
+  const d = docked(w, "top");
+  expect("with two rows under Search here / Clear and the directions open: docked just under them", d.ok, d.detail);
+  const c = areaClear(w, HITS[0]);
+  expect("…and the fit leaves room for the box: the pin and its ±402 m area are below it", c.ok, c.detail);
+}
+{
+  const w = await enter("nextTurn", CROWDED);
+  tapPin(w, HITS[2]);
+  const d = docked(w, "bottom");
+  expect("no room at the top: the box docks at the bottom, just above the ETA, centered between the rails", d.ok, d.detail);
+  const c = areaClear(w, HITS[2]);
+  expect("…and the pin and its ±402 m area are above it, below Search here / Clear", c.ok, c.detail);
+}
+
+// --- c. The docked box stays put while the map moves ---
+console.log("\nc. The docked box stays put while the map moves to the pin");
+{
+  const w = await enter("nextTurn");
+  const from = cam(w);
+  tapPin(w, HITS[1]);
+  const to = cam(w);
+  const spot = chosen(w).box;
+  // MapLibre's 600 ms ease: the camera steps from the old view to the peek, one move event a frame.
+  let drift = 0;
+  let pinMoved = 0;
+  let last = null;
+  for (let i = 0; i <= 12; i += 1) {
+    const t = i / 12;
+    w.map.center = { lat: from.lat + (to.lat - from.lat) * t, lng: from.lng + (to.lng - from.lng) * t };
+    w.map.zoom = from.zoom + (to.zoom - from.zoom) * t;
+    w.map.bearing = from.bearing * (1 - t);
+    w.map.fire("move");
+    const { box, pin } = chosen(w);
+    drift = Math.max(drift, Math.abs(box.left - spot.left), Math.abs(box.top - spot.top));
+    if (last) pinMoved = Math.max(pinMoved, Math.hypot(pin.left - last.left, pin.top - last.top));
+    last = pin;
+  }
+  w.map.fire("moveend");
+  expect("on every frame the box is where it docked (the pin moves under the map, the box does not)",
+    spot && drift <= 1 && pinMoved > 20, `box drifts up to ${drift.toFixed(2)} px while the pin moves up to ${pinMoved.toFixed(0)} px a frame`);
+  const d = docked(w, "top");
+  expect("…and it is still docked when the move ends", d.ok, d.detail);
+}
+
+// --- d. Another pin during the 5 s ---
+console.log("\nd. Tapping another pin during the 5 seconds shows that place in the docked box");
+{
+  const w = await enter("nextTurn");
+  tapPin(w, HITS[0]);
+  w.advance(3000);
+  tapPin(w, HITS[2]);
+  const boxes = w.ctx.document.querySelectorAll(".truck-pin-label");
+  expect("the box now shows pin 3 (and it is the only box)",
+    boxes.length === 1 && /^3\. Walmart · 117\.3 miles ahead · 0\.4 miles off the route$/.test(boxText(w)) && pinOf(w, HITS[2])?.getElement() === chosen(w).wrap,
+    `${boxes.length} box(es), ${JSON.stringify(boxText(w))}`);
+  const d = docked(w, "top");
+  expect("…docked at the top as before", d.ok, d.detail);
+  const c = areaClear(w, HITS[2]);
+  expect("…with pin 3 and its ±402 m area below it", c.ok, c.detail);
+  const want = await enter("nextTurn");
+  want.ctx.selectTruckHit(2);
+  tapPin(want, HITS[2]);
+  expect("…framed for pin 3's own box (same view as tapping pin 3 when it was already chosen)", sameCam(cam(w), cam(want)),
+    `${fmtCam(cam(w))} vs ${fmtCam(cam(want))}`);
+  w.advance(4900);
+  const held = docked(w, "top");
+  expect("…still docked 4.9 s after the second tap", held.ok, held.detail);
+  w.advance(200);
+  const back = byPin(w);
+  expect("…and back by pin 3 5 s after the second tap", back.ok, back.detail);
+}
+
+// --- e. Add and recalculate in the docked box ---
+console.log("\ne. Add and recalculate in the docked box works as before");
+{
+  const w = await enter("nextTurn");
+  tapPin(w, HITS[1]);
+  const wasDocked = docked(w, "top").ok;
+  const add = chosen(w).label?.querySelector(".truck-pin-add");
+  click(add);
+  const after = cam(w);
+  const back = byPin(w);
+  expect("tapping it in the docked box stops the 5 s and the box goes back by its pin",
+    wasDocked && back.ok && !w.timers.some((t) => t.at - w.ctx.clock.now > 1000), `docked before: ${wasDocked}; ${back.detail}`);
+  w.advance(6000);
+  expect("…it adds that place as before, and the map does not jump back after the 5 s",
+    w.ctx.calls.added.length === 1 && w.ctx.calls.added[0] === HITS[1] && w.ctx.truckHits.length === 0 && sameCam(cam(w), after),
+    `${w.ctx.calls.added.length} add(s), ${w.ctx.truckHits.length} pin(s) left`);
+  w.ctx.state.estimating = false;
+  w.ctx.showTruckHits(HITS, false);
+  const fresh = byPin(w);
+  expect("…and the next search's box sits by its pin, not docked", fresh.ok, fresh.detail);
+}
+
+// --- f. After the 5 s, and on every other stop, the box goes back by its pin ---
+console.log("\nf. After the 5 seconds, and when they are stopped, the box goes back by its pin");
+for (const mode of ["nextTurn", "nextStop", "follow", "full", "remaining", "free"]) {
+  const w = await enter(mode);
+  tapPin(w, HITS[0]);
+  w.advance(4900);
+  const held = docked(w, "top");
+  w.advance(200);
+  const back = byPin(w);
+  expect(`${NAMES[mode]}: docked until 5 s, then back by its pin`, held.ok && back.ok, `${held.detail} → ${back.detail}`);
+}
+{
+  const w = await enter("nextStop");
+  tapPin(w, HITS[1]);
+  const wasDocked = docked(w, "top").ok;
+  w.buttons.routePlaceClear();
+  const gone = w.ctx.truckMarkers.length === 0 && !w.mapEl.classList.contains("is-pin-dock");
+  w.ctx.showTruckHits(HITS, false);
+  w.advance(6000);
+  const back = byPin(w);
+  expect("Clear: docked before; the pins go, and the next search's box sits by its pin", wasDocked && gone && back.ok,
+    `docked before: ${wasDocked}, pins gone: ${gone}; ${back.detail}`);
+}
+for (const [label, act] of [
+  ["the zoom button", (w) => w.buttons.routeWhole()],
+  ["Follow me", (w) => w.buttons.routeFollow()],
+  ["Start navigation", (w) => w.buttons.startNav()],
+  ["End navigation", (w) => w.buttons.endNav()],
+]) {
+  const w = await enter("nextTurn");
+  tapPin(w, HITS[0]);
+  const wasDocked = docked(w, "top").ok;
+  await act(w);
+  const back = byPin(w);
+  w.advance(6000);
+  const later = byPin(w);
+  expect(`${label}: docked before; right after it the box is back by its pin, and stays there`,
+    wasDocked && back.ok && later.ok && pending(w) === 0, `docked before: ${wasDocked}; ${back.detail}; ${pending(w)} timer(s)`);
+}
+{
+  const w = await enter("nextTurn");
+  tapPin(w, HITS[0]);
+  const wasDocked = docked(w, "top").ok;
+  w.ctx.clearRouteMap();
+  const undocked = !w.mapEl.classList.contains("is-pin-dock") && w.ctx.truckMarkers.length === 0;
+  const fresh = new w.map.constructor(w.mapEl);
+  fresh.on("move", w.onMove);
+  w.map = fresh;
+  w.ctx.routeMap = fresh;
+  w.ctx.paintTruckPins();
+  w.advance(6000);
+  const back = byPin(w);
+  expect("map rebuild: docked before; the new map's box sits by its pin", wasDocked && undocked && back.ok,
+    `docked before: ${wasDocked}, dock cleared: ${undocked}; ${back.detail}`);
 }
 {
   const w = await enter("nextTurn");
   w.ctx.showTruckHits(HITS, true);
-  const before = cam(w);
-  const second = w.mapEl && w.ctx.document.getElementById("nextPlaceList").elements()[1];
-  click(second);
-  expect("the list under the page map only chooses the place (no zoom, no timer)",
-    w.ctx.truckHit === HITS[1] && sameCam(cam(w), before) && pending(w) === 0, `${pending(w)} timer(s), ${fmtCam(cam(w))}`);
-}
-
-// --- b. After 5 s, back to the mode he was in ---
-console.log("\nb. After 5 seconds the map goes back to the zoom mode he was in");
-for (const mode of ["nextTurn", "nextStop", "follow", "full", "remaining", "free"]) {
-  const w = await enter(mode);
-  const before = cam(w);
-  const fit = w.ctx.tripFit;
-  const following = w.ctx.navFollowing;
-  tapPin(w, HITS[0]);
-  w.advance(4900);
-  const held = peekOn(w, HITS[0]);
-  w.advance(200);
-  const back = cam(w);
-  expect(`${NAMES[mode]}: on the pin until 5 s, then back to the ${NAMES[mode]} view`,
-    held.ok && sameCam(back, before) && w.ctx.tripFit === fit && w.ctx.navFollowing === following,
-    `at 4.9 s ${fmtPeek(held)}; after: ${fmtCam(back)} vs ${fmtCam(before)}, mode ${w.ctx.tripFit}/${w.ctx.navFollowing}`);
-}
-
-// --- c. Another tap during the 5 s ---
-console.log("\nc. Another tap during the 5 seconds jumps there and starts the 5 seconds again");
-{
-  const w = await enter("nextTurn");
-  const before = cam(w);
-  tapPin(w, HITS[0]);
-  w.advance(3000);
-  tapPin(w, HITS[2]);
-  const moved = peekOn(w, HITS[2]);
-  expect("a tap on pin 3 at 3 s jumps to half a mile around pin 3", moved.ok && w.ctx.truckHit === HITS[2], fmtPeek(moved));
-  w.advance(3000);
-  const still = peekOn(w, HITS[2]);
-  expect("…6 s after the first tap it is still on pin 3 (the 5 s started again)", still.ok, fmtPeek(still));
-  w.advance(2100);
-  expect("…and 5 s after the second tap it is back in Turn zoom", sameCam(cam(w), before) && w.ctx.tripFit === "nextTurn",
-    `${fmtCam(cam(w))} vs ${fmtCam(before)}`);
-  expect("…with no timer left over", pending(w) === 0, `${pending(w)} timer(s)`);
-}
-{
-  const w = await enter("nextStop");
-  const before = cam(w);
-  tapPin(w, HITS[1]);
-  w.advance(3000);
-  w.map.jumpTo({ center: [HITS[1].lon + 0.05, HITS[1].lat + 0.03] });
-  tapPin(w, HITS[1]);
-  const again = peekOn(w, HITS[1]);
-  expect("tapping the same pin again centers it again", again.ok, fmtPeek(again));
-  w.advance(3000);
-  const still = peekOn(w, HITS[1]);
-  expect("…and starts the 5 s again (still on it 6 s after the first tap)", still.ok, fmtPeek(still));
-  w.advance(2100);
-  expect("…then back to Stop zoom", sameCam(cam(w), before) && w.ctx.tripFit === "nextStop", `${fmtCam(cam(w))} vs ${fmtCam(before)}`);
-}
-
-// --- d. Actions that stop the 5 s ---
-console.log("\nd. Add and recalculate, Clear, the zoom button, Follow me, End navigation and a map rebuild stop the 5 seconds");
-
-// The same action without a pin tap first, for "works as before".
-async function control(mode, act) {
-  const w = await enter(mode);
-  await act(w);
-  return { cam: cam(w), fit: w.ctx.tripFit, following: w.ctx.navFollowing };
-}
-
-{
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[1]);
-  const armed = pending(w) === 1;
-  const add = pinOf(w, HITS[1]).getElement().querySelector(".truck-pin-add");
-  click(add);
-  const after = cam(w);
-  w.advance(6000);
-  expect("Add and recalculate: the 5 s timer was running and is gone, and the map does not jump back after it",
-    armed && pending(w) === 0 && sameCam(cam(w), after) && w.ctx.navZoomHold <= w.ctx.clock.now,
-    `armed ${armed}, ${pending(w)} timer(s), hold ${w.ctx.navZoomHold > w.ctx.clock.now ? "still on" : "off"}`);
-  expect("…and it adds that place as before", w.ctx.calls.added.length === 1 && w.ctx.calls.added[0] === HITS[1] && w.ctx.truckHits.length === 0,
-    `${w.ctx.calls.added.length} add(s)`);
-}
-{
-  const clear = (w) => w.buttons.routePlaceClear();
-  const want = await control("nextStop", clear);
-  const w = await enter("nextStop");
-  tapPin(w, HITS[1]);
-  const armed = pending(w) === 1;
-  clear(w);
-  const after = cam(w);
-  w.advance(6000);
-  expect("Clear: the 5 s timer was running and is gone, and the map does not jump back after it",
-    armed && pending(w) === 0 && sameCam(cam(w), after), `armed ${armed}, ${pending(w)} timer(s)`);
-  expect("…and Clear works as before (pins gone, Turn zoom, same view as without the tap)",
-    w.ctx.truckHits.length === 0 && w.ctx.tripFit === "nextTurn" && sameCam(cam(w), want.cam), `${fmtCam(cam(w))} vs ${fmtCam(want.cam)}`);
-}
-{
-  const press = (w) => w.buttons.routeWhole();
-  const want = await control("nextTurn", press);
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[0]);
-  const armed = pending(w) === 1;
-  press(w);
-  const after = cam(w);
-  w.advance(6000);
-  expect("the zoom button: the 5 s timer was running and is gone, and the map does not jump back after it",
-    armed && pending(w) === 0 && sameCam(cam(w), after), `armed ${armed}, ${pending(w)} timer(s)`);
-  expect("…and it goes on to Stop zoom as before (same view as without the tap)",
-    w.ctx.tripFit === "nextStop" && sameCam(cam(w), want.cam), `${w.ctx.tripFit}, ${fmtCam(cam(w))} vs ${fmtCam(want.cam)}`);
-  expect("…and Stop zoom follows the GPS again right away", w.ctx.navZoomHold <= w.ctx.clock.now + 700, `hold ends in ${w.ctx.navZoomHold - w.ctx.clock.now} ms`);
-}
-{
-  const press = (w) => w.buttons.routeFollow();
-  const want = await control("nextTurn", press);
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[0]);
-  const armed = pending(w) === 1;
-  await press(w);
-  const after = cam(w);
-  w.advance(6000);
-  expect("Follow me: the 5 s timer was running and is gone, and the map does not jump back to Turn zoom",
-    armed && pending(w) === 0 && sameCam(cam(w), after) && w.ctx.tripFit === "off" && w.ctx.navFollowing,
-    `armed ${armed}, ${pending(w)} timer(s), ${w.ctx.tripFit}/${w.ctx.navFollowing}`);
-  expect("…and Follow me shows you as before", sameCam(cam(w), want.cam), `${fmtCam(cam(w))} vs ${fmtCam(want.cam)}`);
-}
-{
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[0]);
-  const armed = pending(w) === 1;
-  w.buttons.endNav();
-  expect("End navigation: the 5 s timer was running and is gone", armed && pending(w) === 0 && w.ctx.calls.ended === 1,
-    `armed ${armed}, ${pending(w)} timer(s)`);
-}
-{
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[0]);
-  const armed = pending(w) === 1;
-  const old = w.map;
-  w.ctx.clearRouteMap();
-  let threw = "";
-  try { w.advance(6000); } catch (err) { threw = String(err.message || err); }
-  expect("the map is rebuilt: the 5 s timer was running and is gone, nothing fires on the old map",
-    armed && pending(w) === 0 && old.removed && !threw && w.ctx.routeMap === null, threw || `armed ${armed}, ${pending(w)} timer(s)`);
-}
-
-// --- e. GPS during the 5 s ---
-console.log("\ne. GPS updates during the 5 seconds do not move the map off the pin");
-{
-  const w = await enter("nextTurn");
-  tapPin(w, HITS[1]);
-  const peek = cam(w);
-  w.advance(1000);
-  w.ctx.onNavFix(AHEAD[0], AHEAD[1], w.ctx.clock.now);
-  w.advance(500);
-  w.ctx.snapNavLock();
-  w.ctx.onNavCompass({ webkitCompassHeading: 95 });
-  const r = peekOn(w, HITS[1]);
-  expect("Turn zoom: a new GPS fix, a resume and a compass turn leave the map on the pin",
-    r.ok && sameCam(cam(w), peek), `${fmtPeek(r)}; ${fmtCam(cam(w))} vs ${fmtCam(peek)}`);
-  w.advance(3600);
-  const want = world();
-  want.ctx.navFix = AHEAD.slice();
-  want.ctx.navCompass = 95;
-  want.ctx.placeNavDot(AHEAD[0], AHEAD[1]);
-  want.ctx.tripFit = "remaining";
-  want.ctx.cycleTripFit();
-  expect("…after 5 s Turn zoom frames once, from where he is now", sameCam(cam(w), cam(want)) && w.ctx.tripFit === "nextTurn",
-    `${fmtCam(cam(w))} vs ${fmtCam(cam(want))}`);
-}
-{
-  const w = await enter("nextStop");
-  tapPin(w, HITS[2]);
-  const peek = cam(w);
-  w.advance(1000);
-  w.ctx.onNavFix(AHEAD[0], AHEAD[1], w.ctx.clock.now);
-  const r = peekOn(w, HITS[2]);
-  expect("Stop zoom: a new GPS fix leaves the map on the pin", r.ok && sameCam(cam(w), peek), fmtPeek(r));
-}
-{
-  const w = await enter("follow");
-  tapPin(w, HITS[0]);
-  const peek = cam(w);
-  w.advance(1000);
-  w.ctx.onNavFix(AHEAD[0], AHEAD[1], w.ctx.clock.now);
-  w.ctx.navShown = { lat: AHEAD[0], lon: AHEAD[1] };
-  w.ctx.paintNavMotion(w.ctx.clock.now);
-  const r = peekOn(w, HITS[0]);
-  expect("Follow me: the moving dot does not pull the map off the pin", r.ok && sameCam(cam(w), peek), fmtPeek(r));
-  w.advance(4100);
-  const c = cam(w);
-  expect("…after 5 s it follows you again", navMatch.metersBetween([c.lat, c.lng], AHEAD) < 1 && Math.abs(c.zoom - 15) < 1e-6,
-    fmtCam(c));
+  click(w.ctx.document.getElementById("nextPlaceList").elements()[1]);
+  const back = byPin(w);
+  expect("the list under the page map only chooses the place: its box sits by its pin, nothing docks",
+    w.ctx.truckHit === HITS[1] && pending(w) === 0 && back.ok, back.detail);
 }
 
 console.log(failures ? `\n${failures} check(s) failed.` : "\nAll checks passed.");

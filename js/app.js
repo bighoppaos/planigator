@@ -5105,7 +5105,7 @@ let navStopNoteUntil = 0;
 let truckHit = null;
 let truckHits = [];
 const PIN_PEEK_MS = 5000;
-const PIN_PEEK_M = 805;
+const PIN_PEEK_M = 402;
 let pinPeek = null;
 let placeListMode = false;
 let placeSeek = "";
@@ -9301,7 +9301,8 @@ function paintTruckPins() {
 }
 
 // The chosen box flips under its pin when above it would run under Search here / Clear or off the map.
-function seatTruckLabel() {
+// While a tapped pin is zoomed in, the box is docked out of the way instead.
+function seatTruckLabel(event) {
   const wrap = document.querySelector(".truck-pin-wrap.is-chosen");
   const label = wrap?.querySelector(".truck-pin-label");
   const map = document.getElementById("routeMap");
@@ -9311,6 +9312,26 @@ function seatTruckLabel() {
   const ceiling = tools && tools.height > 0 ? Math.max(mapTop, tools.bottom) : mapTop;
   const pinTop = wrap.getBoundingClientRect().top;
   wrap.classList.toggle("is-below", pinTop - label.offsetHeight - 4 < ceiling + 8);
+  if (!map.classList.contains("is-pin-dock")) {
+    if (wrap.classList.contains("is-docked")) {
+      wrap.classList.remove("is-docked");
+      label.style.left = "";
+      label.style.top = "";
+    }
+    return;
+  }
+  const dock = pinPeek?.dock;
+  const marker = truckMarkers.find((one) => one.getElement() === wrap);
+  if (!dock || !routeMap || !marker) return;
+  // From the projected pin, not the marker's box: on a map move this runs
+  // before MapLibre moves the marker. MapLibre rounds it except mid-move.
+  let at = routeMap.project(marker.getLngLat());
+  if (event?.type !== "move") at = { x: Math.round(at.x), y: Math.round(at.y) };
+  wrap.classList.add("is-docked");
+  label.style.left = `${dock.left - (at.x - wrap.offsetWidth / 2)}px`;
+  label.style.top = `${dock.top - (at.y - wrap.offsetHeight)}px`;
+  // A newly chosen place can have a taller box than the one the fit was made for.
+  if (Math.abs(label.offsetHeight - dock.h) > 1) showPinPeek();
 }
 
 // The page list only. Full screen shows the places on the pins, never in a list.
@@ -9419,7 +9440,7 @@ function onRouteMapClick(event) {
   if (pinned[at]) peekTruckHit(pinned[at]);
 }
 
-// A tapped result pin: about half a mile around it for 5 s, then back to the
+// A tapped result pin: about a quarter mile around it for 5 s, then back to the
 // zoom mode he was in. navZoomHold keeps GPS fixes off the camera meanwhile.
 function peekTruckHit(hit) {
   if (!routeMap || state.estimating) return;
@@ -9449,12 +9470,39 @@ function peekTruckHit(hit) {
 }
 
 // The clear area Turn and Stop zoom use, also below Search here / Clear.
+// The chosen box docks between the rails just under Search here / Clear, or
+// just above the ETA when the top leaves too little room, and the fit keeps the
+// pin's area clear of it.
 function pinPeekPadding() {
   const pad = { ...paddingForTurnZoom(turnViewPadding(), 0).padding };
   const map = routeMap?.getContainer?.() || document.getElementById("routeMap");
   const mapTop = map?.getBoundingClientRect?.().top || 0;
   const tools = document.getElementById("routePlaceTools")?.getBoundingClientRect();
   if (tools && tools.height > 0) pad.top = Math.max(pad.top, Math.round(tools.bottom - mapTop + 8));
+  const label = document.querySelector(".truck-pin-wrap.is-chosen .truck-pin-label");
+  const width = map?.clientWidth || 0;
+  const height = map?.clientHeight || 0;
+  const boxH = label?.offsetHeight || 0;
+  const boxW = label?.offsetWidth || 0;
+  let dock = null;
+  if (boxH > 0 && width > 0 && height > 0) {
+    const top = tools && tools.height > 0 ? Math.round(tools.bottom - mapTop + 8) : (routeFull ? Math.round(safeTopPad()) : 0) + 8;
+    const mapBottom = map.getBoundingClientRect().bottom;
+    const stack = document.querySelector("#routeStage .route-bottom");
+    const stackBox = stack && !stack.hidden ? stack.getBoundingClientRect() : null;
+    const floor = stackBox && stackBox.height > 2 && stackBox.top > mapTop && stackBox.top < mapBottom
+      ? Math.round(stackBox.top - mapTop - 8)
+      : height - 8;
+    const atTop = { top, h: boxH, padTop: Math.max(pad.top, top + boxH + 8), padBottom: pad.bottom };
+    const atBottom = { top: floor - boxH, h: boxH, padTop: pad.top, padBottom: Math.max(pad.bottom, height - floor + boxH + 8) };
+    const room = (spot) => height - spot.padTop - spot.padBottom;
+    dock = room(atTop) >= 120 || room(atTop) >= room(atBottom) ? atTop : atBottom;
+    dock.side = dock === atTop ? "top" : "bottom";
+    dock.left = Math.round(Math.max(8, Math.min(width - 8 - boxW, (pad.left + width - pad.right - boxW) / 2)));
+    pad.top = dock.padTop;
+    pad.bottom = dock.padBottom;
+  }
+  if (pinPeek) pinPeek.dock = dock;
   // MapLibre skips a fit whose padding leaves no room at all.
   const fit = (a, b, size) => {
     const room = size - 40;
@@ -9463,8 +9511,8 @@ function pinPeekPadding() {
     pad[a] = Math.floor(pad[a] * k);
     pad[b] = Math.floor(pad[b] * k);
   };
-  fit("left", "right", map?.clientWidth || 0);
-  fit("top", "bottom", map?.clientHeight || 0);
+  fit("left", "right", width);
+  fit("top", "bottom", height);
   return pad;
 }
 
@@ -9476,8 +9524,11 @@ function showPinPeek() {
   const dLat = PIN_PEEK_M / 111320;
   const dLon = PIN_PEEK_M / (111320 * Math.max(0.2, Math.cos(lat * Math.PI / 180)));
   const bounds = new maplibre.LngLatBounds([lon - dLon, lat - dLat], [lon + dLon, lat + dLat]);
+  const padding = pinPeekPadding();
+  document.getElementById("routeMap")?.classList.toggle("is-pin-dock", Boolean(pinPeek.dock));
   routeMap.stop();
-  routeMap.fitBounds(bounds, { padding: pinPeekPadding(), bearing: 0, duration: 600 });
+  routeMap.fitBounds(bounds, { padding, bearing: 0, duration: 600 });
+  seatTruckLabel();
 }
 
 function cancelPinPeek() {
@@ -9485,12 +9536,16 @@ function cancelPinPeek() {
   window.clearTimeout(pinPeek.timer);
   if (navZoomHold === pinPeek.until) navZoomHold = 0;
   pinPeek = null;
+  document.getElementById("routeMap")?.classList.remove("is-pin-dock");
+  seatTruckLabel();
 }
 
 function endPinPeek() {
   const peek = pinPeek;
   if (!peek) return;
   pinPeek = null;
+  document.getElementById("routeMap")?.classList.remove("is-pin-dock");
+  seatTruckLabel();
   // A drag, a zoom, or a stop pick moved the hold: that action owns the map now.
   if (navZoomHold !== peek.until) return;
   navZoomHold = 0;
