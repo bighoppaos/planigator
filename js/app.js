@@ -5126,6 +5126,8 @@ const RESUME_DRIVEN_M = 1000;
 function clearRoutePins() {
   for (const marker of routePinMarkers) marker.remove();
   routePinMarkers = [];
+  const leads = routeMap?.getContainer?.()?.querySelector?.(".route-pin-leads");
+  if (leads) leads.innerHTML = "";
 }
 
 function addRoutePins(bounds) {
@@ -5156,51 +5158,189 @@ function routePinFor(stopId) {
   return routePinMarkers.find((marker) => marker.getElement().dataset.stopId === stopId) || null;
 }
 
-// Stop zoom: the stop you are driving to keeps its chip on top, and any chip
-// that would cover it is hidden. Every other view shows all chips as before.
+// Trip, Left and Stop zoom: each chip stands off the route, above or below it,
+// with a thin line and arrow down to its stop, clear of the other chips, the
+// buttons, Search here / Clear, the ETA, the directions and the notch. Stop
+// zoom places the stop you are driving to first and keeps it on top; another
+// chip with no free spot is hidden there. Every other view shows all chips on
+// their pins as before.
 function declutterRoutePins() {
   const target = tripFit === "nextStop" && routeMap ? routePinFor(stopTargetId) : null;
-  if (!target) {
+  const callouts = Boolean(routeMap) && routePinMarkers.length > 0
+    && (tripFit === "nextStop" || (navOn && (tripFit === "full" || tripFit === "remaining")));
+  if (!callouts) {
     if (routePinsPlain) return;
     for (const marker of routePinMarkers) {
       const el = marker.getElement();
       el.classList.remove("is-target");
       el.style.zIndex = "";
       el.style.visibility = "";
+      el.style.translate = "";
     }
+    const leads = routeMap?.getContainer?.()?.querySelector?.(".route-pin-leads");
+    if (leads) leads.innerHTML = "";
     routePinsPlain = true;
     return;
   }
   routePinsPlain = false;
-  target.getElement().classList.add("is-target");
+  for (const marker of routePinMarkers) {
+    if (marker === target) marker.getElement().classList.add("is-target");
+    else marker.getElement().classList.remove("is-target");
+  }
+  const holder = routeMap.getContainer?.() || document.getElementById("routeMap");
+  const width = holder?.clientWidth || 0;
+  const height = holder?.clientHeight || 0;
+  const mapBox = holder?.getBoundingClientRect?.() || { left: 0, top: 0 };
+  const local = (box, gap) => ({
+    left: box.left - mapBox.left - gap,
+    right: box.right - mapBox.left + gap,
+    top: box.top - mapBox.top - gap,
+    bottom: box.bottom - mapBox.top + gap,
+  });
+  const shown = (el) => {
+    const box = el && !el.hidden ? el.getBoundingClientRect() : null;
+    return box && box.width > 2 && box.height > 2 ? box : null;
+  };
   // Read every box before writing any style, so a map frame lays out once.
-  const boxes = routePinMarkers.map((marker) => {
+  const walls = [{ left: -1e5, right: 1e5, top: -1e5, bottom: (routeFull ? safeTopPad() : 0) + 8 }];
+  document.querySelectorAll(".route-stage .route-rail").forEach((rail) => {
+    const box = shown(rail);
+    if (box) walls.push(local(box, 8));
+  });
+  [
+    document.getElementById("routePlaceTools"),
+    document.getElementById("routeStopMiles"),
+    document.getElementById("routeDirections"),
+    document.querySelector("#routeStage .route-bottom"),
+  ].forEach((el) => {
+    const box = shown(el);
+    if (box) walls.push(local(box, 6));
+  });
+  // Better not covered, but not worth hiding a chip for.
+  const avoid = [];
+  if (typeof navYou?.getElement === "function" && typeof navYou.getLngLat === "function") {
+    const at = routeMap.project(navYou.getLngLat());
+    const r = (navYou.getElement().offsetHeight || 24) / 2 + NAV_DOT_HALO_PX + 2;
+    avoid.push({ left: at.x - r, right: at.x + r, top: at.y - r, bottom: at.y + r });
+  }
+  const place = shown(document.querySelector(".truck-pin-wrap.is-chosen"));
+  if (place) avoid.push(local(place, 4));
+  const chips = routePinMarkers.map((marker) => {
     const el = marker.getElement();
     const at = routeMap.project(marker.getLngLat());
-    const w = el.offsetWidth || 0;
-    const h = el.offsetHeight || 0;
-    return { el, left: at.x - w / 2, right: at.x + w / 2, top: at.y - h, bottom: at.y };
+    return { marker, el, x: at.x, y: at.y, w: el.offsetWidth || 0, h: el.offsetHeight || 0, spot: null, hide: false };
   });
-  const goal = boxes[routePinMarkers.indexOf(target)];
-  const gap = 2;
-  for (const box of boxes) {
-    if (box === goal) {
-      box.el.style.zIndex = "4";
-      box.el.style.visibility = "";
-      continue;
+  const onMap = chips.filter((chip) => chip.x >= 0 && chip.x <= width && chip.y >= 0 && chip.y <= height);
+  const room = { left: 4, right: width - 4, top: 0, bottom: height - 4 };
+  const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+    * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const crosses = (x1, y1, x2, y2, box) => {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - box.left], [dx, box.right - x1], [-dy, y1 - box.top], [dy, box.bottom - y1]]) {
+      if (p === 0) {
+        if (q < 0) return false;
+        continue;
+      }
+      const r = q / p;
+      if (p < 0) t0 = Math.max(t0, r);
+      else t1 = Math.min(t1, r);
+      if (t0 > t1) return false;
     }
-    const covers = box.left < goal.right + gap && box.right > goal.left - gap
-      && box.top < goal.bottom + gap && box.bottom > goal.top - gap;
-    box.el.classList.remove("is-target");
-    box.el.style.zIndex = "";
-    box.el.style.visibility = covers ? "hidden" : "";
+    return true;
+  };
+  const xs = onMap.map((chip) => chip.x);
+  const ys = onMap.map((chip) => chip.y);
+  const alongX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+  const order = onMap.filter((chip) => chip.marker !== target).sort((a, b) => (alongX ? a.x - b.x : a.y - b.y));
+  const goal = onMap.find((chip) => chip.marker === target);
+  if (goal) order.unshift(goal);
+  const placed = [];
+  order.forEach((chip, index) => {
+    // Alternate above (-1) and below (1) along the route.
+    const first = index % 2 ? 1 : -1;
+    const spots = [];
+    for (const side of [first, -first]) {
+      for (const lead of [18, 46, 74, 102, 130]) {
+        for (const shift of [0, -0.5, 0.5, -1, 1, -1.5, 1.5]) {
+          const cx = Math.min(room.right - chip.w / 2, Math.max(room.left + chip.w / 2, chip.x + shift * chip.w));
+          const dx = Math.round(cx - chip.x);
+          const dy = side < 0 ? -lead : lead + chip.h;
+          const box = { left: chip.x + dx - chip.w / 2, right: chip.x + dx + chip.w / 2, top: chip.y + dy - chip.h, bottom: chip.y + dy };
+          const ax = Math.min(box.right - chip.h / 2, Math.max(box.left + chip.h / 2, chip.x));
+          const ay = side < 0 ? box.bottom : box.top;
+          spots.push({ dx, dy, box, ax, ay, score: lead + Math.abs(dx) * 0.6 + (side === first ? 0 : 30) });
+        }
+      }
+    }
+    spots.sort((a, b) => a.score - b.score);
+    let clean = null;
+    let fair = null;
+    let least = null;
+    for (const spot of spots) {
+      const box = spot.box;
+      const wide = { left: box.left - 3, right: box.right + 3, top: box.top - 3, bottom: box.bottom + 3 };
+      let hard = (box.right - box.left) * (box.bottom - box.top) - overlap(box, room);
+      for (const wall of walls) hard += overlap(box, wall);
+      for (const other of placed) hard += overlap(wide, other.spot.box);
+      if (hard > 0) {
+        if (!least || hard < least.hard) least = { spot, hard };
+        continue;
+      }
+      let misses = avoid.filter((other) => overlap(box, other) > 0).length;
+      for (const other of onMap) {
+        if (other !== chip && other.x > wide.left && other.x < wide.right && other.y > wide.top && other.y < wide.bottom) misses += 1;
+      }
+      for (const other of placed) {
+        if (crosses(spot.ax, spot.ay, chip.x, chip.y, other.spot.box)) misses += 1;
+        if (crosses(other.spot.ax, other.spot.ay, other.x, other.y, box)) misses += 1;
+      }
+      if (!misses) {
+        clean = spot;
+        break;
+      }
+      if (!fair || misses < fair.misses) fair = { spot, misses };
+    }
+    chip.spot = clean || fair?.spot || null;
+    if (!chip.spot && tripFit === "nextStop" && chip !== goal) chip.hide = true;
+    else if (!chip.spot) chip.spot = least?.spot || spots[0];
+    if (chip.spot) placed.push(chip);
+  });
+  for (const chip of chips) {
+    chip.el.style.zIndex = chip === goal ? "4" : "";
+    chip.el.style.visibility = chip.hide ? "hidden" : "";
+    chip.el.style.translate = chip.spot ? `${chip.spot.dx}px ${chip.spot.dy}px` : "";
   }
+  let leads = holder?.querySelector?.(".route-pin-leads") || null;
+  if (!leads && typeof holder?.appendChild === "function") {
+    leads = document.createElement("div");
+    leads.className = "route-pin-leads";
+    holder.appendChild(leads);
+  }
+  if (!leads) return;
+  const n = (v) => Math.round(v * 10) / 10;
+  const marks = placed.map((chip) => {
+    const { ax, ay } = chip.spot;
+    const len = Math.hypot(chip.x - ax, chip.y - ay) || 1;
+    const ux = (chip.x - ax) / len;
+    const uy = (chip.y - ay) / len;
+    const bx = chip.x - ux * 7;
+    const by = chip.y - uy * 7;
+    const line = `M${n(ax)} ${n(ay)}L${n(bx)} ${n(by)}`;
+    const tip = `M${n(chip.x)} ${n(chip.y)}L${n(bx - uy * 3.5)} ${n(by + ux * 3.5)}L${n(bx + uy * 3.5)} ${n(by - ux * 3.5)}Z`;
+    const id = String(chip.el.dataset.stopId || "").replace(/[^\w-]/g, "");
+    return `<g data-stop-id="${id}"><path class="halo" d="${line}${tip}"/><path class="line" d="${line}"/><path class="tip" d="${tip}"/></g>`;
+  });
+  leads.innerHTML = `<svg width="${width}" height="${height}" aria-hidden="true">${marks.join("")}</svg>`;
 }
 
 function hookRoutePinDeclutter() {
   if (!routeMap || routePinsHooked === routeMap || typeof routeMap.on !== "function") return;
   routePinsHooked = routeMap;
   routeMap.on("move", declutterRoutePins);
+  routeMap.on("resize", declutterRoutePins);
 }
 
 function clearRouteMap() {
@@ -7201,6 +7341,12 @@ function tripViewPadding() {
   pad.left = Math.max(pad.left, clear.left + 10);
   pad.right = Math.max(pad.right, clear.right + 10);
   pad.top = Math.max(pad.top, routeFull ? 72 : 52);
+  // Trip and Left zoom stand the stop chips above and below the route.
+  if (navOn && (tripFit === "full" || tripFit === "remaining")) {
+    const lift = (routePinMarkers[0]?.getElement().offsetHeight || 24) + 26;
+    pad.top += lift;
+    pad.bottom += lift;
+  }
   const maxY = Math.max(40, Math.floor(mapBox.height / 2) - 20);
   const maxX = Math.max(40, Math.floor(mapBox.width / 2) - 20);
   pad.top = Math.min(pad.top, maxY);
@@ -8261,10 +8407,11 @@ function frameNextTurn() {
   }
 }
 
-// The fit only places pins. The target's chip stands above its pin and half
-// its width to each side, and your dot has a ring: both have to land inside
-// the clear area between the rails, under the top bar, above ETA/directions.
-// North up, the chip only reaches past the edges the target is nearest to.
+// The fit only places pins. The target's chip stands above or below its pin
+// on a short line and half its width to each side, and your dot has a ring:
+// both have to land inside the clear area between the rails, under the top
+// bar, above ETA/directions. North up, the chip only reaches past the side
+// edge the target is nearest to.
 function stopZoomPadding(stopId, bounds, lat, lon) {
   const base = paddingForTurnZoom(turnViewPadding(), 0).padding;
   const chip = routePinFor(stopId)?.getElement();
@@ -8274,13 +8421,12 @@ function stopZoomPadding(stopId, bounds, lat, lon) {
   const dotR = (dot?.offsetHeight || 24) / 2 + NAV_DOT_HALO_PX;
   const ring = Math.ceil(dotR) + 4;
   const wide = Math.ceil(Math.max(chipW / 2, dotR)) + 4;
-  const tall = Math.ceil(Math.max(chipH, dotR)) + 4;
+  const tall = Math.ceil(Math.max(chipH + 18, dotR)) + 4;
   const nearWest = lon - bounds.getWest() <= bounds.getEast() - lon;
-  const nearNorth = bounds.getNorth() - lat <= lat - bounds.getSouth();
   const pad = {
-    top: base.top + (nearNorth ? tall : ring),
+    top: base.top + tall,
     right: base.right + (nearWest ? ring : wide),
-    bottom: base.bottom + ring,
+    bottom: base.bottom + tall,
     left: base.left + (nearWest ? wide : ring),
   };
   // MapLibre skips a fit whose padding leaves no room at all.
