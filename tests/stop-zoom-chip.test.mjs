@@ -418,14 +418,17 @@ function expect(label, ok, detail = "") {
   console.log(`${ok ? "ok  " : "FAIL"} ${label}${detail ? `: ${detail}` : ""}`);
 }
 
+// Build #628 stands chips off their pins with style.translate; box is where the chip is drawn, pinBox where it stood before.
 const chips = (pg) => pg.ctx.routePinMarkers.map((marker) => {
   const el = marker.getElement();
   const at = pg.map.project(marker.getLngLat());
   const w = el.offsetWidth;
   const h = el.offsetHeight;
+  const [dx = 0, dy = 0] = String(el.style.translate || "").split(/\s+/).map((v) => parseFloat(v) || 0);
   return {
     id: el.dataset.stopId || el.textContent, label: el.textContent, el, at,
-    box: { left: at.x - w / 2, right: at.x + w / 2, top: at.y - h, bottom: at.y },
+    pinBox: { left: at.x - w / 2, right: at.x + w / 2, top: at.y - h, bottom: at.y },
+    box: { left: at.x + dx - w / 2, right: at.x + dx + w / 2, top: at.y + dy - h, bottom: at.y + dy },
     z: el.style.zIndex ? Number(el.style.zIndex) : MARKER_Z,
     shown: el.style.visibility !== "hidden" && el.style.display !== "none" && !el.hidden && el.style.opacity !== "0",
   };
@@ -525,9 +528,10 @@ console.log("\nc. No other visible chip overlaps the target chip");
   enterStopZoom(pg);
   const all = chips(pg);
   const target = all.find((chip) => chip.label === "pilotfue");
+  const onPin = all.filter((chip) => chip !== target && overlap(chip.pinBox, target.pinBox));
+  expect("set-up: on their pins, SWFT and WALMARdo would sit on the target chip at this zoom", ["SWFT", "WALMARdo"].every((label) => onPin.some((chip) => chip.label === label)),
+    onPin.map((chip) => chip.label).join(", ") || "none");
   const near = all.filter((chip) => chip !== target && overlap(chip.box, target.box));
-  expect("set-up: SWFT and WALMARdo sit on the target chip at this zoom", ["SWFT", "WALMARdo"].every((label) => near.some((chip) => chip.label === label)),
-    near.map((chip) => chip.label).join(", ") || "none");
   const covering = near.filter((chip) => chip.shown);
   expect("every chip that overlaps the target chip is hidden", covering.length === 0, covering.map((chip) => `${chip.label} ${fmt(chip.box)}`).join("; "));
   const roomy = { left: target.box.left - 4, right: target.box.right + 4, top: target.box.top - 4, bottom: target.box.bottom + 4 };
