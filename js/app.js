@@ -4327,7 +4327,15 @@ function styleIsBasemap(map) {
   }
 }
 
-const ROUTE_LINE_COLOR = ["case", ["==", ["get", "current"], 1], "#2f6fed", "#1f8a62"];
+// Magenta stays clear of water blue, park green, highway yellow/orange and
+// the blue location dot, on light, dark and satellite maps alike.
+const ROUTE_CURRENT_COLOR = "#C026D3";
+const ROUTE_DRIVEN_COLOR = "#E3A6EC";
+const ROUTE_CURRENT_CASING = "#6B0F72";
+const ROUTE_LINE_COLOR = ["case", ["==", ["get", "current"], 1], ROUTE_CURRENT_COLOR, "#1f8a62"];
+// While "left" is drawn over the current part, what shows of it is already driven.
+const ROUTE_DRIVEN_LINE_COLOR = ["case", ["==", ["get", "current"], 1], ROUTE_DRIVEN_COLOR, "#1f8a62"];
+const ROUTE_CASING_COLOR = ["case", ["==", ["get", "current"], 1], ROUTE_CURRENT_CASING, "#ffffff"];
 
 function ensureRouteLayers(map) {
   if (!map.getSource("route")) {
@@ -4339,7 +4347,7 @@ function ensureRouteLayers(map) {
       id: "route-casing",
       type: "line",
       source: "route",
-      paint: { "line-color": "#ffffff", "line-width": 7 },
+      paint: { "line-color": ROUTE_CASING_COLOR, "line-width": 7 },
     });
     map.addLayer({
       id: "route",
@@ -4354,12 +4362,23 @@ function ensureRouteLayers(map) {
       data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
     });
     map.addLayer({
+      id: "left-casing",
+      type: "line",
+      source: "left",
+      paint: { "line-color": ROUTE_CURRENT_CASING, "line-width": 9 },
+    });
+    map.addLayer({
       id: "left",
       type: "line",
       source: "left",
-      paint: { "line-color": "#9ec5ff", "line-width": 6 },
+      paint: { "line-color": ROUTE_CURRENT_COLOR, "line-width": 6 },
     });
   }
+}
+
+function paintRouteColor(driven = false) {
+  if (!routeMap?.getLayer("route")) return;
+  routeMap.setPaintProperty("route", "line-color", driven ? ROUTE_DRIVEN_LINE_COLOR : ROUTE_LINE_COLOR);
 }
 
 function paintRouteLines() {
@@ -4435,7 +4454,7 @@ const DARK_STREET_PAINT = {
   "label_*": DARK_STREET_TEXT,
   label_other: { "text-color": "#c9d1cd" },
   label_state: { "text-color": "#c9d1cd" },
-  "route-casing": { "line-color": "#0b1114" },
+  "route-casing": { "line-color": ["case", ["==", ["get", "current"], 1], ROUTE_CURRENT_CASING, "#0b1114"] },
 };
 
 const DARK_STREET_RULES = Object.entries(DARK_STREET_PAINT).map(([key, paint]) => [
@@ -5451,6 +5470,7 @@ function paintNavLine(along, until) {
     type: "Feature",
     geometry: { type: "LineString", coordinates: coordinates.length >= 2 ? coordinates : [] },
   });
+  paintRouteColor(coordinates.length >= 2);
 }
 
 let spokenStepKey = "";
@@ -10163,6 +10183,7 @@ function endRouteNav({ paint = true, startHere = true } = {}) {
   const source = routeMap?.getSource("left");
   if (source) {
     source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });
+    paintRouteColor();
   }
   syncTripFitButton();
   if (routeMap) {
@@ -10830,7 +10851,7 @@ function mountMap() {
       id: "route-casing",
       type: "line",
       source: "route",
-      paint: { "line-color": "#ffffff", "line-width": 7 },
+      paint: { "line-color": ROUTE_CASING_COLOR, "line-width": 7 },
     });
     map.addLayer({
       id: "route",
@@ -10843,10 +10864,16 @@ function mountMap() {
       data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
     });
     map.addLayer({
+      id: "left-casing",
+      type: "line",
+      source: "left",
+      paint: { "line-color": ROUTE_CURRENT_CASING, "line-width": 9 },
+    });
+    map.addLayer({
       id: "left",
       type: "line",
       source: "left",
-      paint: { "line-color": "#9ec5ff", "line-width": 6 },
+      paint: { "line-color": ROUTE_CURRENT_COLOR, "line-width": 6 },
     });
     syncStreetTheme(true);
     const holdCamera = () => { navMapTouch = true; };
