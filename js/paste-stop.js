@@ -76,24 +76,29 @@ function fullYear(year, now) {
 }
 
 function yearFor(monthIndex, day, year, now) {
-  const yNow = now.getFullYear();
-  const today = new Date(yNow, now.getMonth(), now.getDate()).getTime();
-  const pick = (y) => {
-    if (!validDay(y, monthIndex, day)) return null;
-    const candidate = new Date(y, monthIndex, day).getTime();
-    // Earlier years / past calendar days are not used.
-    if (y < yNow || candidate < today) {
-      if (validDay(yNow, monthIndex, day)) {
-        const thisYear = new Date(yNow, monthIndex, day).getTime();
-        if (thisYear >= today) return yNow;
-      }
-      return validDay(yNow + 1, monthIndex, day) ? yNow + 1 : null;
-    }
-    return y;
-  };
   const given = fullYear(year, now);
-  if (given != null) return pick(given);
-  return pick(yNow);
+  if (given != null) return validDay(given, monthIndex, day) ? given : null;
+  // No year: the one that puts the date closest to today (ties go forward).
+  const yNow = now.getFullYear();
+  const today = Date.UTC(yNow, now.getMonth(), now.getDate());
+  let best = null;
+  let bestGap = Infinity;
+  for (const y of [yNow + 1, yNow, yNow - 1]) {
+    if (!validDay(y, monthIndex, day)) continue;
+    const gap = Math.abs(Date.UTC(y, monthIndex, day) - today);
+    if (gap < bestGap) {
+      best = y;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+function closeYear(open, close) {
+  const later = close.monthIndex > open.monthIndex
+    || (close.monthIndex === open.monthIndex && close.day >= open.day);
+  const year = later ? open.year : open.year + 1;
+  return validDay(year, close.monthIndex, close.day) ? year : close.year;
 }
 
 function parseDateMatch(text, now) {
@@ -103,15 +108,15 @@ function parseDateMatch(text, now) {
     const monthIndex = Number(iso[2]) - 1;
     const day = Number(iso[3]);
     if (!validDay(year, monthIndex, day)) return null;
-    return { year, monthIndex, day };
+    return { year, monthIndex, day, yearless: false };
   }
-  const monthName = text.match(/^(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{2,4}))?$/i);
+  const monthName = text.match(/^(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*((?:19|20)\d{2}|\d{2}(?![\d:])))?$/i);
   if (monthName) {
     const monthIndex = MONTHS[monthName[1].toLowerCase()];
     const day = Number(monthName[2]);
     const year = yearFor(monthIndex, day, monthName[3] == null ? null : Number(monthName[3]), now);
     if (year == null) return null;
-    return { year, monthIndex, day };
+    return { year, monthIndex, day, yearless: monthName[3] == null };
   }
   const numeric = text.match(/^(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/i);
   if (!numeric) return null;
@@ -123,11 +128,11 @@ function parseDateMatch(text, now) {
   }
   const year = yearFor(monthIndex, day, numeric[3] == null ? null : Number(numeric[3]), now);
   if (year == null) return null;
-  return { year, monthIndex, day };
+  return { year, monthIndex, day, yearless: numeric[3] == null };
 }
 
 function findDates(src, now, skip) {
-  const pattern = /(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{2,4})?|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?)/gi;
+  const pattern = /(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*(?:(?:19|20)\d{2}|\d{2}(?![\d:])))?|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?)/gi;
   const found = [];
   for (const match of src.matchAll(pattern)) {
     if (overlaps(skip, match.index, match[0].length)) continue;
@@ -329,9 +334,14 @@ function extractAppointments(src, now, skip) {
       if (endDate && dates.includes(endDate)) usedDates.add(endDate);
       if (startDate?.length && !dates.includes(startDate)) consumed.push(startDate);
       if (endDate?.length && endDate !== startDate && !dates.includes(endDate)) consumed.push(endDate);
+      const ownEnd = Boolean(endDate) && endDate !== startDate;
+      const endBase = ownEnd && startDate && endDate.yearless
+        ? { ...endDate, year: closeYear(startDate, endDate) }
+        : endDate;
       const start = withDate(startDate, startClock, now);
-      let end = withDate(endDate, endClock, now);
-      if (wallKey(end) <= wallKey(start)) end = addDays(end, 1);
+      let end = withDate(endBase, endClock, now);
+      // Only a bare end clock (overnight "22:00 - 06:00") rolls to the next day.
+      if (!ownEnd && wallKey(end) < wallKey(start)) end = addDays(end, 1);
       appointments.push({ ...start, end });
       consumed.push(span);
       continue;
@@ -388,12 +398,33 @@ function blankSpans(src, spans) {
   return chars.join("");
 }
 
+function isRawMetaLine(line) {
+  return /^\*+$/.test(line)
+    || /^\*+[^*].*\*+$/.test(line)
+    || /^(?:[A-Za-z.'&\/]+\s+){0,3}(?:phone|ph|tel|telephone|cell|fax|contact)\s*(?:#\s*:?|:)/i.test(line)
+    || /^(?:load\s+at|consign(?:ee)?|shipper|receiver|pick\s*up|pickup|pu|delivery|delivry|delv|del|origin|dest(?:ination)?)\s+(?:phone|contact)\b/i.test(line);
+}
+
+function isApptLeftover(line) {
+  return /^(?:[A-Za-z.'\/]+\s+){0,2}(?:appts?|appointments?)\b[\s:#.-]*$/i.test(line);
+}
+
+function isCityLine(line) {
+  return /(?:,\s*|\s)[A-Z]{2}\s+\d{5}(?:-\d{4})?$/.test(line) || /,\s*[A-Z]{2}$/.test(line);
+}
+
 function extractAddress(src, consumed) {
   const blank = blankSpans(src, consumed);
-  const lines = blank.split("\n").map((line) => stripLabel(line.replace(/\s+/g, " ").trim()).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "").trim()).filter(Boolean);
-  const kept = lines.filter((line) => !isHeaderLine(line) && !isMetaLine(line) && !/^(?:fcfs|first\s+come(?:\s*,?\s*first\s+served)?|anytime|24\s*\/\s*7|24\s*hours?)$/i.test(line) && !/^(?:(?:pickup|delivery|shipper|consignee|receiver)\s+)?(?:date(?:\s*\/\s*time)?|time|times|hours|opens?|closes?|earliest|latest|ready|appointment|appt|be\s+there\s+by|between|from|until|window|at|on|by)\b[:\s-]*$/i.test(line) && !/^\d{1,2}:\d{2}(?:\s*[ap]\.?m\.?)?$/i.test(line));
+  const lines = blank.split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line && !isRawMetaLine(line))
+    .map((line) => stripLabel(line).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "").trim())
+    .filter(Boolean);
+  const kept = lines.filter((line) => !isHeaderLine(line) && !isMetaLine(line) && !isApptLeftover(line) && !/^(?:fcfs|first\s+come(?:\s*,?\s*first\s+served)?|anytime|24\s*\/\s*7|24\s*hours?)$/i.test(line) && !/^(?:(?:pickup|delivery|shipper|consignee|receiver)\s+)?(?:date(?:\s*\/\s*time)?|time|times|hours|opens?|closes?|earliest|latest|ready|appointment|appt|be\s+there\s+by|between|from|until|window|at|on|by)\b[:\s-]*$/i.test(line) && !/^\d{1,2}:\d{2}(?:\s*[ap]\.?m\.?)?$/i.test(line));
   const nameLine = kept.find((line) => !looksLikePlace(line));
-  const address = kept.join(", ").replace(/\s+,/g, ",").replace(/,\s*,/g, ", ").replace(/\s+/g, " ").trim();
+  const cityAt = kept.findIndex((line, index) => index > 0 && isCityLine(line));
+  const placeLines = cityAt > 0 ? kept.slice(0, cityAt + 1) : kept;
+  const address = placeLines.join(", ").replace(/\s+,/g, ",").replace(/,(?=[A-Za-z])/g, ", ").replace(/,\s*,/g, ", ").replace(/\s+/g, " ").trim();
   const name = nameLine ? nameLine.split(/\s+/)[0].replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9']+$/g, "") : "";
   return { address, name };
 }
@@ -432,7 +463,8 @@ export function parseStopPaste(text, nowMs = Date.now()) {
     start = pool[0];
     if (start.end) {
       end = start.end;
-      window = wallKey(end) !== wallKey(start);
+      // Open == close is a fixed appointment; it stays a window so Closes shows it.
+      window = wallKey(end) >= wallKey(start);
       if (!window) end = null;
     }
   }

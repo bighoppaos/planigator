@@ -27,7 +27,7 @@ import {
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
-import { parseStopPaste } from "./paste-stop.js?v=3";
+import { parseStopPaste } from "./paste-stop.js?v=4";
 import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=9";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
@@ -3195,16 +3195,7 @@ function pastedInstant(parts, stop, field) {
   const kept = wallParts(field === "end" ? stop.end : stop.start, enteredOffset(stop, field));
   const hour = parts.hour == null ? kept.hour : parts.hour;
   const minute = parts.minute == null ? kept.minute : parts.minute;
-  const now = new Date();
-  const yNow = now.getFullYear();
-  const today = new Date(yNow, now.getMonth(), now.getDate()).getTime();
-  let year = Number(parts.year);
-  if (!Number.isFinite(year) || year < yNow) year = yNow;
-  let dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
-  if (dayMs < today) {
-    year = yNow + 1;
-    dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
-  }
+  const year = parts.year != null && Number.isFinite(Number(parts.year)) ? Number(parts.year) : new Date().getFullYear();
   return {
     ms: msFromWall(year, parts.monthIndex, parts.day, hour, minute, offset),
     offset,
@@ -11065,6 +11056,31 @@ function delayBox(stop, pieceIndex, finish = false) {
   `;
 }
 
+function delaySum(list) {
+  return list.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
+}
+
+// Drive cards run in state.stops order: each stop's drive pieces, then its
+// finish card. A changed delay makes every later card's delay a guess, so
+// those go back to 0. Earlier cards keep theirs.
+function clearLaterDelays(stop, piece, finish) {
+  if (!finish) {
+    if (Array.isArray(stop.driveDelays)) {
+      for (let k = piece + 1; k < stop.driveDelays.length; k += 1) stop.driveDelays[k] = 0;
+      stop.delayMinutes = delaySum(stop.driveDelays);
+    }
+    if (stop.finishDelayMinutes) stop.finishDelayMinutes = 0;
+  }
+  const at = state.stops.indexOf(stop);
+  if (at < 0) return;
+  state.stops.forEach((later, index) => {
+    if (index <= at || isOriginStop(state.stops, index)) return;
+    if (Array.isArray(later.driveDelays)) later.driveDelays = later.driveDelays.map(() => 0);
+    if (later.delayMinutes) later.delayMinutes = 0;
+    if (later.finishDelayMinutes) later.finishDelayMinutes = 0;
+  });
+}
+
 function changeDelay(id, pieceIndex, delta, finish = false) {
   if (state.estimating) return;
   const stop = state.stops.find((item) => item.id === id);
@@ -11084,6 +11100,7 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
     const next = Math.max(0, Math.min(24 * 60, current + delta));
     if (next === current) return;
     stop.finishDelayMinutes = next;
+    clearLaterDelays(stop, 0, true);
     persist();
     if (state.plan) calculate({ silent: true }).finally(restoreScroll);
     else {
@@ -11102,7 +11119,8 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
   const next = Math.max(0, Math.min(24 * 60, current + delta));
   if (next === current) return;
   stop.driveDelays[piece] = next;
-  stop.delayMinutes = stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
+  stop.delayMinutes = delaySum(stop.driveDelays);
+  clearLaterDelays(stop, piece, false);
   persist();
   if (state.plan) calculate({ silent: true }).finally(restoreScroll);
   else {
@@ -11777,12 +11795,14 @@ function leaveDateValue(ms, offsetMinutes) {
   return `${parts.year}-${pad(parts.month + 1)}-${pad(parts.day)}`;
 }
 
-function todayDateValue(offsetMinutes) {
-  return leaveDateValue(Date.now(), offsetMinutes);
+const STOP_DATE_DAYS_BACK = 30;
+
+function todayDateValue(offsetMinutes, daysBack = 0) {
+  return leaveDateValue(Date.now() - daysBack * 24 * 3600 * 1000, offsetMinutes);
 }
 
-function clampDateValue(value, offsetMinutes) {
-  const min = todayDateValue(offsetMinutes);
+function clampDateValue(value, offsetMinutes, daysBack = 0) {
+  const min = todayDateValue(offsetMinutes, daysBack);
   if (!value || value < min) return min;
   return value;
 }
@@ -11829,8 +11849,9 @@ function pickerSheet() {
       ${id === "leaveAt" || id === "stopDate"
         ? (() => {
           const offset = id === "stopDate" ? enteredOffset(pickerStop(), state.pickerTarget?.field) : state.settings.leaveAtOffset;
-          const min = todayDateValue(offset);
-          const value = clampDateValue(leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, offset), offset);
+          const daysBack = id === "stopDate" ? STOP_DATE_DAYS_BACK : 0;
+          const min = todayDateValue(offset, daysBack);
+          const value = clampDateValue(leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, offset), offset, daysBack);
           return `<input class="picker-date" type="date" data-part="date" min="${min}" value="${value}" aria-label="Date">`;
         })()
         : `<div class="time-wheels">${wheels}</div>`}
@@ -11853,9 +11874,9 @@ function minutesFromSheet() {
   return h * 60 + minute;
 }
 
-function readDatedMs(previousMs, offsetMinutes) {
+function readDatedMs(previousMs, offsetMinutes, daysBack = 0) {
   const raw = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
-  const date = clampDateValue(raw, offsetMinutes);
+  const date = clampDateValue(raw, offsetMinutes, daysBack);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   const prev = wallParts(previousMs, offsetMinutes);
   if (!year || !month || !day) return previousMs;
@@ -11896,7 +11917,7 @@ function commitPicker() {
   }
   if (id === "stopDate") {
     const offset = enteredOffset(pickerStop(), state.pickerTarget?.field);
-    const ms = readDatedMs(pickerStopMs(), offset);
+    const ms = readDatedMs(pickerStopMs(), offset, STOP_DATE_DAYS_BACK);
     state.picker = "stopTime";
     writeStopWhen(ms);
     return;
@@ -12186,13 +12207,14 @@ function applyClock(wrap) {
 }
 
 function applyWhen(wrap) {
-  const offsetHint = wrap.getAttribute("data-when") === "leaveAt"
+  const isLeave = wrap.getAttribute("data-when") === "leaveAt";
+  const offsetHint = isLeave
     ? state.settings.leaveAtOffset
     : enteredOffset(
       state.stops.find((item) => item.id === wrap.closest("[data-stop]")?.getAttribute("data-stop")),
       wrap.getAttribute("data-stop-field"),
     );
-  const date = clampDateValue(wrap.querySelector("[data-part=date]")?.value || "", offsetHint);
+  const date = clampDateValue(wrap.querySelector("[data-part=date]")?.value || "", offsetHint, isLeave ? 0 : STOP_DATE_DAYS_BACK);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   if (!year || !month || !day) return;
   const minutes = minutesFromWrap(wrap);
