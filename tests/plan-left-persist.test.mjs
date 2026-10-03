@@ -197,6 +197,7 @@ function page({ storage = memoryStorage(), delayMinutes = 0, settings = {}, acti
     navStopAnnounce: false, navStopAwaitNear: false, navStopSpeakKey: "", directionsAutoKey: "",
     switchSpokenFor: "", pendingAimId: "", navFollowing: false, tripFit: "nextTurn", navReturnTimer: 0,
     navWatch: null, navYou: null, routeMap: null, dirBrowseTimer: 0, onNavCompass: noop,
+    navFix: null, navTravel: null, startTripAfterNav: noop,
     clearDirectionPin: noop, clearStopNote: noop, setStopChip: noop, stopNavMotion: noop, resetNavVoice: noop,
     stopMixNavVoice: noop, clearTurnFrame: noop, freezeTyping: noop, syncTripFitButton: noop, showWholeTrip: noop,
     syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop, paintDrive: noop,

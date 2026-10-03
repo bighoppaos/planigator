@@ -1468,7 +1468,7 @@ function applySharedTrip(data, { notice } = {}) {
   const incomingIds = (Array.isArray(data.stops) ? data.stops : []).map((stop) => stop?.id).filter(Boolean).join(",");
   const currentIds = (state.stops || []).map((stop) => stop?.id).filter(Boolean).join(",");
   if (incomingIds && incomingIds !== currentIds) {
-    if (navOn) endRouteNav({ paint: false });
+    if (navOn) endRouteNav({ paint: false, startHere: false });
     else leaveNavSession();
   }
   state.settings = { ...state.settings, ...(data.settings || {}) };
@@ -1697,6 +1697,10 @@ async function calculate({ silent = false, skipHash = false, keepScreen = false 
     if (here) {
       rebuildNavLegs();
       noteArrivedStops(here.lat, here.lon);
+      const spot = { latitude: here.lat, longitude: here.lon };
+      if (!navOn && state.stops[0]?.useCurrentLocation && (!state.origin || movedEnough(state.origin, spot))) {
+        startTripAt(here, { notice: false });
+      }
     }
     if (billableStops().length === 0) {
       state.estimating = false;
@@ -2030,7 +2034,7 @@ function rollOpenExample() {
 }
 
 function loadExample() {
-  if (navOn) endRouteNav({ paint: false });
+  if (navOn) endRouteNav({ paint: false, startHere: false });
   else leaveNavSession();
   parkSpeedNote();
   const trip = shiftExampleStamps(JSON.parse(JSON.stringify(EXAMPLE_TRIP)), exampleWeeksAhead() * 7);
@@ -2818,17 +2822,27 @@ function movedEnough(origin, coords) {
   return Math.hypot(dlat, dlon) > 0.00015;
 }
 
-function locateSucceeded(pos, attempt) {
-  if (attempt !== locateAttempt) return;
-  locateAttempt += 1;
-  endLocateWatch();
-  dropAddressStart();
+// What Start from my location does with a fix. `passStart`: the address the
+// trip started from is behind him, so it is not put back as a stop to drive to.
+function startTripAt(fix, { passStart = false, notice = true } = {}) {
+  const saved = readNavProgress();
+  const left = openLeftLeg(saved);
+  const dropped = dropAddressStart();
+  const coords = { latitude: fix.lat, longitude: fix.lon };
   const hadOrigin = Boolean(state.origin);
-  const moved = movedEnough(state.origin, pos.coords);
-  state.origin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-  const heading = pos.coords.heading;
+  const moved = movedEnough(state.origin, coords);
+  state.origin = { lat: fix.lat, lon: fix.lon };
+  const heading = fix.heading;
   if (typeof heading === "number" && Number.isFinite(heading) && heading >= 0) state.origin.heading = heading;
   if (!state.stops[0]?.useCurrentLocation) {
+    const first = state.stops[0];
+    if (passStart && !dropped && first) {
+      first.skipRoute = true;
+      first.miles = "";
+      first.hours = "";
+      first.path = [];
+      first.directions = [];
+    }
     state.stops.unshift(defaultStop({
       useCurrentLocation: true,
       name: "Current location",
@@ -2839,13 +2853,84 @@ function locateSucceeded(pos, attempt) {
   rememberOrigin();
   state.locating = false;
   state.locationError = "";
-  state.locationNotice = !hadOrigin
+  state.locationNotice = !notice || !hadOrigin
     ? ""
     : moved
       ? (state.plan ? "Location updated. Calculate again to move the route line." : "Location updated.")
       : "That's still the latest location.";
+  carryNavProgress(saved, left);
   persist();
+}
+
+// A new first stop renames a trip keyed by its stops, and changes the key of
+// the leg after it. Its done stops and left leg go with it.
+function carryNavProgress(saved, left) {
+  if (!saved) return;
+  const tripKey = tripProgressKey();
+  const stop = left && state.stops.find((item) => item.id === left.stopId);
+  const leftLeg = stop ? { ...left, legKey: leftLegKey(stop) } : saved.leftLeg;
+  if (tripKey === saved.tripKey && leftLeg?.legKey === saved.leftLeg?.legKey) return;
+  if (tripKey !== saved.tripKey) clearNavProgress(saved.tripKey);
+  writeNavProgress({ ...saved, tripKey, leftLeg });
+}
+
+function locateSucceeded(pos, attempt) {
+  if (attempt !== locateAttempt) return;
+  locateAttempt += 1;
+  endLocateWatch();
+  startTripAt({ lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading });
   render();
+}
+
+// End navigation: the trip starts at his last fix on the route, then at a
+// newer one if this page may already read the location. Never prompts.
+function startTripAfterNav(fix) {
+  if (fix) {
+    startTripAt(fix, { passStart: true });
+    if (routeMap && routeMapReady) addRoutePins();
+  }
+  if (!navigator.geolocation || !window.isSecureContext) return;
+  if (fix) {
+    refreshTripStart({ since: navFixTime, passStart: true });
+    return;
+  }
+  Promise.resolve()
+    .then(() => navigator.permissions?.query({ name: "geolocation" }))
+    .then((status) => { if (status?.state === "granted") refreshTripStart({ since: 0, passStart: false }); })
+    .catch(() => {});
+}
+
+// Start from my location's refreshing watch, with no progress text and no
+// error. A miss leaves the start where it is.
+function refreshTripStart({ since, passStart }) {
+  if (navOn) return;
+  const attempt = ++locateAttempt;
+  endLocateWatch();
+  const startId = state.stops[0]?.id;
+  const previous = state.origin ? { ...state.origin } : null;
+  const started = Date.now();
+  let last = null;
+  const settle = (pos) => {
+    if (attempt !== locateAttempt) return;
+    locateAttempt += 1;
+    endLocateWatch();
+    if (!pos || navOn || state.estimating || state.stops[0]?.id !== startId) return;
+    startTripAt({ lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading }, { passStart });
+    if (routeMap && routeMapReady) addRoutePins();
+    if (routeFull) routePageStale = true;
+    else if (!editorBusy()) render();
+  };
+  locateWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (attempt !== locateAttempt || fixTime(pos) <= since) return;
+      last = pos;
+      const age = Date.now() - Number(pos.timestamp || 0);
+      if (age < 4000 || movedEnough(previous, pos.coords) || Date.now() - started > 8000) settle(pos);
+    },
+    (error) => { if (error?.code === 1) settle(null); },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+  );
+  locateWatchTimer = setTimeout(() => settle(last), 12000);
 }
 
 function locateFailed(error, attempt) {
@@ -10023,7 +10108,11 @@ function resumeNavIfNeeded() {
   void beginRouteNav({ resume: true });
 }
 
-function endRouteNav({ paint = true } = {}) {
+// `startHere`: false when another trip is about to replace this one.
+function endRouteNav({ paint = true, startHere = true } = {}) {
+  const lastFix = startHere && Array.isArray(navFix)
+    ? { lat: navFix[0], lon: navFix[1], heading: navTravel }
+    : null;
   saveLeftLeg();
   navOn = false;
   leaveNavSession();
@@ -10070,6 +10159,7 @@ function endRouteNav({ paint = true } = {}) {
     navYou = null;
   }
   window.removeEventListener("deviceorientation", onNavCompass);
+  if (startHere) startTripAfterNav(lastFix);
   const source = routeMap?.getSource("left");
   if (source) {
     source.setData({ type: "Feature", geometry: { type: "LineString", coordinates: [] } });

@@ -228,6 +228,7 @@ function page({ storage = memoryStorage(), activeTripId = "trip-1", stops, delay
     navStopAnnounce: false, navStopAwaitNear: false, navStopSpeakKey: "", directionsAutoKey: "",
     switchSpokenFor: "", pendingAimId: "", navFollowing: false, tripFit: "nextTurn", navReturnTimer: 0,
     navWatch: null, navYou: null, routeMap: null, dirBrowseTimer: 0, onNavCompass: noop,
+    navFix: null, navTravel: null, startTripAfterNav: noop,
     clearDirectionPin: noop, clearStopNote: noop, paintStopChip: noop, stopNavMotion: noop, resetNavVoice: noop,
     stopMixNavVoice: noop, clearTurnFrame: noop, freezeTyping: noop, syncTripFitButton: noop, showWholeTrip: noop,
     syncTripNavLocks: noop, focusDirectionWindow: noop,
