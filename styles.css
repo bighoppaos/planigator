@@ -1811,6 +1811,7 @@ html.route-full {
 html.route-full body > :not(#routeStage) {
   visibility: hidden;
 }
+.route-map.street-dark { background: #0e1417; }
 .route-map .maplibregl-canvas-container { z-index: 0; }
 .route-map .maplibregl-marker { z-index: 3; }
 .route-map .route-rail,
