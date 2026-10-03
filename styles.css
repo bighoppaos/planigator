@@ -2318,39 +2318,10 @@ button.lookup.lookup-flash {
   line-height: 1.2;
   text-align: left;
 }
-.route-place-list { display: none; }
-.route-stage.is-full .route-place-list:not([hidden]) {
-  position: absolute;
-  top: max(8px, env(safe-area-inset-top));
-  left: 76px;
-  right: 76px;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 38vh;
-  overflow: auto;
-  pointer-events: auto;
-}
-.route-place-list button {
-  margin: 0;
-  padding: 4px 8px;
-  border: 2px solid transparent;
-  border-radius: 10px;
-  background: rgb(7 21 37 / 0.92);
-  color: #fffdf8;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: left;
-}
-.route-place-list button.on { border-color: #3dcaa0; }
 .truck-pin-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
   pointer-events: none;
 }
 .truck-pin-wrap.is-pick { pointer-events: auto; cursor: pointer; }
@@ -2362,10 +2333,15 @@ button.lookup.lookup-flash {
   border: 2px solid #3dcaa0;
 }
 .truck-pin-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  width: max-content;
   max-width: 210px;
   padding: 4px 8px;
   border: 2px solid transparent;
@@ -2377,12 +2353,16 @@ button.lookup.lookup-flash {
   line-height: 1.15;
   text-align: center;
 }
-.truck-pin-label span {
-  max-width: 194px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.truck-pin-wrap.is-below .truck-pin-label {
+  top: calc(100% + 4px);
+  bottom: auto;
 }
+.truck-pin-text {
+  max-width: 194px;
+  white-space: normal;
+}
+.truck-pin-text span { white-space: nowrap; }
+.truck-pin-text span:first-child { white-space: normal; }
 .truck-pin-add {
   margin-top: 4px;
   padding: 4px 8px;
@@ -2397,18 +2377,17 @@ button.lookup.lookup-flash {
   white-space: nowrap;
   pointer-events: auto;
 }
+/* Between the rails: 8px edge + 48px rail + 8px gap on the page map. */
 .route-place-tools {
   position: absolute;
   top: 8px;
-  left: 50%;
+  left: 64px;
+  right: 64px;
   z-index: 6;
-  transform: translateX(-50%);
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-  width: max-content;
-  max-width: calc(100% - 24px);
   pointer-events: none;
 }
 .route-place-clear {
@@ -2438,8 +2417,11 @@ button.lookup.lookup-flash {
   pointer-events: auto;
 }
 .route-voice-hint[hidden] { display: none; }
+/* Full screen rails are 60px wide: edge + 60px + 8px gap. */
 .route-stage.is-full .route-place-tools {
   top: max(8px, env(safe-area-inset-top));
+  left: calc(max(8px, env(safe-area-inset-left)) + 68px);
+  right: calc(max(8px, env(safe-area-inset-right)) + 68px);
 }
 .truck-pin {
   width: 16px;
@@ -2448,6 +2430,18 @@ button.lookup.lookup-flash {
   border-radius: 50%;
   background: #e07a3d;
   box-shadow: 0 0 0 6px rgb(224 122 61 / 0.35);
+}
+.truck-pin.is-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-width: 2px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
 }
 .turn-pin {
   width: 14px;

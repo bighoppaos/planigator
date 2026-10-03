@@ -4159,7 +4159,6 @@ function planBox(heading = "Step 6. Read the plan and navigate") {
         <button type="button" id="routePlaceSearch" class="route-place-clear" hidden>Search here</button>
         <button type="button" id="routePlaceClear" class="route-place-clear" hidden>Clear</button>
       </div>
-      <div id="routePlaceList" class="route-place-list" hidden></div>
     </div>
     <div id="routeDirectionsHome"></div>
     ${directions}
@@ -9119,11 +9118,15 @@ function routeAheadPoints() {
   return thinRoute(coords, 800, 1800);
 }
 
-function truckNoteText(hit) {
-  const place = [hit.city, hit.state].filter(Boolean).join(", ");
+// Name · miles ahead · miles off the route. No city or state.
+function truckLabelParts(hit) {
   const ahead = Number.isFinite(Number(hit.milesAhead)) ? `${formatMiles(hit.milesAhead)} ahead` : "";
   const off = Number.isFinite(Number(hit.milesOff)) ? `${formatMiles(hit.milesOff)} off the route` : "";
-  return [hit.name, place, ahead, off].filter(Boolean).join(" · ");
+  return [hit.name || "Place", ahead, off].filter(Boolean);
+}
+
+function truckNoteText(hit) {
+  return truckLabelParts(hit).join(" · ");
 }
 
 function clearTruckPins() {
@@ -9132,14 +9135,7 @@ function clearTruckPins() {
   truckMarker = null;
 }
 
-function pinDetailLines(hit, index, many) {
-  const place = [hit.city, hit.state].filter(Boolean).join(", ");
-  const ahead = Number.isFinite(Number(hit.milesAhead)) ? `${formatMiles(hit.milesAhead)} ahead` : "";
-  const off = Number.isFinite(Number(hit.milesOff)) ? `${formatMiles(hit.milesOff)} off the route` : "";
-  const title = `${many ? `${index + 1}. ` : ""}${hit.name || "Place"}`;
-  return [title, place, ahead, off].filter(Boolean);
-}
-
+// Only the chosen place gets the box; the others are numbered dots, so boxes never pile up.
 function paintTruckPins() {
   const maplibre = window.maplibregl;
   clearTruckPins();
@@ -9153,14 +9149,18 @@ function paintTruckPins() {
     const wrap = document.createElement("span");
     wrap.className = `truck-pin-wrap is-pick${chosen ? " is-chosen" : ""}`;
     wrap.style.zIndex = chosen ? "4" : "1";
-    const label = document.createElement("span");
-    label.className = "truck-pin-label";
-    for (const text of pinDetailLines(hit, index, many)) {
-      const line = document.createElement("span");
-      line.textContent = text;
-      label.append(line);
-    }
     if (chosen) {
+      const label = document.createElement("span");
+      label.className = "truck-pin-label";
+      const text = document.createElement("span");
+      text.className = "truck-pin-text";
+      truckLabelParts(hit).forEach((part, at) => {
+        if (at) text.append(" · ");
+        const piece = document.createElement("span");
+        piece.textContent = at === 0 && many ? `${index + 1}. ${part}` : part;
+        text.append(piece);
+      });
+      label.append(text);
       const add = document.createElement("button");
       add.type = "button";
       add.className = "truck-pin-add";
@@ -9172,10 +9172,12 @@ function paintTruckPins() {
         addTruckAndRecalculate();
       });
       label.append(add);
+      wrap.append(label);
     }
     const pin = document.createElement("span");
-    pin.className = "truck-pin";
-    wrap.append(label, pin);
+    pin.className = many ? "truck-pin is-num" : "truck-pin";
+    if (many) pin.textContent = String(index + 1);
+    wrap.append(pin);
     wrap.addEventListener("click", (event) => {
       if (event.target.closest(".truck-pin-add")) return;
       event.preventDefault();
@@ -9186,9 +9188,25 @@ function paintTruckPins() {
     truckMarkers.push(marker);
   });
   truckMarker = truckMarkers[0] || null;
+  seatTruckLabel();
 }
 
-function fillPlaceChoices(list, compact) {
+// The chosen box flips under its pin when above it would run under Search here / Clear or off the map.
+function seatTruckLabel() {
+  const wrap = document.querySelector(".truck-pin-wrap.is-chosen");
+  const label = wrap?.querySelector(".truck-pin-label");
+  const map = document.getElementById("routeMap");
+  if (!wrap || !label || !map) return;
+  const tools = document.getElementById("routePlaceTools")?.getBoundingClientRect();
+  const mapTop = map.getBoundingClientRect().top;
+  const ceiling = tools && tools.height > 0 ? Math.max(mapTop, tools.bottom) : mapTop;
+  const pinTop = wrap.getBoundingClientRect().top;
+  wrap.classList.toggle("is-below", pinTop - label.offsetHeight - 4 < ceiling + 8);
+}
+
+// The page list only. Full screen shows the places on the pins, never in a list.
+function fillPagePlaceList() {
+  const list = document.getElementById("nextPlaceList");
   if (!list) return;
   list.replaceChildren();
   const show = placeListMode && truckHits.length > 0;
@@ -9197,7 +9215,7 @@ function fillPlaceChoices(list, compact) {
   truckHits.forEach((hit, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = compact ? (hit === truckHit ? "on" : "") : `flag-box${hit === truckHit ? " on" : ""}`;
+    button.className = `flag-box${hit === truckHit ? " on" : ""}`;
     button.textContent = `${index + 1}. ${truckNoteText(hit)}`;
     button.addEventListener("click", () => selectTruckHit(index));
     list.append(button);
@@ -9218,12 +9236,7 @@ function paintPlaceList() {
     note.hidden = !truckHit;
     note.textContent = truckHit ? truckNoteText(truckHit) : "";
   }
-  fillPlaceChoices(document.getElementById("nextPlaceList"), false);
-  const routeList = document.getElementById("routePlaceList");
-  if (routeList) {
-    fillPlaceChoices(routeList, true);
-    if (!routeFull) routeList.hidden = true;
-  }
+  fillPagePlaceList();
   const searchLabel = "Search here";
   const soughtHere = Boolean(placeSeek) && routeFull === placeSeekFull;
   const mapSearch = document.getElementById("routePlaceSearch");
@@ -10941,6 +10954,7 @@ function mountMap() {
     });
     map.on("zoomstart", holdUserZoom);
     map.on("zoom", holdUserZoom);
+    map.on("move", seatTruckLabel);
     const bounds = coordinates.reduce((box, coord) => box.extend(coord), new maplibre.LngLatBounds(coordinates[0], coordinates[0]));
     addRoutePins(bounds);
     routeMapReady = true;
