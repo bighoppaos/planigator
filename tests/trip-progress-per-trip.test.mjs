@@ -237,7 +237,6 @@ function page({ storage = memoryStorage(), activeTripId = "trip-1", stops } = {}
     navStopAnnounce: false, navStopAwaitNear: false, navStopSpeakKey: "", directionsAutoKey: "",
     switchSpokenFor: "", pendingAimId: "", navFollowing: false, tripFit: "nextTurn", navReturnTimer: 0,
     navWatch: null, navYou: null, routeMap: null, dirBrowseTimer: 0, onNavCompass: noop,
-    navFix: null, navTravel: null, startTripAfterNav: noop,
     clearDirectionPin: noop, clearStopNote: noop, setStopChip: noop, stopNavMotion: noop, resetNavVoice: noop,
     stopMixNavVoice: noop, clearTurnFrame: noop, freezeTyping: noop, syncTripFitButton: noop, showWholeTrip: noop,
     syncRouteChrome: noop, syncTripNavLocks: noop, focusDirectionWindow: noop, paintDrive: noop,
@@ -255,7 +254,7 @@ function page({ storage = memoryStorage(), activeTripId = "trip-1", stops } = {}
     zoneForStop: () => "",
     patchPlanAfterDone: () => { calls.patch += 1; },
     // Calculate: HERE routing and the GPS are stubbed (no network).
-    arrivedFix: async () => null, noteArrivedStops: noop, creditEmptyMessage: () => "",
+    arrivedFix: async () => null, currentFix: async () => null, noteArrivedStops: noop, creditEmptyMessage: () => "",
     activeTransportMode: () => "truck", transportModeTitle: () => "Truck", transportRouteNote: () => "",
     fillHereLegs: async () => { calls.here += 1; return null; }, rememberOrigin: noop, showStopNote: noop,
     // The real render catches the plan up.

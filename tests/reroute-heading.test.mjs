@@ -82,6 +82,7 @@ const OPTIONAL_FUNCTIONS = [
   "navMatchSpan", "navOffRoute", "bannerDirection", "roadCourseNear",
   "headingGap", "movingGpsHeading", "fixMotion", "trackHeading", "noteNavTrack", "travelHeading", "routeBearingUnder",
   "forwardOnRoute", "travelCourse", "askPosition", "pathStartBearing", "startsBackwards", "joinLegFrom", "routeFromHere",
+  "stopHasSavedLeg", "stopUnrouted", "recalcTarget", "legsOnFrom", "passStop",
 ];
 const APP_CONSTS = ["NAV_PROGRESS_KEY", "NAV_PROGRESS_TRIPS", "RESUME_CONFIRM_FIXES", "RESUME_AGREE_M", "STOP_ARRIVE_M", "NAV_FRESH_MS"];
 const OPTIONAL_CONSTS = [

@@ -16,6 +16,7 @@ import vm from "node:vm";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const appSource = readFileSync(path.join(root, "js/app.js"), "utf8");
 const navMatch = await import(pathToFileURL(path.join(root, "js/nav-match.js")).href);
+const { isOriginStop } = await import(pathToFileURL(path.join(root, "js/plan.js")).href);
 
 const MILE = 1609.344;
 
@@ -63,7 +64,7 @@ const APP_FUNCTIONS = [
   "writeNavProgressMap",
   "readLeftLeg", "leftLegKey", "openLeftLeg",
   "rememberNavProgress", "saveNavSpot", "restoreNavSpot", "rebuildNavLegs", "navNearest", "guardResumedHit",
-  "navMatchSpan", "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg",
+  "navMatchSpan", "activeNavLeg", "routePoints", "routeProgressKey", "applyAheadLeg", "stopUnrouted", "passStop",
 ];
 const APP_CODE = [
   constLine("NAV_PROGRESS_KEY"),
@@ -92,6 +93,7 @@ function page(storage) {
   const context = {
     console, Math, Number, String, JSON, Array, Object, Infinity, NaN, Date, Set, Map,
     ...navMatch,
+    isOriginStop,
     localStorage: storage,
     state: { stops: [], origin: null, tripName: "", activeTripId: "trip-1", trips: [], plan: null, driveProgress: null },
     navLine: [], navLegs: [], navAlongLock: null, navResumeGuard: null, navLineKey: "", navTravel: null,
