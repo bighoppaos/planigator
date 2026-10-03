@@ -5104,6 +5104,9 @@ let navStopNoteText = "";
 let navStopNoteUntil = 0;
 let truckHit = null;
 let truckHits = [];
+const PIN_PEEK_MS = 5000;
+const PIN_PEEK_M = 805;
+let pinPeek = null;
 let placeListMode = false;
 let placeSeek = "";
 let placeSeekFull = false;
@@ -5201,6 +5204,7 @@ function hookRoutePinDeclutter() {
 }
 
 function clearRouteMap() {
+  cancelPinPeek();
   pendingTurn = null;
   routeMapReady = false;
   if (navYou) {
@@ -6888,7 +6892,8 @@ function setRouteFull(on) {
     routeMap?.resize();
     // Page and fullscreen use different slot heights. Reframe after resize
     // or Turn zoom keeps the old wide camera on the tall screen.
-    if (navOn && navFix && routeMap) {
+    if (pinPeek) showPinPeek();
+    else if (navOn && navFix && routeMap) {
       if (tripFit === "nextTurn") {
         clearTurnFrame();
         frameNextTurn();
@@ -6898,8 +6903,8 @@ function setRouteFull(on) {
         if (bearing != null) camera.bearing = bearing;
         routeMap.jumpTo(camera);
       }
-      placeNavDot(navFix[0], navFix[1]);
     }
+    if (navOn && navFix && routeMap) placeNavDot(navFix[0], navFix[1]);
   });
   if (!routeFull && routePageStale) {
     routePageStale = false;
@@ -7672,7 +7677,7 @@ function travelBearing(along) {
 let framingTurn = false;
 
 function reframeFullscreenTurn() {
-  if (framingTurn || !routeFull || tripFit !== "nextTurn" || !navOn || !navFix || !routeMap) return;
+  if (pinPeek || framingTurn || !routeFull || tripFit !== "nextTurn" || !navOn || !navFix || !routeMap) return;
   frameNextTurn();
 }
 
@@ -9381,6 +9386,7 @@ function resumeTurnZoom() {
 }
 
 function clearPlacePins() {
+  cancelPinPeek();
   placeSeek = "";
   placeSeekFull = false;
   placeMapMoved = false;
@@ -9397,6 +9403,126 @@ function selectTruckHit(index) {
   paintPlaceList();
   paintTruckPins();
   syncTruckAdd();
+}
+
+// Capture phase on the map, before the pin's own tap handler chooses the place.
+// Only map pins get here; the page list under the map does not zoom.
+function onRouteMapClick(event) {
+  const wrap = event.target?.closest?.(".truck-pin-wrap");
+  if (!wrap) return;
+  if (event.target.closest(".truck-pin-add")) {
+    cancelPinPeek();
+    return;
+  }
+  const at = truckMarkers.findIndex((marker) => marker.getElement() === wrap);
+  const pinned = truckHits.filter((hit) => Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon)));
+  if (pinned[at]) peekTruckHit(pinned[at]);
+}
+
+// A tapped result pin: about half a mile around it for 5 s, then back to the
+// zoom mode he was in. navZoomHold keeps GPS fixes off the camera meanwhile.
+function peekTruckHit(hit) {
+  if (!routeMap || state.estimating) return;
+  if (!pinPeek) {
+    const center = routeMap.getCenter();
+    pinPeek = {
+      map: routeMap,
+      navOn,
+      tripFit,
+      navFollowing,
+      camera: {
+        center: [center.lng, center.lat],
+        zoom: routeMap.getZoom(),
+        bearing: routeMap.getBearing(),
+        pitch: typeof routeMap.getPitch === "function" ? routeMap.getPitch() : 0,
+      },
+    };
+  }
+  window.clearTimeout(pinPeek.timer);
+  // A direction tap's return would reframe Turn zoom in the middle of the 5 s.
+  if (dirPinTimer) clearDirectionPin();
+  pinPeek.hit = hit;
+  pinPeek.until = Date.now() + PIN_PEEK_MS;
+  navZoomHold = pinPeek.until;
+  pinPeek.timer = window.setTimeout(endPinPeek, PIN_PEEK_MS);
+  showPinPeek();
+}
+
+// The clear area Turn and Stop zoom use, also below Search here / Clear.
+function pinPeekPadding() {
+  const pad = { ...paddingForTurnZoom(turnViewPadding(), 0).padding };
+  const map = routeMap?.getContainer?.() || document.getElementById("routeMap");
+  const mapTop = map?.getBoundingClientRect?.().top || 0;
+  const tools = document.getElementById("routePlaceTools")?.getBoundingClientRect();
+  if (tools && tools.height > 0) pad.top = Math.max(pad.top, Math.round(tools.bottom - mapTop + 8));
+  // MapLibre skips a fit whose padding leaves no room at all.
+  const fit = (a, b, size) => {
+    const room = size - 40;
+    if (!(size > 0) || pad[a] + pad[b] <= room) return;
+    const k = Math.max(0, room) / (pad[a] + pad[b]);
+    pad[a] = Math.floor(pad[a] * k);
+    pad[b] = Math.floor(pad[b] * k);
+  };
+  fit("left", "right", map?.clientWidth || 0);
+  fit("top", "bottom", map?.clientHeight || 0);
+  return pad;
+}
+
+function showPinPeek() {
+  const maplibre = window.maplibregl;
+  const lat = Number(pinPeek?.hit?.lat);
+  const lon = Number(pinPeek?.hit?.lon);
+  if (!routeMap || !maplibre || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const dLat = PIN_PEEK_M / 111320;
+  const dLon = PIN_PEEK_M / (111320 * Math.max(0.2, Math.cos(lat * Math.PI / 180)));
+  const bounds = new maplibre.LngLatBounds([lon - dLon, lat - dLat], [lon + dLon, lat + dLat]);
+  routeMap.stop();
+  routeMap.fitBounds(bounds, { padding: pinPeekPadding(), bearing: 0, duration: 600 });
+}
+
+function cancelPinPeek() {
+  if (!pinPeek) return;
+  window.clearTimeout(pinPeek.timer);
+  if (navZoomHold === pinPeek.until) navZoomHold = 0;
+  pinPeek = null;
+}
+
+function endPinPeek() {
+  const peek = pinPeek;
+  if (!peek) return;
+  pinPeek = null;
+  // A drag, a zoom, or a stop pick moved the hold: that action owns the map now.
+  if (navZoomHold !== peek.until) return;
+  navZoomHold = 0;
+  if (!routeMap || routeMap !== peek.map || navOn !== peek.navOn || tripFit !== peek.tripFit
+    || navFollowing !== peek.navFollowing || state.estimating || !truckHits.includes(peek.hit)) return;
+  routeMap.stop();
+  if (tripFit === "full") {
+    showWholeTrip();
+    return;
+  }
+  rebuildNavLegs();
+  if (tripFit === "remaining") {
+    const from = navFix && navLine.length >= 2 ? navNearest(navFix[0], navFix[1], navLine).along : 0;
+    fitCoords(navRemaining(from, Infinity), 14);
+    return;
+  }
+  if (tripFit === "nextStop") {
+    stopFrameAt = null;
+    stopFrameId = "";
+    frameNextStop();
+    return;
+  }
+  if (tripFit === "nextTurn") {
+    clearTurnFrame();
+    if (navFix) frameNextTurn();
+    return;
+  }
+  if (navFollowing && navFix) {
+    routeMap.jumpTo({ center: [navFix[1], navFix[0]], zoom: navZoom, bearing: followBearing() ?? peek.camera.bearing });
+    return;
+  }
+  routeMap.jumpTo(peek.camera);
 }
 
 function showTruckHits(hits, list) {
@@ -9420,6 +9546,7 @@ function frameTruckStop() {
   const maplibre = window.maplibregl;
   const hits = truckHits.filter((hit) => Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon)));
   if (!routeMap || !maplibre || !hits.length) return;
+  cancelPinPeek();
   navFollowing = false;
   tripFit = "off";
   window.clearTimeout(navReturnTimer);
@@ -11029,6 +11156,7 @@ function mountMap() {
       if (event.target.closest("button, a, summary, .truck-pin-wrap")) return;
       holdCamera();
     }, { capture: true, passive: true });
+    el.addEventListener("click", onRouteMapClick, { capture: true });
     const liftMapTouch = () => {
       navMapTouch = false;
       if (turnZoomOut?.paused) {
@@ -12867,7 +12995,10 @@ function bind() {
   $("#routeLoves")?.addEventListener("click", () => findNextTruckStop({ place: "loves", frame: true }));
   $("#routeWalmart")?.addEventListener("click", () => findNextTruckStop({ place: "walmart", frame: true }));
   $("#routeCat")?.addEventListener("click", () => findNextTruckStop({ place: "cat", frame: true }));
-  $("#addTruckStop")?.addEventListener("click", () => addTruckAsNextStop());
+  $("#addTruckStop")?.addEventListener("click", () => {
+    cancelPinPeek();
+    addTruckAsNextStop();
+  });
   $("#clearPlaces")?.addEventListener("click", () => clearPlacePins());
   $("#routePlaceClear")?.addEventListener("click", () => clearPlacePins());
   $("#searchPlaces")?.addEventListener("click", () => searchPlacesHere());
@@ -12877,11 +13008,18 @@ function bind() {
   $("#routeWalmartAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#routeCatAdd")?.addEventListener("click", () => addTruckAndRecalculate());
   $("#startNav")?.addEventListener("click", () => {
+    cancelPinPeek();
     unlockNavVoice();
     void beginRouteNav();
   });
-  $("#endNav")?.addEventListener("click", () => endRouteNav());
-  $("#routeWhole")?.addEventListener("click", () => cycleTripFit());
+  $("#endNav")?.addEventListener("click", () => {
+    cancelPinPeek();
+    endRouteNav();
+  });
+  $("#routeWhole")?.addEventListener("click", () => {
+    cancelPinPeek();
+    cycleTripFit();
+  });
   $("#routeSwitch")?.addEventListener("click", () => confirmStopSwitch());
   $("#routeSwitchNo")?.addEventListener("click", () => declineStopSwitch());
   $("#routeRecalc")?.addEventListener("click", () => {
@@ -12915,6 +13053,7 @@ function bind() {
   $("#routeCompass")?.addEventListener("click", () => { void toggleNorthLock(); });
   $("#routeBasemap")?.addEventListener("click", () => selectBasemap(basemap === "satellite" ? "vector" : "satellite"));
   $("#routeFollow")?.addEventListener("click", async () => {
+    cancelPinPeek();
     window.clearTimeout(navReturnTimer);
     navReturnTimer = 0;
     // Follow me is only the close view on you. Turn zoom stays separate.
