@@ -83,9 +83,12 @@ const APP_FUNCTIONS = [
 // #613 has none of these; it runs without them so this test can show it failing.
 const OPTIONAL_FUNCTIONS = ["darkStreetPaint", "restoreStreetPaint", "darkenStreetPaint", "syncStreetTheme"];
 const APP_CONSTS = ["vectorStyleUrl", "ROUTE_LINE_COLOR"];
-const OPTIONAL_CONSTS = ["DARK_STREET_TEXT", "DARK_STREET_PAINT", "DARK_STREET_RULES", "streetThemeSaved"];
+// #619's route colors; ROUTE_LINE_COLOR and DARK_STREET_PAINT use them, so they load first.
+const ROUTE_CONSTS = ["ROUTE_CURRENT_COLOR", "ROUTE_DRIVEN_COLOR", "ROUTE_CURRENT_CASING"];
+const OPTIONAL_CONSTS = ["ROUTE_DRIVEN_LINE_COLOR", "ROUTE_CASING_COLOR", "DARK_STREET_TEXT", "DARK_STREET_PAINT", "DARK_STREET_RULES", "streetThemeSaved"];
 const HAS_SYNC = Boolean(extract("syncStreetTheme", true));
 const APP_CODE = [
+  ...ROUTE_CONSTS.map((name) => constDecl(name, true)),
   ...APP_CONSTS.map((name) => constDecl(name)),
   ...OPTIONAL_CONSTS.map((name) => constDecl(name, true)),
   ...APP_FUNCTIONS.map((name) => extract(name)),
@@ -347,10 +350,11 @@ function makeWorld({ darkMode, basemap, styleLayers = LIBERTY_SUBSET, libertyLay
   // mountMap's load handler: the route layers, then the theme, then ready.
   vm.runInContext(`
     routeMap.addSource("route", { type: "geojson", data: routeFeatureCollection() });
-    routeMap.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": "#ffffff", "line-width": 7 } });
+    routeMap.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": ROUTE_CASING_COLOR, "line-width": 7 } });
     routeMap.addLayer({ id: "route", type: "line", source: "route", paint: { "line-color": ROUTE_LINE_COLOR, "line-width": 4 } });
     routeMap.addSource("left", { type: "geojson", data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } } });
-    routeMap.addLayer({ id: "left", type: "line", source: "left", paint: { "line-color": "#9ec5ff", "line-width": 6 } });
+    routeMap.addLayer({ id: "left-casing", type: "line", source: "left", paint: { "line-color": ROUTE_CURRENT_CASING, "line-width": 9 } });
+    routeMap.addLayer({ id: "left", type: "line", source: "left", paint: { "line-color": ROUTE_CURRENT_COLOR, "line-width": 6 } });
   `, sandbox);
   const original = clone(map.layers);
   vm.runInContext("syncStreetTheme(true); routeMapReady = true;", sandbox);
@@ -371,10 +375,25 @@ function check(name, cond, detail = "") {
 }
 
 const paintOf = (map, id) => map.layer(id)?.paint || {};
+
+// The route casing is data-driven by `current`: the leg being driven keeps its
+// own casing, so these checks read the casing of the other legs.
+function resolve(expr, props) {
+  if (!Array.isArray(expr)) return expr;
+  const [op, ...args] = expr;
+  if (op === "get") return props[args[0]];
+  if (op === "==") return resolve(args[0], props) === resolve(args[1], props);
+  if (op === "case") {
+    for (let i = 0; i + 1 < args.length; i += 2) if (resolve(args[i], props)) return resolve(args[i + 1], props);
+    return resolve(args[args.length - 1], props);
+  }
+  return undefined;
+}
+const otherCasing = (map) => resolve(paintOf(map, "route-casing")["line-color"], { current: 0 });
 const isDark = (c) => luminance(c) < 0.03;
 const isLight = (c) => luminance(c) > 0.7;
 const camera = (map) => JSON.stringify([map.getCenter(), map.getZoom(), map.getBearing()]);
-const routeLayersPresent = (map) => ["route-casing", "route", "left"].every((id) => map.getLayer(id)) && map.getSource("route") && map.getSource("left");
+const routeLayersPresent = (map) => ["route-casing", "route", "left-casing", "left"].every((id) => map.getLayer(id)) && map.getSource("route") && map.getSource("left");
 
 function darkLooks(map, label) {
   const bg = paintOf(map, "background")["background-color"];
@@ -419,7 +438,7 @@ function darkLooks(map, label) {
   const w = makeWorld({ darkMode: false, basemap: "vector" });
   const fresh = clone(LIBERTY_SUBSET);
   check("b. light mode: every liberty layer keeps its own paint", fresh.every((layer) => same(paintOf(w.map, layer.id), layer.paint)));
-  check("b. light mode: route casing stays white", paintOf(w.map, "route-casing")["line-color"] === "#ffffff");
+  check("b. light mode: route casing stays white", otherCasing(w.map) === "#ffffff");
   check("b. light mode: no .street-dark on the container", !w.map.container.classList.contains("street-dark"));
 }
 
@@ -430,9 +449,9 @@ function darkLooks(map, label) {
   const cam = camera(w.map);
   const routeSource = w.map.getSource("route");
   const routeData = JSON.stringify(routeSource.data);
-  const darkCasing = paintOf(w.map, "route-casing")["line-color"];
+  const darkCasing = otherCasing(w.map);
   check(`c. dark street: route casing is dark so the route line stands out (${darkCasing})`, isDark(darkCasing));
-  check("c. dark street: route line keeps its blue/green colors", same(paintOf(w.map, "route")["line-color"], w.sandbox.ROUTE_LINE_COLOR));
+  check("c. dark street: route line keeps its magenta/green colors", same(paintOf(w.map, "route")["line-color"], w.sandbox.ROUTE_LINE_COLOR));
 
   w.run("toggleDarkMode()");
   check("c. back to light: html.force-light", w.html.contains("force-light") && !w.html.contains("force-dark"));
@@ -440,7 +459,7 @@ function darkLooks(map, label) {
   check("c. back to light: every layer's paint equals the original exactly", diffs.length === 0, diffs.join(", "));
   check("c. back to light: highway-name-major has no halo color again (liberty sets none)",
     !("text-halo-color" in paintOf(w.map, "highway-name-major")));
-  check("c. back to light: route casing white again", paintOf(w.map, "route-casing")["line-color"] === "#ffffff");
+  check("c. back to light: route casing white again", otherCasing(w.map) === "#ffffff");
   check("c. back to light: no .street-dark", !w.map.container.classList.contains("street-dark"));
 
   w.run("toggleDarkMode()");
@@ -455,7 +474,7 @@ function darkLooks(map, label) {
     w.spies.addRoutePins === 0 && w.spies.placeNavDot === 0 && w.spies.placeTurnPin === 0);
   check("c. setStyle never called", w.map.setStyleCalls.length === 0);
   check("c. camera (center, zoom, bearing) unchanged and never moved", camera(w.map) === cam && w.map.cameraCalls === 0);
-  check("c. no layer added or removed by the toggles", w.log.filter((line) => /^add/.test(line)).length === 5);
+  check("c. no layer added or removed by the toggles", w.log.filter((line) => /^add/.test(line)).length === 6);
 }
 
 // --- d. Satellite + Dark mode: never any overrides. ---
@@ -470,7 +489,7 @@ function darkLooks(map, label) {
   v.run("basemap = 'satellite'; applyBasemap();");
   v.map.fireStyleLoad();
   check("d. switching dark street -> satellite: satellite style, route casing white, no .street-dark",
-    v.map.getLayer("satellite") && paintOf(v.map, "route-casing")["line-color"] === "#ffffff"
+    v.map.getLayer("satellite") && otherCasing(v.map) === "#ffffff"
     && !v.map.container.classList.contains("street-dark"));
 }
 
@@ -488,7 +507,7 @@ function darkLooks(map, label) {
   const darkened = w.log.indexOf("paint background background-color");
   const casing = w.log.indexOf("paint route-casing line-color");
   check("e. overrides are applied after ensureRouteLayers re-adds the route", added >= 0 && darkened > added && casing > added);
-  check("e. route casing dark after the reload", isDark(paintOf(w.map, "route-casing")["line-color"]));
+  check("e. route casing dark after the reload", isDark(otherCasing(w.map)));
 
   w.run("toggleDarkMode()");
   const fresh = clone(LIBERTY_SUBSET);
@@ -548,7 +567,7 @@ function darkLooks(map, label) {
 // --- The real mountMap and applyBasemap call it at the right moments. ---
 {
   const mount = extract("mountMap", true);
-  const left = mount.indexOf("\"#9ec5ff\"");
+  const left = mount.indexOf("id: \"left\"");
   const sync = mount.indexOf("syncStreetTheme(true)");
   check("mountMap's load handler syncs the street theme once the route layers exist", left >= 0 && sync > left);
   const toggle = extract("toggleDarkMode");
