@@ -27,7 +27,7 @@ import {
 import { TRUCK_PROFILE } from "./here.js";
 import { EXAMPLE_TRIP } from "./example-trip.js?v=6";
 import { tzlookup } from "./tz-lookup.js?v=1";
-import { parseStopPaste } from "./paste-stop.js?v=3";
+import { parseStopPaste } from "./paste-stop.js?v=4";
 import { buildNavLine, directionWindow, inLockWindow, matchAlong, matchNear, nearestOnPath, ON_ROAD_M, turnLockShouldAdvance } from "./nav-match.js?v=9";
 import { pageSpeech, warmPageVoices } from "./page-voice.js?v=1";
 import { api, creditsMe, fetchCalls, suggestAddresses, truckRoute, spotAddress, startCheckout, startCardSetup, loginWith, fetchTrips, putTrips, createShare, fetchShare, clearSession, logoutRemote, pulseActivity, clearCardWelcome, clearPackWelcome, removeSavedCard, saveBoxFont, noteVisit, redeemGift } from "./api.js?v=7";
@@ -3195,16 +3195,7 @@ function pastedInstant(parts, stop, field) {
   const kept = wallParts(field === "end" ? stop.end : stop.start, enteredOffset(stop, field));
   const hour = parts.hour == null ? kept.hour : parts.hour;
   const minute = parts.minute == null ? kept.minute : parts.minute;
-  const now = new Date();
-  const yNow = now.getFullYear();
-  const today = new Date(yNow, now.getMonth(), now.getDate()).getTime();
-  let year = Number(parts.year);
-  if (!Number.isFinite(year) || year < yNow) year = yNow;
-  let dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
-  if (dayMs < today) {
-    year = yNow + 1;
-    dayMs = new Date(year, parts.monthIndex, parts.day).getTime();
-  }
+  const year = parts.year != null && Number.isFinite(Number(parts.year)) ? Number(parts.year) : new Date().getFullYear();
   return {
     ms: msFromWall(year, parts.monthIndex, parts.day, hour, minute, offset),
     offset,
@@ -11777,12 +11768,14 @@ function leaveDateValue(ms, offsetMinutes) {
   return `${parts.year}-${pad(parts.month + 1)}-${pad(parts.day)}`;
 }
 
-function todayDateValue(offsetMinutes) {
-  return leaveDateValue(Date.now(), offsetMinutes);
+const STOP_DATE_DAYS_BACK = 30;
+
+function todayDateValue(offsetMinutes, daysBack = 0) {
+  return leaveDateValue(Date.now() - daysBack * 24 * 3600 * 1000, offsetMinutes);
 }
 
-function clampDateValue(value, offsetMinutes) {
-  const min = todayDateValue(offsetMinutes);
+function clampDateValue(value, offsetMinutes, daysBack = 0) {
+  const min = todayDateValue(offsetMinutes, daysBack);
   if (!value || value < min) return min;
   return value;
 }
@@ -11829,8 +11822,9 @@ function pickerSheet() {
       ${id === "leaveAt" || id === "stopDate"
         ? (() => {
           const offset = id === "stopDate" ? enteredOffset(pickerStop(), state.pickerTarget?.field) : state.settings.leaveAtOffset;
-          const min = todayDateValue(offset);
-          const value = clampDateValue(leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, offset), offset);
+          const daysBack = id === "stopDate" ? STOP_DATE_DAYS_BACK : 0;
+          const min = todayDateValue(offset, daysBack);
+          const value = clampDateValue(leaveDateValue(id === "stopDate" ? pickerStopMs() : state.settings.leaveAt, offset), offset, daysBack);
           return `<input class="picker-date" type="date" data-part="date" min="${min}" value="${value}" aria-label="Date">`;
         })()
         : `<div class="time-wheels">${wheels}</div>`}
@@ -11853,9 +11847,9 @@ function minutesFromSheet() {
   return h * 60 + minute;
 }
 
-function readDatedMs(previousMs, offsetMinutes) {
+function readDatedMs(previousMs, offsetMinutes, daysBack = 0) {
   const raw = document.querySelector("#pickerSheet [data-part=date]")?.value || "";
-  const date = clampDateValue(raw, offsetMinutes);
+  const date = clampDateValue(raw, offsetMinutes, daysBack);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   const prev = wallParts(previousMs, offsetMinutes);
   if (!year || !month || !day) return previousMs;
@@ -11896,7 +11890,7 @@ function commitPicker() {
   }
   if (id === "stopDate") {
     const offset = enteredOffset(pickerStop(), state.pickerTarget?.field);
-    const ms = readDatedMs(pickerStopMs(), offset);
+    const ms = readDatedMs(pickerStopMs(), offset, STOP_DATE_DAYS_BACK);
     state.picker = "stopTime";
     writeStopWhen(ms);
     return;
@@ -12186,13 +12180,14 @@ function applyClock(wrap) {
 }
 
 function applyWhen(wrap) {
-  const offsetHint = wrap.getAttribute("data-when") === "leaveAt"
+  const isLeave = wrap.getAttribute("data-when") === "leaveAt";
+  const offsetHint = isLeave
     ? state.settings.leaveAtOffset
     : enteredOffset(
       state.stops.find((item) => item.id === wrap.closest("[data-stop]")?.getAttribute("data-stop")),
       wrap.getAttribute("data-stop-field"),
     );
-  const date = clampDateValue(wrap.querySelector("[data-part=date]")?.value || "", offsetHint);
+  const date = clampDateValue(wrap.querySelector("[data-part=date]")?.value || "", offsetHint, isLeave ? 0 : STOP_DATE_DAYS_BACK);
   const [year, month, day] = date.split("-").map((part) => Number(part));
   if (!year || !month || !day) return;
   const minutes = minutesFromWrap(wrap);
