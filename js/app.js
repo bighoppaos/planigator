@@ -5136,9 +5136,68 @@ function addRoutePins(bounds) {
     button.textContent = pin.label;
     button.style.background = cssRGB(pin.rgb);
     button.style.color = ink.color;
+    button.dataset.stopId = pin.id || "";
     routePinMarkers.push(new maplibre.Marker({ element: button, anchor: "bottom" }).setLngLat([pin.lon, pin.lat]).addTo(routeMap));
     bounds?.extend([pin.lon, pin.lat]);
   });
+  routePinsPlain = true;
+  hookRoutePinDeclutter();
+  declutterRoutePins();
+}
+
+let routePinsHooked = null;
+let routePinsPlain = true;
+
+function routePinFor(stopId) {
+  if (!stopId) return null;
+  return routePinMarkers.find((marker) => marker.getElement().dataset.stopId === stopId) || null;
+}
+
+// Stop zoom: the stop you are driving to keeps its chip on top, and any chip
+// that would cover it is hidden. Every other view shows all chips as before.
+function declutterRoutePins() {
+  const target = tripFit === "nextStop" && routeMap ? routePinFor(stopTargetId) : null;
+  if (!target) {
+    if (routePinsPlain) return;
+    for (const marker of routePinMarkers) {
+      const el = marker.getElement();
+      el.classList.remove("is-target");
+      el.style.zIndex = "";
+      el.style.visibility = "";
+    }
+    routePinsPlain = true;
+    return;
+  }
+  routePinsPlain = false;
+  target.getElement().classList.add("is-target");
+  // Read every box before writing any style, so a map frame lays out once.
+  const boxes = routePinMarkers.map((marker) => {
+    const el = marker.getElement();
+    const at = routeMap.project(marker.getLngLat());
+    const w = el.offsetWidth || 0;
+    const h = el.offsetHeight || 0;
+    return { el, left: at.x - w / 2, right: at.x + w / 2, top: at.y - h, bottom: at.y };
+  });
+  const goal = boxes[routePinMarkers.indexOf(target)];
+  const gap = 2;
+  for (const box of boxes) {
+    if (box === goal) {
+      box.el.style.zIndex = "4";
+      box.el.style.visibility = "";
+      continue;
+    }
+    const covers = box.left < goal.right + gap && box.right > goal.left - gap
+      && box.top < goal.bottom + gap && box.bottom > goal.top - gap;
+    box.el.classList.remove("is-target");
+    box.el.style.zIndex = "";
+    box.el.style.visibility = covers ? "hidden" : "";
+  }
+}
+
+function hookRoutePinDeclutter() {
+  if (!routeMap || routePinsHooked === routeMap || typeof routeMap.on !== "function") return;
+  routePinsHooked = routeMap;
+  routeMap.on("move", declutterRoutePins);
 }
 
 function clearRouteMap() {
@@ -7164,6 +7223,8 @@ let turnZoomOut = null;
 let turnZoomOutTimer = 0;
 let stopFrameAt = null;
 let stopFrameId = "";
+let stopFrameLayout = "";
+let stopTargetId = "";
 let routeCoverSize = "";
 
 function currentDirectionEnd(hereAlong) {
@@ -8188,6 +8249,42 @@ function frameNextTurn() {
   }
 }
 
+// The fit only places pins. The target's chip stands above its pin and half
+// its width to each side, and your dot has a ring: both have to land inside
+// the clear area between the rails, under the top bar, above ETA/directions.
+// North up, the chip only reaches past the edges the target is nearest to.
+function stopZoomPadding(stopId, bounds, lat, lon) {
+  const base = paddingForTurnZoom(turnViewPadding(), 0).padding;
+  const chip = routePinFor(stopId)?.getElement();
+  const chipW = chip?.offsetWidth || 0;
+  const chipH = chip?.offsetHeight || 0;
+  const dot = typeof navYou?.getElement === "function" ? navYou.getElement() : null;
+  const dotR = (dot?.offsetHeight || 24) / 2 + NAV_DOT_HALO_PX;
+  const ring = Math.ceil(dotR) + 4;
+  const wide = Math.ceil(Math.max(chipW / 2, dotR)) + 4;
+  const tall = Math.ceil(Math.max(chipH, dotR)) + 4;
+  const nearWest = lon - bounds.getWest() <= bounds.getEast() - lon;
+  const nearNorth = bounds.getNorth() - lat <= lat - bounds.getSouth();
+  const pad = {
+    top: base.top + (nearNorth ? tall : ring),
+    right: base.right + (nearWest ? ring : wide),
+    bottom: base.bottom + ring,
+    left: base.left + (nearWest ? wide : ring),
+  };
+  // MapLibre skips a fit whose padding leaves no room at all.
+  const map = routeMap?.getContainer?.() || document.getElementById("routeMap");
+  const fit = (a, b, size) => {
+    const room = size - 40;
+    if (!(size > 0) || pad[a] + pad[b] <= room) return;
+    const k = Math.max(0, room) / (pad[a] + pad[b]);
+    pad[a] = Math.floor(pad[a] * k);
+    pad[b] = Math.floor(pad[b] * k);
+  };
+  fit("left", "right", map?.clientWidth || 0);
+  fit("top", "bottom", map?.clientHeight || 0);
+  return pad;
+}
+
 function frameNextStop() {
   const maplibre = window.maplibregl;
   const origin = originPoint();
@@ -8199,8 +8296,10 @@ function frameNextStop() {
   const stop = leg?.stop;
   const lat = Number(stop?.lat);
   const lon = Number(stop?.lon);
-  if (!stop || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-  if (stopFrameAt && stopFrameId === stop.id && metersBetween(stopFrameAt, here) < 150) return;
+  const found = Boolean(stop) && Number.isFinite(lat) && Number.isFinite(lon);
+  stopTargetId = found ? stop.id : "";
+  declutterRoutePins();
+  if (!found) return;
   const from = hit ? hit.along : 0;
   const until = Number.isFinite(leg?.end) ? leg.end : from;
   const coords = navLine.length >= 2 ? navRemaining(Math.min(from, until), until) : [];
@@ -8210,9 +8309,14 @@ function frameNextStop() {
     (box, coord) => box.extend(coord),
     new maplibre.LngLatBounds(coords[0], coords[0]),
   );
-  const padding = paddingForTurnZoom(turnViewPadding(), 0).padding;
+  const padding = stopZoomPadding(stop.id, bounds, lat, lon);
+  const layout = [padding.top, padding.right, padding.bottom, padding.left].join(",");
+  // Parked, he does not move 150 m: a new layout (full screen, directions
+  // opened) still has to reframe.
+  if (stopFrameAt && stopFrameId === stop.id && stopFrameLayout === layout && metersBetween(stopFrameAt, here) < 150) return;
   stopFrameAt = [here[0], here[1]];
   stopFrameId = stop.id;
+  stopFrameLayout = layout;
   if (turnMarker) {
     turnMarker.remove();
     turnMarker = null;
@@ -10988,7 +11092,7 @@ function routePins() {
     const lon = here ? here.lon : Number(stop.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const label = stop.useCurrentLocation ? "Now" : cardTitle(index, state.stops);
-    pins.push({ lat, lon, label, rgb: stopColor(index, state.stops) });
+    pins.push({ id: stop.id, lat, lon, label, rgb: stopColor(index, state.stops) });
   });
   return pins;
 }
