@@ -1255,6 +1255,20 @@ input.compact {
   font-size: 12px;
   line-height: 1.05;
 }
+.stops.nav-locked .stop-card button:disabled,
+.stops.nav-locked .stop-card select:disabled,
+.stops.nav-locked button[data-after]:disabled,
+.stops.nav-locked button[data-before]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  animation: none;
+}
+.delay-box.nav-locked button,
+.delay-box.nav-locked button:disabled,
+.delay-box.nav-locked .delay-read {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .chip-sec + .chip-sec {
   margin-top: 2px;

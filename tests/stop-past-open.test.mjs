@@ -98,6 +98,7 @@ function page() {
     Intl,
     console,
     dom,
+    navOn: false,
     state: {
       settings: { military: true, leaveNow: false, leaveAt: NOW, leaveAtOffset: offset },
       stops: [stop],
