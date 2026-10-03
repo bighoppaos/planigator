@@ -455,6 +455,7 @@ function themeButtonLabel() {
 function toggleDarkMode() {
   state.darkMode = state.darkMode !== true;
   applyDarkMode();
+  syncStreetTheme();
   const button = document.getElementById("darkMode");
   if (button) {
     button.classList.toggle("on", state.darkMode === true);
@@ -4283,6 +4284,129 @@ function restoreRouteLine() {
   paintNavLine(hit.along, leg ? leg.end : Infinity);
 }
 
+const DARK_STREET_TEXT = { "text-color": "#e6ece9", "text-halo-color": "#0b1114" };
+
+// Keys are liberty layer ids; * matches any run of characters, and a later key
+// wins over an earlier one for the same property. Shields keep their sprite
+// colors and default dark text, which sits on the light shield, not the map.
+const DARK_STREET_PAINT = {
+  background: { "background-color": "#0e1417" },
+  natural_earth: { "raster-opacity": 0.12, "raster-brightness-max": 0.35 },
+  park: { "fill-color": "#1a2a20", "fill-outline-color": "#24402c" },
+  park_outline: { "line-color": "#24402c" },
+  "landuse_*": { "fill-color": "#1d2622" },
+  landuse_residential: { "fill-color": "rgba(30, 38, 43, 0.6)" },
+  landuse_hospital: { "fill-color": "#2a1e24" },
+  landuse_school: { "fill-color": "#25261d" },
+  "landcover_*": { "fill-color": "#1c2e22" },
+  landcover_ice: { "fill-color": "#263034" },
+  landcover_sand: { "fill-color": "#2a2920" },
+  landcover_wetland: { "fill-opacity": 0.15 },
+  waterway_tunnel: { "line-color": "#1d3a57" },
+  waterway_river: { "line-color": "#1d3a57" },
+  waterway_other: { "line-color": "#1d3a57" },
+  water: { "fill-color": "#13263a" },
+  aeroway_fill: { "fill-color": "#1c2226" },
+  aeroway_runway: { "line-color": "#363d42" },
+  aeroway_taxiway: { "line-color": "#363d42" },
+  road_area_pattern: { "fill-opacity": 0.15 },
+  "*_minor": { "line-color": "#2b343a" },
+  "*_street": { "line-color": "#2b343a" },
+  "*_service_track": { "line-color": "#262e33" },
+  "*_path_pedestrian": { "line-color": "#2a3237" },
+  "*_link": { "line-color": "#3a4349" },
+  "*_secondary_tertiary": { "line-color": "#3a4349" },
+  "*_trunk_primary": { "line-color": "#5a4a35" },
+  "*_motorway": { "line-color": "#7a5a36" },
+  "*_motorway_link": { "line-color": "#6a4f31" },
+  "*_rail": { "line-color": "#353d42" },
+  "*_rail_hatching": { "line-color": "#353d42" },
+  "*_casing": { "line-color": "#151c20" },
+  "*_trunk_primary_casing": { "line-color": "#2a2219" },
+  "*_motorway_casing": { "line-color": "#2a2219" },
+  "*_motorway_link_casing": { "line-color": "#2a2219" },
+  building: { "fill-color": "#20272b", "fill-outline-color": "#2a3338" },
+  "building-3d": { "fill-extrusion-color": "#20272b" },
+  "boundary_*": { "line-color": "#5f676b" },
+  boundary_3: { "line-color": "#4a5358" },
+  waterway_line_label: { "text-color": "#8fb4e0", "text-halo-color": "#0b1114" },
+  "water_name_*": { "text-color": "#8fb4e0", "text-halo-color": "#0b1114" },
+  "poi_*": DARK_STREET_TEXT,
+  poi_transit: { "text-color": "#9cc3e6" },
+  airport: DARK_STREET_TEXT,
+  "highway-name-*": DARK_STREET_TEXT,
+  "highway-name-path": { "text-color": "#b3bab7" },
+  "label_*": DARK_STREET_TEXT,
+  label_other: { "text-color": "#c9d1cd" },
+  label_state: { "text-color": "#c9d1cd" },
+  "route-casing": { "line-color": "#0b1114" },
+};
+
+const DARK_STREET_RULES = Object.entries(DARK_STREET_PAINT).map(([key, paint]) => [
+  new RegExp("^" + key.split("*").map((part) => part.replace(/[^\w]/g, "\\$&")).join(".*") + "$"),
+  paint,
+]);
+
+const streetThemeSaved = new WeakMap();
+
+function darkStreetPaint(layerId) {
+  let paint = null;
+  for (const [rule, values] of DARK_STREET_RULES) {
+    if (rule.test(layerId)) paint = { ...(paint || {}), ...values };
+  }
+  return paint;
+}
+
+function restoreStreetPaint(map) {
+  const saved = streetThemeSaved.get(map);
+  streetThemeSaved.delete(map);
+  if (!saved) return;
+  for (const [id, paint] of saved) {
+    if (!map.getLayer(id)) continue;
+    for (const [prop, value] of Object.entries(paint)) {
+      try { map.setPaintProperty(id, prop, value); } catch {}
+    }
+  }
+}
+
+function darkenStreetPaint(map) {
+  let layers = [];
+  try { layers = map.getStyle()?.layers || []; } catch { return; }
+  let saved = streetThemeSaved.get(map);
+  if (!saved) {
+    saved = new Map();
+    streetThemeSaved.set(map, saved);
+  }
+  for (const layer of layers) {
+    const paint = darkStreetPaint(layer?.id || "");
+    if (!paint || !map.getLayer(layer.id)) continue;
+    const before = saved.get(layer.id) || {};
+    for (const [prop, value] of Object.entries(paint)) {
+      try {
+        if (!(prop in before)) before[prop] = map.getPaintProperty(layer.id, prop);
+        map.setPaintProperty(layer.id, prop, value);
+      } catch {}
+    }
+    saved.set(layer.id, before);
+  }
+}
+
+// Planigator's own Dark mode decides this, never the phone's setting.
+// Paint changes in place, so the route, pins, dots and camera stay put.
+// fresh: the style was just (re)loaded, so earlier saved paint is stale.
+function syncStreetTheme(fresh = false) {
+  const map = routeMap;
+  if (!map) return;
+  if (fresh) streetThemeSaved.delete(map);
+  if (!fresh && !routeMapReady) return;
+  let street = false;
+  try { street = basemap === "vector" && Boolean(map.getSource("openmaptiles")); } catch {}
+  const dark = street && state.darkMode === true;
+  if (dark) darkenStreetPaint(map);
+  else restoreStreetPaint(map);
+  map.getContainer?.()?.classList?.toggle("street-dark", dark);
+}
+
 let basemapTimer = 0;
 
 function queueBasemap() {
@@ -4303,6 +4427,7 @@ function applyBasemap() {
   if (styleIsBasemap(map)) {
     ensureRouteLayers(map);
     restoreRouteLine();
+    syncStreetTheme();
     return;
   }
   const next = basemap;
@@ -4323,6 +4448,7 @@ function applyBasemap() {
       return;
     }
     ensureRouteLayers(map);
+    syncStreetTheme(true);
     restoreRouteLine();
     addRoutePins();
     if (navOn && navFix) placeNavDot(navFix[0], navFix[1]);
@@ -10541,6 +10667,7 @@ function mountMap() {
       source: "left",
       paint: { "line-color": "#9ec5ff", "line-width": 6 },
     });
+    syncStreetTheme(true);
     const holdCamera = () => { navMapTouch = true; };
     const releaseCamera = () => {
       navMapTouch = false;
