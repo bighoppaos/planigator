@@ -11056,6 +11056,31 @@ function delayBox(stop, pieceIndex, finish = false) {
   `;
 }
 
+function delaySum(list) {
+  return list.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
+}
+
+// Drive cards run in state.stops order: each stop's drive pieces, then its
+// finish card. A changed delay makes every later card's delay a guess, so
+// those go back to 0. Earlier cards keep theirs.
+function clearLaterDelays(stop, piece, finish) {
+  if (!finish) {
+    if (Array.isArray(stop.driveDelays)) {
+      for (let k = piece + 1; k < stop.driveDelays.length; k += 1) stop.driveDelays[k] = 0;
+      stop.delayMinutes = delaySum(stop.driveDelays);
+    }
+    if (stop.finishDelayMinutes) stop.finishDelayMinutes = 0;
+  }
+  const at = state.stops.indexOf(stop);
+  if (at < 0) return;
+  state.stops.forEach((later, index) => {
+    if (index <= at || isOriginStop(state.stops, index)) return;
+    if (Array.isArray(later.driveDelays)) later.driveDelays = later.driveDelays.map(() => 0);
+    if (later.delayMinutes) later.delayMinutes = 0;
+    if (later.finishDelayMinutes) later.finishDelayMinutes = 0;
+  });
+}
+
 function changeDelay(id, pieceIndex, delta, finish = false) {
   if (state.estimating) return;
   const stop = state.stops.find((item) => item.id === id);
@@ -11075,6 +11100,7 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
     const next = Math.max(0, Math.min(24 * 60, current + delta));
     if (next === current) return;
     stop.finishDelayMinutes = next;
+    clearLaterDelays(stop, 0, true);
     persist();
     if (state.plan) calculate({ silent: true }).finally(restoreScroll);
     else {
@@ -11093,7 +11119,8 @@ function changeDelay(id, pieceIndex, delta, finish = false) {
   const next = Math.max(0, Math.min(24 * 60, current + delta));
   if (next === current) return;
   stop.driveDelays[piece] = next;
-  stop.delayMinutes = stop.driveDelays.reduce((sum, value) => sum + Math.max(0, Math.round(Number(value) || 0)), 0);
+  stop.delayMinutes = delaySum(stop.driveDelays);
+  clearLaterDelays(stop, piece, false);
   persist();
   if (state.plan) calculate({ silent: true }).finally(restoreScroll);
   else {
