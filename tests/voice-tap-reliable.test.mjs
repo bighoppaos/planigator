@@ -1,12 +1,16 @@
-// During navigation every tap gets the voice, and old lines never pile up and
-// play late when he comes back to the app.
+// During navigation taps are quiet. Every tap still unlocks the voice, the tap
+// that turns a held voice back on says the current direction once, and a tap on
+// the directions says it again every time. Old lines never pile up and play
+// late when he comes back to the app.
 // Not loaded by the site. Run: node tests/voice-tap-reliable.test.mjs
+// Against another copy of app.js: APP_JS=/path/to/app.js node tests/voice-tap-reliable.test.mjs
 //
 // Loads the real onNavFix, callout, tap, and voice functions from js/app.js (by
 // name, into a vm sandbox). The phone voice is a fake speechSynthesis that can
-// pause, hold lines while iOS keeps the page quiet, and lose onend. The page
-// voices play through a fake AudioContext that can be suspended or
-// "interrupted". Taps go through the document listeners the page arms.
+// pause, hold lines while iOS keeps the page quiet, refuse lines, send no
+// events for a silent line, and lose onend. The page voices play through a fake
+// AudioContext that can be suspended or "interrupted". Taps go through the
+// document listeners the page arms, on fake elements that answer closest().
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,7 +18,7 @@ import path from "node:path";
 import vm from "node:vm";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const appSource = readFileSync(path.join(root, "js/app.js"), "utf8");
+const appSource = readFileSync(process.env.APP_JS || path.join(root, "js/app.js"), "utf8");
 const navMatch = await import(pathToFileURL(path.join(root, "js/nav-match.js")).href);
 const { isOriginStop } = await import(pathToFileURL(path.join(root, "js/plan.js")).href);
 const { hoursLabel } = await import(pathToFileURL(path.join(root, "js/hos.js")).href);
@@ -87,6 +91,7 @@ const APP_FUNCTIONS = [
 const OPTIONAL_FUNCTIONS = [
   "readyMix", "speechWatchMs", "clearStuckSpeech", "tapMoved", "currentNavStep", "currentStepLine", "sayTapLine",
   "relockNavVoice", "hushNavVoice", "checkPhoneVoice", "stepLine", "holdStepLine", "disarmVoiceGesture",
+  "repeatTap", "phoneVoiceHeld",
 ];
 const APP_CODE = [
   constLine("NAV_PROGRESS_KEY"),
@@ -102,6 +107,7 @@ const APP_CODE = [
   constLine("VOICE_GESTURES"),
   constLine("VOICE_TAP_MS", true),
   constLine("VOICE_OWN_LINE", true),
+  constLine("VOICE_REPEAT", true),
   ...APP_FUNCTIONS.map((name) => extract(name)),
   ...OPTIONAL_FUNCTIONS.map((name) => extract(name, true)),
 ].join("\n\n");
@@ -171,11 +177,23 @@ class FakeSynth {
     this.held = false;
     // The next lines start but never send onend.
     this.hangNext = 0;
+    // iOS refusing speech outside a tap: real lines fail with "not-allowed".
+    this.refuse = false;
+    // iOS sending no events at all for a silent line, even when the voice works.
+    this.silentNoEvents = false;
+    this.cancels = 0;
   }
   get speaking() { return Boolean(this.current); }
   get pending() { return this.queue.length > 0; }
   speak(utter) {
-    if (this.held && gesture.active) this.held = false;
+    if (gesture.active) {
+      this.held = false;
+      this.refuse = false;
+    }
+    if (this.refuse && utter.text.trim()) {
+      utter.onerror?.({ error: "not-allowed" });
+      return;
+    }
     this.queue.push(utter);
     this.pump();
   }
@@ -183,6 +201,10 @@ class FakeSynth {
     if (this.current || this.paused || this.held) return;
     const utter = this.queue.shift();
     if (!utter) return;
+    if (this.silentNoEvents && !utter.text.trim()) {
+      this.pump();
+      return;
+    }
     this.current = utter;
     if (utter.text.trim()) this.heard.push(utter.text);
     utter.onstart?.();
@@ -198,6 +220,7 @@ class FakeSynth {
     }, 1500);
   }
   cancel() {
+    this.cancels += 1;
     const gone = [this.current, ...this.queue].filter(Boolean);
     if (this.current) clearTimer(this.current.timer);
     this.current = null;
@@ -295,7 +318,59 @@ const plannedStops = () => [
 ];
 const EXIT_MI = 15;
 
-const mapTarget = { closest: () => null };
+// --- Fake page elements. closest() takes "#id", ".class", "[attr]", "tag",
+// or "tag.class[attr]" pieces, comma separated, like the selectors app.js uses. ---
+
+function matches(node, selector) {
+  const parts = selector.trim().match(/^([a-z]+)?((?:[#.][\w-]+|\[[\w-]+\])*)$/i);
+  if (!parts) return false;
+  if (parts[1] && parts[1].toLowerCase() !== node.tag) return false;
+  for (const piece of parts[2].match(/[#.][\w-]+|\[[\w-]+\]/g) || []) {
+    if (piece[0] === "#" && node.id !== piece.slice(1)) return false;
+    if (piece[0] === "." && !node.cls.includes(piece.slice(1))) return false;
+    if (piece[0] === "[" && !node.attrs.includes(piece.slice(1, -1))) return false;
+  }
+  return true;
+}
+function node(tag, { id = "", cls = [], attrs = [] } = {}, parent = null) {
+  const self = {
+    tag, id, cls, attrs, parent,
+    closest(selector) {
+      const list = String(selector).split(",");
+      for (let at = self; at; at = at.parent) if (list.some((one) => matches(at, one))) return at;
+      return null;
+    },
+  };
+  return self;
+}
+const body = node("body");
+const stage = node("div", { id: "routeStage" }, body);
+const mapTarget = node("canvas", { cls: ["maplibregl-canvas"] }, node("div", { id: "routeMap" }, stage));
+const dirBox = node("details", { id: "routeDirections", cls: ["directions"] }, body);
+const dirSummary = node("summary", {}, dirBox);
+const dirLabel = node("span", { cls: ["dir-label"] }, dirSummary);
+const dirList = node("ol", {}, node("div", { cls: ["dir-scroll"] }, dirBox));
+const stepRow = () => node("button", { cls: ["dir-step"], attrs: ["data-dir-stop", "data-dir-index"] }, node("li", {}, dirList));
+const dirPrevStep = stepRow();
+const dirStep = stepRow();
+const dirStepText = node("span", { cls: ["dir-link"] }, dirStep);
+const dirLeg = node("li", { cls: ["dir-leg"] }, dirList);
+const navTitle = node("p", { id: "routeNavTitle" }, body);
+const voiceHint = node("button", { id: "routeVoiceHint", cls: ["route-voice-hint"] }, stage);
+const button = (id, inner = "span") => node(inner, {}, node("button", { id }, stage));
+const quietButtons = {
+  "Trip zoom": button("routeWhole"),
+  Detour: button("routeDetour"),
+  "Detour menu item": node("button", { attrs: ["data-detour"] }, node("div", { id: "railDetourMenu" }, stage)),
+  Compass: node("span", { cls: ["compass-n"] }, node("button", { id: "routeCompass" }, stage)),
+  Stop: button("routeStops"),
+  "Zoom in": button("routeZoomIn"),
+  "Full screen": button("routeFull"),
+  Recalculate: button("routeRecalc"),
+  "ETA chip": node("div", { cls: ["chip-sec"] }, node("div", { cls: ["chip"], attrs: ["data-chip"] }, body)),
+  "Stop miles line": node("p", { id: "routeStopMiles" }, stage),
+  "End navigation": node("button", { id: "endNav" }, stage),
+};
 
 // One page load with navigation started by a tap on Start.
 // voice is "phone" (speechSynthesis) or "us" (a page voice).
@@ -424,42 +499,120 @@ function expect(label, ok, detail = "") {
 }
 const show = (value) => JSON.stringify(value);
 
+// Stopped at `miles`: the GPS still sends a fix every second.
+async function parked(pg, miles, ms = 2000) {
+  for (let s = 0; s < ms / 1000; s += 1) {
+    await advance(1000);
+    gps(pg, miles);
+  }
+}
+
 for (const voice of ["phone", "us"]) {
-  console.log(`\nSeveral taps in a row (${voice} voice)`);
+  console.log(`\nTaps on the map and the page are quiet (${voice} voice)`);
   const pg = await startNav(voice);
   await drive(pg, 0.2, 5);
   await advance(3000);
   const heardSteps = pg.heard.filter((text) => /Take exit 312/.test(text));
   expect("GPS fixes alone said the step once", heardSteps.length === 1, show(heardSteps));
-  // Stopped at 5 mi. The GPS still sends a fix every second.
+  expect("the voice is not locked", pg.navVoiceLocked() === false);
   const results = [];
-  for (let k = 0; k < 3; k += 1) {
+  for (const target of [mapTarget, mapTarget, body, mapTarget]) {
     const mark = pg.heard.length;
-    await tap(pg);
-    for (let s = 0; s < 2; s += 1) {
-      await advance(1000);
-      gps(pg, 5);
-    }
+    await tap(pg, target);
+    await parked(pg, 5);
     results.push(since(pg, mark));
   }
-  const want = exitLine(5);
-  expect("each tap says the current direction once, the first and every later one",
-    results.every((lines) => lines.length === 1 && lines[0] === want), show(results));
+  expect("no tap on the map or page says anything", results.every((lines) => lines.length === 0), show(results));
+  expect("no Tap to turn on voice", pg.elements.routeVoiceHint?.hidden !== false);
   const mark = pg.heard.length;
-  await drive(pg, 5.05, 5.5);
+  await drive(pg, 5.05, 10.05);
   await advance(3000);
-  expect("GPS fixes after the taps do not repeat it", since(pg, mark).length === 0, show(since(pg, mark)));
+  expect("the next GPS callout (5 miles) still speaks", show(since(pg, mark)) === show([exitLine(10)]), show(since(pg, mark)));
   expect("the stop he is driving to did not change", pg.navAimStopId === "pactiv" && pg.state.stops.every((stop) => !stop.done),
     `${pg.navAimStopId}`);
 }
 
-console.log("\nTap when the newest fix is a minute old");
+for (const voice of ["phone", "us"]) {
+  console.log(`\nA tap on the map does not cut off a line that is playing (${voice} voice)`);
+  const pg = await startNav(voice);
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  pg.speakNav("In 5 miles, Take exit 312 toward Downingtown");
+  await flush();
+  const cancels = pg.synth.cancels;
+  const playing = voice === "phone" ? pg.synth.current : pg.navVoiceNode;
+  expect("a line is playing", Boolean(playing));
+  const mark = pg.heard.length;
+  await advance(200);
+  await tap(pg, mapTarget);
+  await advance(200);
+  const still = voice === "phone" ? pg.synth.current : pg.navVoiceNode;
+  expect("the same line is still playing after the tap", Boolean(playing) && still === playing && !playing.stopped);
+  expect("the tap cancelled nothing", pg.synth.cancels === cancels, `${pg.synth.cancels - cancels} cancel(s)`);
+  await advance(3000);
+  expect("nothing else was said", since(pg, mark).length === 0, show(since(pg, mark)));
+}
+
+for (const voice of ["phone", "us"]) {
+  console.log(`\nTaps on buttons are quiet (${voice} voice)`);
+  const pg = await startNav(voice);
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  const spoke = [];
+  for (const [label, target] of Object.entries(quietButtons)) {
+    const mark = pg.heard.length;
+    await tap(pg, target);
+    await parked(pg, 5, 1000);
+    if (since(pg, mark).length) spoke.push(`${label}: ${show(since(pg, mark))}`);
+  }
+  expect("trip zoom, Detour, compass, Stop, zoom, full screen, Recalculate, chips, End say nothing",
+    spoke.length === 0, spoke.join("; "));
+  const mark = pg.heard.length;
+  await tap(pg, dirLabel);
+  await parked(pg, 5);
+  expect("opening or closing the directions box (its summary) says nothing", since(pg, mark).length === 0, show(since(pg, mark)));
+}
+
+for (const voice of ["phone", "us"]) {
+  console.log(`\nA tap on the directions says the current direction, every time (${voice} voice)`);
+  const pg = await startNav(voice);
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  const results = [];
+  for (const target of [dirStep, dirStepText, dirPrevStep, navTitle, dirLeg, dirStep]) {
+    const mark = pg.heard.length;
+    await tap(pg, target);
+    await parked(pg, 5);
+    results.push(since(pg, mark));
+  }
+  const want = exitLine(5);
+  expect("each tap on a step row, the title, or the box says it once",
+    results.every((lines) => lines.length === 1 && lines[0] === want), show(results));
+  await drive(pg, 5.05, 5.5);
+  await advance(3000);
+  let mark = pg.heard.length;
+  await tap(pg, dirStep);
+  await parked(pg, 5.5);
+  expect("with the miles from where he is now", show(since(pg, mark)) === show([exitLine(5.5)]), show(since(pg, mark)));
+  mark = pg.heard.length;
+  await tap(pg, dirStep);
+  await advance(200);
+  await tap(pg, dirStep);
+  await parked(pg, 5.5);
+  expect("two taps inside the one-tap window say it once", since(pg, mark).length === 1, show(since(pg, mark)));
+  mark = pg.heard.length;
+  await drive(pg, 5.55, 5.9);
+  await advance(3000);
+  expect("GPS fixes after the taps do not repeat it", since(pg, mark).length === 0, show(since(pg, mark)));
+}
+
+console.log("\nTap the directions when the newest fix is a minute old");
 {
   const pg = await startNav("phone");
   await drive(pg, 0.2, 5);
   await advance(60000);
   const mark = pg.heard.length;
-  await tap(pg);
+  await tap(pg, dirStep);
   expect("still says the current step, from the latest fix", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
   const after = pg.heard.length;
   gps(pg, 6);
@@ -476,8 +629,8 @@ console.log("\nPhone voice stuck paused with an old line queued");
   pg.synth.resumeBroken = true;
   pg.synth.speak(new FakeUtterance("In 12 miles, Take exit 312 toward Downingtown"));
   const mark = pg.heard.length;
-  await tap(pg);
-  expect("the tap says the fresh line", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
+  await tap(pg, dirStep);
+  expect("a tap on the directions says the fresh line", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
   // Back from wherever iOS was stuck: the synth runs again.
   pg.synth.resumeBroken = false;
   pg.synth.resume();
@@ -527,20 +680,73 @@ for (const quiet of [false, true]) {
   visibility(pg, "visible");
   await advance(3000);
   expect("nothing queued while away plays on return", since(pg, mark).length === 0, show(since(pg, mark)));
+  expect("the silent check on return does not lock the voice", pg.navVoiceLocked() === false);
+  expect("no Tap to turn on voice on return", pg.elements.routeVoiceHint?.hidden !== false);
   if (quiet) {
-    expect("the voice counts as locked", pg.navVoiceLocked() === true);
+    // The 4-mile mark comes due at 11 mi. iOS holds it: it never starts.
+    await drive(pg, 10.45, 11.1);
+    await parked(pg, 11.1, 20000);
+    expect("nothing heard while iOS holds the voice", since(pg, mark).length === 0, show(since(pg, mark)));
+    expect("a real line that never started locks the voice", pg.navVoiceLocked() === true);
     expect("Tap to turn on voice shows", pg.elements.routeVoiceHint?.hidden === false);
-    await drive(pg, 10.45, 10.6);
-    expect("still nothing before the tap", since(pg, mark).length === 0, show(since(pg, mark)));
+    let tapMark = pg.heard.length;
+    await tap(pg, mapTarget);
+    await parked(pg, 11.1);
+    expect("the tap that turns the voice back on says the current direction once",
+      show(since(pg, tapMark)) === show([exitLine(11.1)]), show(since(pg, tapMark)));
+    expect("the note is gone", pg.elements.routeVoiceHint?.hidden !== false);
+    tapMark = pg.heard.length;
+    await tap(pg, mapTarget);
+    await parked(pg, 11.1);
+    expect("the next tap is quiet again", since(pg, tapMark).length === 0, show(since(pg, tapMark)));
   } else {
-    expect("the voice is not locked", pg.navVoiceLocked() === false);
-    expect("no Tap to turn on voice", pg.elements.routeVoiceHint?.hidden !== false);
+    const tapMark = pg.heard.length;
+    await tap(pg, mapTarget);
+    await parked(pg, 10.4);
+    expect("a tap on the map is quiet", since(pg, tapMark).length === 0, show(since(pg, tapMark)));
+    await drive(pg, 10.45, 11.05);
+    await advance(3000);
+    expect("the next GPS callout speaks", show(since(pg, tapMark)) === show([exitLine(11)]), show(since(pg, tapMark)));
   }
-  const tapMark = pg.heard.length;
-  await tap(pg);
-  const truck = quiet ? 10.6 : 10.4;
-  expect("the next tap says the current direction", show(since(pg, tapMark)) === show([exitLine(truck)]), show(since(pg, tapMark)));
+}
+
+console.log("\nThe silent check on return gets no events at all, but the voice works (phone voice)");
+{
+  const pg = await startNav("phone");
+  await drive(pg, 0.2, 9.8);
+  await advance(3000);
+  pg.synth.silentNoEvents = true;
+  visibility(pg, "hidden");
+  await drive(pg, 9.85, 10.4);
+  visibility(pg, "visible");
+  await advance(3000);
+  expect("the voice is not relocked", pg.navVoiceLocked() === false && pg.voiceGestureSeen === true);
+  expect("Tap to turn on voice stays hidden", pg.elements.routeVoiceHint?.hidden !== false);
+  const mark = pg.heard.length;
+  await drive(pg, 10.45, 11.05);
+  await advance(3000);
+  expect("the next GPS callout speaks without a tap", show(since(pg, mark)) === show([exitLine(11)]), show(since(pg, mark)));
+}
+
+console.log("\niOS refuses a real line (not-allowed) while the page shows (phone voice)");
+{
+  const pg = await startNav("phone");
+  await drive(pg, 0.2, 9.8);
+  await advance(3000);
+  pg.synth.refuse = true;
+  const mark = pg.heard.length;
+  await drive(pg, 9.85, 10.2);
+  await advance(1000);
+  expect("the refused line locks the voice", pg.navVoiceLocked() === true);
+  expect("Tap to turn on voice shows", pg.elements.routeVoiceHint?.hidden === false);
+  await tap(pg, voiceHint);
+  await parked(pg, 10.2);
+  expect("tapping the note says the current direction once", show(since(pg, mark)) === show([exitLine(10.2)]), show(since(pg, mark)));
   expect("the note is gone", pg.elements.routeVoiceHint?.hidden !== false);
+  const again = pg.heard.length;
+  await tap(pg, mapTarget);
+  await parked(pg, 10.2);
+  expect("the next tap is quiet", since(pg, again).length === 0, show(since(pg, again)));
 }
 
 console.log("\nLeave the app with a page voice; the mixer is suspended when he comes back");
@@ -553,10 +759,14 @@ console.log("\nLeave the app with a page voice; the mixer is suspended when he c
   visibility(pg, "visible");
   await advance(1000);
   expect("Tap to turn on voice shows", pg.elements.routeVoiceHint?.hidden === false);
-  const mark = pg.heard.length;
-  await tap(pg);
-  await advance(2000);
-  expect("the tap says the current direction", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
+  let mark = pg.heard.length;
+  await tap(pg, mapTarget);
+  await parked(pg, 5);
+  expect("the tap that turns the voice back on says the current direction once", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
+  mark = pg.heard.length;
+  await tap(pg, mapTarget);
+  await parked(pg, 5);
+  expect("the next tap is quiet", since(pg, mark).length === 0, show(since(pg, mark)));
 }
 
 console.log("\nA call interrupts the page voice's mixer");
@@ -567,14 +777,18 @@ console.log("\nA call interrupts the page voice's mixer");
   pg.mixCtx.interrupt();
   expect("the voice counts as locked", pg.navVoiceLocked() === true);
   expect("Tap to turn on voice shows", pg.elements.routeVoiceHint?.hidden === false);
-  const mark = pg.heard.length;
+  let mark = pg.heard.length;
   await drive(pg, 9.85, 10.4);
-  await tap(pg);
+  await tap(pg, quietButtons["Trip zoom"]);
   await advance(3000);
   expect("the tap resumes the mixer", pg.mixCtx.state === "running", pg.mixCtx.state);
-  expect("the tap says the current direction, and the 5-mile mark missed during the call does not play late",
+  expect("the tap says the current direction once, and the 5-mile mark missed during the call does not play late",
     show(since(pg, mark)) === show([exitLine(10.4)]), show(since(pg, mark)));
   expect("the note is gone", pg.elements.routeVoiceHint?.hidden !== false);
+  mark = pg.heard.length;
+  await tap(pg, quietButtons["Trip zoom"]);
+  await advance(2000);
+  expect("the next tap is quiet", since(pg, mark).length === 0, show(since(pg, mark)));
 }
 
 console.log("\nTap on a control that says its own line");
@@ -582,36 +796,51 @@ console.log("\nTap on a control that says its own line");
   const pg = await startNav("phone");
   await drive(pg, 0.2, 5);
   await advance(3000);
-  const voiceNext = { closest: (sel) => (String(sel).includes("#voiceNext") ? voiceNext : null) };
+  const voiceNext = node("button", { id: "voiceNext" }, body);
   const mark = pg.heard.length;
   await tap(pg, voiceNext, () => pg.playChosenVoice("This is Phone."));
   expect("one line for the tap: the control's", show(since(pg, mark)) === show(["This is Phone."]), show(since(pg, mark)));
 }
 
-console.log("\nDrag the map");
+console.log("\nDrag the map, scroll the directions");
 {
   const pg = await startNav("phone");
   await drive(pg, 0.2, 5);
   await advance(3000);
   const mark = pg.heard.length;
   gesture.active = true;
-  dispatch(pg, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 300, target: mapTarget });
-  dispatch(pg, "touchend", { changedTouches: [{ clientX: 220, clientY: 180 }], touches: [], target: mapTarget });
+  dispatch(pg, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 300, target: dirStep });
+  dispatch(pg, "touchend", { changedTouches: [{ clientX: 102, clientY: 180 }], touches: [], target: dirStep });
   gesture.active = false;
   await flush();
-  expect("a drag is not a tap", since(pg, mark).length === 0, show(since(pg, mark)));
+  expect("scrolling the directions is not a tap", since(pg, mark).length === 0, show(since(pg, mark)));
   await advance(1000);
   gesture.active = true;
-  dispatch(pg, "pointerdown", { pointerType: "touch", isPrimary: true, clientX: 100, clientY: 300, target: mapTarget });
-  dispatch(pg, "pointerdown", { pointerType: "touch", isPrimary: false, clientX: 200, clientY: 300, target: mapTarget });
-  dispatch(pg, "touchend", { changedTouches: [{ clientX: 90, clientY: 300 }], touches: [{}], target: mapTarget });
-  dispatch(pg, "touchend", { changedTouches: [{ clientX: 210, clientY: 300 }], touches: [], target: mapTarget });
+  dispatch(pg, "pointerdown", { pointerType: "touch", isPrimary: true, clientX: 100, clientY: 300, target: dirBox });
+  dispatch(pg, "pointerdown", { pointerType: "touch", isPrimary: false, clientX: 200, clientY: 300, target: dirBox });
+  dispatch(pg, "touchend", { changedTouches: [{ clientX: 90, clientY: 300 }], touches: [{}], target: dirBox });
+  dispatch(pg, "touchend", { changedTouches: [{ clientX: 210, clientY: 300 }], touches: [], target: dirBox });
   gesture.active = false;
   await flush();
   expect("a pinch is not a tap", since(pg, mark).length === 0, show(since(pg, mark)));
   await advance(1000);
-  await tap(pg);
-  expect("the next real tap still speaks", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
+  await tap(pg, dirStep);
+  expect("the next real tap on the directions still speaks", show(since(pg, mark)) === show([exitLine(5)]), show(since(pg, mark)));
+}
+
+console.log("\nDrag the map while the voice is held (page voice)");
+{
+  const pg = await startNav("us");
+  await drive(pg, 0.2, 5);
+  await advance(3000);
+  pg.mixCtx.interrupt();
+  const mark = pg.heard.length;
+  gesture.active = true;
+  dispatch(pg, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 300, target: mapTarget });
+  dispatch(pg, "touchend", { changedTouches: [{ clientX: 220, clientY: 180 }], touches: [], target: mapTarget });
+  gesture.active = false;
+  await parked(pg, 5);
+  expect("the drag says nothing", since(pg, mark).length === 0, show(since(pg, mark)));
 }
 
 console.log("\nNavigation off");

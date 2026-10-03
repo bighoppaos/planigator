@@ -5429,6 +5429,7 @@ function speakPhone(text, gen) {
     // Settings, including a premium voice. Picking a localService voice
     // overrides that and sounds like a different person.
     let watch = 0;
+    let started = false;
     const done = () => {
       window.clearTimeout(watch);
       if (phoneUtter === utter) phoneUtter = null;
@@ -5439,13 +5440,20 @@ function speakPhone(text, gen) {
     watch = window.setTimeout(() => {
       if (phoneUtter === utter) synth.cancel();
       done();
+      if (!started) phoneVoiceHeld();
     }, speechWatchMs(text));
-    utter.onstart = () => { phoneHeardAt = Date.now(); };
+    utter.onstart = () => {
+      started = true;
+      phoneHeardAt = Date.now();
+    };
     utter.onend = () => {
       phoneHeardAt = Date.now();
       done();
     };
-    utter.onerror = done;
+    utter.onerror = (event) => {
+      done();
+      if (event?.error === "not-allowed") phoneVoiceHeld();
+    };
     try {
       synth.speak(utter);
       synth.resume();
@@ -5555,7 +5563,8 @@ function navVoiceLabel() {
 let navVoiceIntroPending = false;
 // iOS keeps a page silent after every load until a tap, and again after he
 // leaves the app, takes a call, or the screen locks. The tap listener stays on
-// for the whole drive: every tap unlocks the voice and says the direction.
+// for the whole drive: every tap quietly unlocks the voice. Only the tap that
+// turns a held voice back on, or a tap on the directions, says the direction.
 let voiceGestureSeen = false;
 let navVoiceMissed = false;
 const VOICE_GESTURES = ["pointerdown", "touchend", "click", "keydown"];
@@ -5565,6 +5574,9 @@ let voiceTapAt = 0;
 let voicePress = null;
 // These say their own line when tapped.
 const VOICE_OWN_LINE = "#voicePrev, #voiceNext, #startNav, #routeSwitch, [data-aim-stop]";
+// Tapping these says the current direction again. The <summary> inside opens
+// and closes the box and stays quiet.
+const VOICE_REPEAT = "#routeDirections, #routeNavTitle";
 
 function unlockNavVoice() {
   // Unlock audio on this tap, then say the line in the chosen voice. The first
@@ -5608,29 +5620,41 @@ function tapMoved(event) {
   return Boolean(press.multi) || Math.hypot(lift.clientX - press.x, lift.clientY - press.y) > 12;
 }
 
+function repeatTap(target) {
+  return Boolean(target?.closest?.(VOICE_REPEAT)) && !target.closest("summary");
+}
+
 function onVoiceGesture(event) {
   if (!navOn && !navProgressResume) return;
+  // Read before unlockMix: resuming the mixer clears the lock this tap is for.
+  const held = navVoiceLocked();
   unlockMix();
   // A finger going down is not a tap to iOS yet. Wait for it to lift.
   if (event?.type === "pointerdown" && event.pointerType !== "mouse") {
     if (event.isPrimary === false) {
       if (voicePress) voicePress.multi = true;
-    } else voicePress = { x: event.clientX, y: event.clientY };
+    } else voicePress = { x: event.clientX, y: event.clientY, held };
     return;
   }
+  const pressHeld = Boolean(voicePress?.held);
   if (event?.repeat || tapMoved(event)) return;
   const now = Date.now();
   if (now - voiceTapAt < VOICE_TAP_MS) return;
   voiceTapAt = now;
+  voicePress = null;
   voiceGestureSeen = true;
-  const ownLine = event?.target?.closest?.(VOICE_OWN_LINE);
-  if (navOn && !ownLine && sayTapLine()) {
+  const target = event?.target;
+  const ownLine = target?.closest?.(VOICE_OWN_LINE);
+  const hint = target?.closest?.("#routeVoiceHint");
+  const unlocked = held || pressHeld || Boolean(hint && !hint.hidden);
+  if (navOn && !ownLine && (unlocked || repeatTap(target)) && sayTapLine()) {
     navVoiceMissed = false;
   } else {
     if (navVoiceId() === "phone") warmPhoneVoice();
-    if (navVoiceMissed) {
+    if (unlocked && navVoiceMissed) {
       // Lines that came due while the page could not talk were never heard.
-      // Say the current direction again on the next fresh fix.
+      // Say the current direction again on the next fresh fix. Only for the
+      // tap that turned the voice back on, so other taps stay quiet.
       navVoiceMissed = false;
       spokenStepKey = "";
       spokenMiles.clear();
@@ -5724,8 +5748,18 @@ function rewarmNavVoice() {
   }, 800);
 }
 
-// The phone voice has no locked state to read. A silent line that never
-// starts means iOS is holding the voice, so wait for a tap.
+// The phone voice has no locked state to read. A real line that iOS refused,
+// or that never started before its watchdog, while the page was showing, means
+// iOS is holding the voice. Wait for a tap.
+function phoneVoiceHeld() {
+  if (!navOn || navVoiceId() !== "phone" || document.visibilityState !== "visible") return;
+  navVoiceMissed = true;
+  relockNavVoice();
+}
+
+// Wakes the phone voice on return. iOS often sends no events at all for a
+// silent line even when the voice works, so a quiet probe is not proof the
+// voice is held: it only drops the probe. phoneVoiceHeld decides that.
 function checkPhoneVoice() {
   const synth = window.speechSynthesis;
   if (!synth || typeof SpeechSynthesisUtterance !== "function") return;
@@ -5746,7 +5780,6 @@ function checkPhoneVoice() {
     phoneProbe = null;
     if (!navOn || navVoiceId() !== "phone" || phoneHeardAt >= asked) return;
     if (!phoneUtter) synth.cancel();
-    relockNavVoice();
   }, 1500);
 }
 
